@@ -1,0 +1,2764 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <title>Varmt brugsvand dimensionering v0.14_2 - DS 439:2024 + Rør isolering DS452 </title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        .main-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .main-row {
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .scrollable-column {
+            height: 100%;
+            overflow-y: auto;
+        }
+.highlighted-row {
+    background-color: #fffbe6 !important;
+    border-radius: 5px;
+    transition: background-color 0.5s ease;
+}
+        #diagram, #diagram svg {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        .card-header h5 { margin-bottom: 0; }
+        .accordion-button:not(.collapsed) { background-color: #eef7ff; }
+        .streng-card { border-left: 4px solid #dc3545; }
+        .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
+        .link-retur { stroke: #0d6efd; stroke-width: 1.5px; stroke-dasharray: 4, 4; }
+        .node circle { stroke: #333; stroke-width: 0.5px; cursor: move; }
+        .node.reparenting circle { stroke: #ffc107; stroke-width: 3px; }
+        .dim-input:disabled { background-color: #e9ecef; }
+        .link-text { font-size: 6px; fill: #333; }
+        .name-input { font-size: 0.8rem; margin-left: 5px; }
+
+    </style>
+</head>
+<body>
+<div class="container-fluid main-container p-3">
+    <h1 class="mb-2 text-center h4">Varmt brugsvand dimensionering v0.14_2 - DS 439:2024 + Rør isolering Klasse 6 DS452</h1>
+    
+    <div class="row main-row">
+        <div class="col-lg-6 scrollable-column">
+            <div class="card mb-4">
+                <div class="card-header"><h5><span class="badge bg-primary me-2">1</span>Input Data</h5></div>
+                <div class="card-body">
+                    <div class="accordion" id="inputAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#collapseGenerelt" aria-expanded="true">Generelle Systemdata</button></h2>
+                            <div id="collapseGenerelt" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
+                                <div class="accordion-body">
+                                    <h6>Grundlæggende Data</h6>
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>)</label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted</label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="T_v">Fremløbstemperatur (T<sub>v</sub>)</label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
+                                        <div class="col-md-6">
+    <label class="form-label" for="T_omg">Omgivelsestemperatur (Indendørs)</label>
+    <div class="input-group">
+        <input id="T_omg" type="number" class="form-control" value="20">
+        <span class="input-group-text">°C</span>
+    </div>
+</div>
+<div class="col-md-6">
+    <label class="form-label" for="T_omg_ude">Omgivelsestemperatur (Udendørs)</label>
+    <div class="input-group">
+        <input id="T_omg_ude" type="number" class="form-control" value="5">
+        <span class="input-group-text">°C</span>
+    </div>
+</div>
+                                        <div class="col-md-6"><label class="form-label" for="dT">Ønsket ΔT for cirkulation</label><div class="input-group"><input id="dT" type="number" min="0.1" class="form-control" value="5"><span class="input-group-text">K</span></div></div>
+<div class="col-md-6"><label class="form-label" for="lambda">Isoleringsevne (Lambda, λ)</label><div class="input-group"><input id="lambda" type="number" min="0" step="0.001" class="form-control" value="0.037"><span class="input-group-text">W/m·K</span></div></div>
+                                    <hr>
+                                    <h6>Automatisk Dimensionering</h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="autoDimToggle" onchange="toggleAutoDim(this.checked)" checked>
+                                        <label class="form-check-label" for="autoDimToggle"><b>Aktiver "Design Mode"</b></label>
+                                    </div>
+<div class="row g-3" id="autoDimInputs">
+    <div class="col-md-12">
+        <label class="form-label" for="dimPrinciple">Dimensioneringsprincip</label>
+        <select id="dimPrinciple" class="form-select" onchange="toggleGlobalOptimizationInputs()">
+            <option value="combined" selected>Kombineret (Hastighed & Tryktab)</option>
+            <option value="pressure_drop">Optimer kun efter Tryktab (Pa/m)</option>
+            <option value="velocity">Optimer kun efter Hastighed (m/s)</option>
+            <option value="min_velocity_pressure">Mindste tryktab (med min. hastighed)</option>
+            <option value="global_pressure">Global optimering (mindste materiale)</option>
+        </select>
+    </div>
+
+    <div id="standardInputs" class="contents">
+        <div class="row g-3">
+            <div class="col-md-4"><label class="form-label" for="max_dp_m">Max Δp Fremløb</label><div class="input-group"><input id="max_dp_m" type="number" min="0" value="500" class="form-control"><span class="input-group-text">Pa/m</span></div></div>
+            <div class="col-md-4"><label class="form-label" for="max_v_f">Max v Fremløb</label><div class="input-group"><input id="max_v_f" type="number" min="0" value="1.0" class="form-control"><span class="input-group-text">m/s</span></div></div>
+            <div class="col-md-4"><label class="form-label" for="min_v_f">Min v Fremløb</label><div class="input-group"><input id="min_v_f" type="number" min="0" step="0.1" value="0.5" class="form-control"><span class="input-group-text">m/s</span></div></div>
+        </div>
+    </div>
+
+    <div id="globalInputs" class="contents" style="display: none;">
+        <hr>
+        <h6 class="form-label">Grænse for Global Optimering</h6>
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="globalConstraint" id="globalConstraintDp" value="pressure_drop" checked>
+            <label class="form-check-label" for="globalConstraintDp">Overhold Max Tryktab</label>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="globalConstraint" id="globalConstraintV">
+            <label class="form-check-label" for="globalConstraintV">Overhold Max Hastighed</label>
+        </div>
+    </div>
+</div>
+                                    <hr>
+                                    <h6>Brugerdefinerede Tapsteder</h6>
+                                    <div id="customTapsteder" class="mb-3"></div>
+                                    <div class="input-group mb-2">
+                                        <input type="text" id="newTapName" class="form-control" placeholder="Navn" aria-label="Navn på nyt tapsted">
+                                        <input type="number" id="newTapQf" class="form-control" min="0" step="0.01" placeholder="qf (l/s)" aria-label="qf værdi">
+                                        <input type="checkbox" id="newTapApartment" class="form-check-input m-2" title="Lejlighed?">
+                                        <button class="btn btn-outline-primary" onclick="addCustomTapsted()">Tilføj</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseFremløb" aria-expanded="false">Fremløbsnetværk (Tapsteder)			</button></h2>
+                            <div id="collapseFremløb" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
+                                <div class="accordion-body">
+                                    <div id="strengeContainer"></div>
+                                    <button class="btn btn-danger mt-2" aria-label="Tilføj fremløbs-streng" onclick="addStreng()">+ Tilføj Fremløbs-streng</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Retur Netværk</button></h2>
+                            <div id="collapseRetur" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
+                                <div class="accordion-body">
+				<div id="returContainer"></div>
+				<div class="d-flex gap-2 mt-2">
+				    <button class="btn btn-primary" style="white-space: nowrap;" aria-label="Tilføj retur-rør" onclick="addReturRor()">+ Retur-rør</button>
+				    <div class="vr"></div>
+					<select id="valveTypeSelect" class="form-select w-auto" aria-label="Vælg ventli type">
+       					</select>
+   					<button class="btn btn-warning" style="white-space: nowrap;" aria-label="Tilføj valgt cirkulationsventil" onclick="addValve()">+ Ventil</button>
+                                </div>
+</div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><span class="badge bg-success me-2">2</span>Resultater</h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="toggleNames" role="switch" onchange="toggleDisplayNames(this.checked)">
+                        <label class="form-check-label" for="toggleNames">Vis Navne</label>
+                    </div>
+                </div>
+                <div class="card-body">
+<div class="d-flex gap-2 mb-3">
+    <button class="btn btn-success w-100" onclick="beregn()">Beregn Hele Systemet</button>
+    <button class="btn btn-primary w-100" onclick="showCalculationReport()">Vis Beregningsrapport</button>
+    <button class="btn btn-secondary w-100" onclick="exportProject()">Eksport Projekt</button>
+    <label class="btn btn-secondary w-100">
+        Import Projekt
+        <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(this.files[0])">
+    </label>
+    <button class="btn btn-info w-100" onclick="exportDetailedResults()">Eksport Detaljerede Resultater</button>
+</div>
+                    <div id="advarsler" class="mb-3"></div>
+<ul class="nav nav-tabs" role="tablist">
+  <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#summary" type="button">Opsummering</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#beholder" type="button">Beholder</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rør" type="button">Rørdata</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cirkulation" type="button">Cirkulation</button></li>
+</ul>
+                    <div class="tab-content pt-3">
+                      <div class="tab-pane fade show active" id="summary" role="tabpanel"><table class="table table-sm"><tbody id="summaryTableBody"></tbody></table></div>
+<div class="tab-pane fade" id="beholder" role="tabpanel">
+    <div id="beholderResult" class="mt-3">
+        <div class="mb-4">
+            <h5>Vælg beregningsmetode</h5>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="beholderMetode" id="metodeA" value="A" onchange="toggleBeholderMetode()" checked>
+                <label class="form-check-label" for="metodeA"><b>Metode A: Standardberegning for Etagebyggeri (P-V Kurver)</b><br><small class="text-muted">Anbefales til boligblokke med lejligheder. Kræver at tapsteder af typen "Lejlighed" er tilføjet.</small></label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="beholderMetode" id="metodeB" value="B" onchange="toggleBeholderMetode()">
+                <label class="form-check-label" for="metodeB"><b>Metode B: Simpel Beregning (Største Enkeltforbruger)</b><br><small class="text-muted">Anbefales til enfamiliehuse, mindre kontorer, o.lign.</small></label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="beholderMetode" id="metodeC" value="C" onchange="toggleBeholderMetode()">
+                <label class="form-check-label" for="metodeC"><b>Metode C: Detaljeret Beregning (Brugerdefineret Tappemønster)</b><br><small class="text-muted">Anbefales til komplekse bygninger som hoteller, sportshaller, industri.</small></label>
+            </div>
+        </div>
+        <hr>
+
+        <div id="metodeA_inputs" class="beholder-metode">
+            <h6 class="mb-3">Input for Metode A</h6>
+            <div id="metodeA_content"></div>
+        </div>
+
+        <div id="metodeB_inputs" class="beholder-metode" style="display:none;">
+            <h6 class="mb-3">Input for Metode B</h6>
+            <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Maks. flow (største forbruger)</label><div class="input-group"><input id="metodeB_flow" type="number" step="0.01" value="0.3" class="form-control"><span class="input-group-text">l/s</span></div></div>
+                <div class="col-md-4"><label class="form-label">Varighed af tapning</label><div class="input-group"><input id="metodeB_varighed" type="number" value="10" class="form-control"><span class="input-group-text">min</span></div></div>
+                <div class="col-md-4"><label class="form-label">Varmekildens effekt</label><div class="input-group"><input id="metodeB_effekt" type="number" value="25" class="form-control"><span class="input-group-text">kW</span></div></div>
+            </div>
+        </div>
+        
+        <div id="metodeC_inputs" class="beholder-metode" style="display:none;">
+            <h6 class="mb-3">Input for Metode C</h6>
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Varmekildens effekt</label><div class="input-group"><input id="metodeC_effekt" type="number" value="40" class="form-control"><span class="input-group-text">kW</span></div></div>
+            </div>
+            <p class="mt-3 mb-1">Definér tappemønster for spidsbelastningsperioden:</p>
+            <table class="table table-sm table-bordered">
+                <thead><tr><th>Flow [l/s]</th><th>Starttid [min]</th><th>Varighed [min]</th><th></th></tr></thead>
+                <tbody id="metodeC_tablebody">
+                    <tr>
+                        <td><input type="number" step="0.01" class="form-control form-control-sm" value="0.3"></td>
+                        <td><input type="number" class="form-control form-control-sm" value="0"></td>
+                        <td><input type="number" class="form-control form-control-sm" value="10"></td>
+                        <td><button class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">&times;</button></td>
+                    </tr>
+                    <tr>
+                        <td><input type="number" step="0.01" class="form-control form-control-sm" value="0.3"></td>
+                        <td><input type="number" class="form-control form-control-sm" value="2"></td>
+                        <td><input type="number" class="form-control form-control-sm" value="8"></td>
+                        <td><button class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">&times;</button></td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="btn btn-sm btn-outline-secondary" onclick="addTappemonsterRow()">+ Tilføj række</button>
+        </div>
+
+        <div class="mt-4">
+            <button class="btn btn-primary w-100" onclick="beregnBeholder()">Beregn Beholder</button>
+        </div>
+        <div class="mt-3 p-3 bg-light rounded">
+            <h5>Beregnet Beholdervolumen</h5>
+            <p class="display-6" id="beholderResultatVolumen">- L</p>
+            <small id="beholderResultatBeskrivelse" class="text-muted">Resultatet vises her efter beregning.</small>
+        </div>
+    </div>
+</div>
+                      <div class="tab-pane fade" id="rør" role="tabpanel"><table class="table table-sm table-bordered table-hover" id="rørResultTable"><thead></thead><tbody></tbody></table></div>
+                      <div class="tab-pane fade" id="cirkulation" role="tabpanel"><table class="table table-sm table-bordered table-hover" id="cirkResultTable"><thead></thead><tbody></tbody></table></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="col-lg-6 d-flex flex-column">
+            <div class="card flex-grow-1">
+                <div class="card-header"><h5><span class="badge bg-secondary me-2">3</span>Interaktivt Diagram</h5></div>
+                <div class="card-body p-0 flex-grow-1 d-flex flex-column">
+                    <div class="p-2"><button class="btn btn-outline-secondary w-100" onclick="buildNetworkAndRender(); updateDiagram();">Opdater Diagram</button></div>
+              
+<div class="card mb-2">
+    <div class="card-body p-2">
+        <div class="d-flex align-items-center gap-3 mb-2">
+            <strong class="me-2">Farvevisning:</strong>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visIngen" value="none" onclick="updateDiagramStyles()" checked>
+                <label class="form-check-label" for="visIngen">Ingen</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visHastighed" value="velocity" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visHastighed">Hastighed</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visTryktab" value="pressure_drop" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visTryktab">Tryktab (Pa/m)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visVarmetab" value="heat_loss" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visVarmetab">Varmetab (W/m)</label>
+            </div>
+             <div class="vr"></div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visLegend" onclick="updateLegend()" checked>
+                <label class="form-check-label" for="visLegend">Vis farveskala</label>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-3 border-top pt-2">
+            <strong class="me-2">Vis data på diagram:</strong>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visDim" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visDim">Dimension</label>
+            </div>
+	    <div class="form-check form-switch">
+	        <input class="form-check-input" type="checkbox" role="switch" id="visFlow" onclick="updateDiagramStyles()">
+	        <label class="form-check-label" for="visFlow">Vandmængde (l/s)</label>
+	    </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visTryktabLabel" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visTryktabLabel">Tryktab (Pa/m)</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visHastighedLabel" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visHastighedLabel">Hastighed</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visLaengde" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visLaengde">Længde</label>
+            </div>
+            <div class="vr"></div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="visKritisk" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visKritisk">Vis kritisk streng</label>
+            </div>
+        </div>
+    </div>
+</div>  
+		<div id="diagram" class="flex-grow-1 position-relative">
+                <div id="diagram-legend" class="p-2 bg-light border rounded" style="position:absolute; bottom:10px; right:10px; display:none; font-size: 0.8rem;"></div>
+                </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<template id="strengTemplate">
+    <div class="card mb-3 streng-card" data-type="streng-card">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn"></h6>
+            <button class="btn btn-sm btn-outline-danger" aria-label="Fjern streng" onclick="removeElement(this)">&times; Fjern</button>
+        </div>
+        <div class="card-body">
+            <h6>Rør & Tapsteder</h6><div class="fremløb-container"></div>
+            <button class="btn btn-sm btn-outline-secondary mt-2" aria-label="Tilføj rør" onclick="addRorSektion(this)">+ Rør</button>
+            <button class="btn btn-sm btn-outline-secondary mt-2" aria-label="Tilføj tapsted" onclick="addTapsted(this)">+ Tapsted</button>
+            <hr>
+            <h6>Cirkulationskobling</h6>
+            <div class="row gx-2">
+                <div class="col"><label class="form-label-sm" for="circ-start">Startpunkt</label><select class="form-select form-select-sm circ-start" id="circ-start"></select></div>
+                <div class="col"><label class="form-label-sm" for="circ-end">Tilsluttes Retur-rør</label><select class="form-select form-select-sm circ-end" id="circ-end"><option value="">Ingen</option></select></div>
+                <div class="col"><label class="form-label-sm" for="circ-zeta">Zeta (kobling)</label><div class="input-group"><input type="number" min="0" class="form-control form-control-sm circ-zeta" value="0"><span class="input-group-text">ζ</span></div></div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template id="returRorTemplate">
+    <div class="input-group input-group-sm mb-2 retur-ror" data-type="retur">
+        <span class="input-group-text"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn"></span>
+        <select class="form-select parent"></select>
+        <select class="form-select material"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
+<select class="form-select location" title="Placering">
+    <option value="heated" selected>Opvarmet rum</option>
+    <option value="unheated">Uopvarmet rum</option>
+    <option value="outside">Udendørs</option>
+</select>
+        <input type="number" min="0" class="form-control dim-input dim" value="16" title="Nominel diameter (mm)">
+        <input type="number" min="0" class="form-control len" value="10" title="Længde (m)">
+        <input type="number" min="0" class="form-control fittings" value="0" title="Sum af enkeltmodstande (zeta)">
+        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern retur-rør" onclick="removeElement(this)">&times;</button>
+    </div>
+</template>
+
+<template id="customTapstedTemplate">
+    <div class="input-group input-group-sm mb-2">
+        <span class="input-group-text" data-key=""></span>
+        <input type="number" min="0" step="0.01" class="form-control qf" value="">
+        <div class="input-group-text"><input type="checkbox" class="form-check-input is-apartment" title="Lejlighed?"></div>
+        <button class="btn btn-sm btn-outline-danger" onclick="removeCustomTapsted(this)">&times;</button>
+    </div>
+</template>
+
+<template id="valveTemplate">
+    <div class="input-group input-group-sm mb-2" data-type="valve">
+        <span class="input-group-text">
+            <svg width="16" height="16" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg>
+            <span class="id-text ms-2"></span>
+            <input type="text" class="name-input d-none name-text" placeholder="Navn">
+        </span>
+        <select class="form-select parent" aria-label="Forælder node"></select>
+        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button>
+    </div>
+</template>
+
+<script>
+// --- KONSTANTER OG DATA ---
+// Standard Tapsteder (ST) med normvandstrøm (qf) i l/s jf. DS 439:2024
+let ST = { "Lejlighed (standard)": 0.8, "Håndvask": 0.1, "Brusebad": 0.15, "Køkkenvask": 0.2, "Vaskemaskine": 0.2, "Opvaskemaskine": 0.2, "Badekar": 0.3 };
+const RH = { "Kobber": 0.0015, "Rustfri": 0.015, "PEX": 0.007 };
+
+// highlight-start
+// =================================================================================
+// == RØR-SERIER: DEFINITION AF INDVENDIGE DIAMETRE (ID) i mm                     ==
+// Her kan du opdatere, tilføje eller fjerne rørtyper og dimensioner.
+// Format: "Materialenavn": { Nominel_Diameter: Indvendig_Diameter, ... }
+// Eksempel for Geberit Mepla:
+// "Geberit Mepla": { 16: 12, 20: 15.5, 26: 20, 32: 26, 40: 32, 50: 40, 63: 50 }
+// =================================================================================
+const ID = { "Kobber": {10:8,12:10,15:13,18:16,22:20,28:26,35:32,42:39,54:50}, "Rustfri": {15:13,18:16,22:20,28:26,35:32,42:39,54:50.8}, "PEX": {12:8,15:11,16:12,20:16,25:20,32:26,40:32,50:40,63:50} };
+// highlight-end
+
+// =================================================================================
+// == VENTILTYPER                                                                 ==
+// Her kan du tilføje nye ventiltyper. Hver type skal have et unikt navn og
+// en 'data'-tabel, der følger samme format som Frese-ventilen.
+// =================================================================================
+const VALVE_TYPES = {
+    "Frese ALPHA Sanitary": {
+        data: [
+            { freseNr: '47-20120', vvsNr: '406782.020', maxFlowLH: 20, deltaP_Pa: 9000 },
+            { freseNr: '47-20170', vvsNr: '406782.040', maxFlowLH: 40, deltaP_Pa: 9000 },
+            { freseNr: '47-20200', vvsNr: '406782.060', maxFlowLH: 60, deltaP_Pa: 12000 },
+            { freseNr: '47-20230', vvsNr: '406782.080', maxFlowLH: 80, deltaP_Pa: 13000 },
+            { freseNr: '47-20260', vvsNr: '406782.105', maxFlowLH: 105, deltaP_Pa: 14000 },
+            // ... (resten af Frese-dataene som før)
+            { freseNr: '47-20740', vvsNr: '406782.800', maxFlowLH: 800, deltaP_Pa: 20000 }
+        ]
+    },
+    "Anden Ventil Type (Eksempel)": {
+        data: [
+            { freseNr: 'Model-A', vvsNr: 'xxxx', maxFlowLH: 50, deltaP_Pa: 10000 },
+            { freseNr: 'Model-B', vvsNr: 'yyyy', maxFlowLH: 100, deltaP_Pa: 15000 },
+        ]
+    }
+};
+
+function populateValveTypes() {
+    const select = document.getElementById('valveTypeSelect');
+    select.innerHTML = '';
+    for (const typeName in VALVE_TYPES) {
+        select.innerHTML += `<option value="${typeName}">${typeName}</option>`;
+    }
+}
+
+// Data fra DS 452: Nødvendig tykkelse [mm] for Klasse 6 ved λ=0.037 W/mK
+const DS452_THICKNESS = { 15: 40, 18: 40, 22: 50, 28: 50, 35: 50, 42: 50, 54: 60, 76: 60 };
+// Justeringsfaktorer baseret på placering. Værdier er vejledende.
+const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
+const RHO=985, C=4184, MU=0.0005, G=9.82;
+const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map() };
+const gridSize = 10;
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateValveTypes();
+    initDiagram();
+    addStreng();
+    addTapsted(document.querySelector('.streng-card .btn-outline-secondary:last-of-type'));
+    addReturRor();
+    const startSelect = document.querySelector('.circ-start');
+    const endSelect = document.querySelector('.circ-end');
+    if(startSelect.options.length > 0) startSelect.value = startSelect.options[0].value;
+    if(endSelect.options.length > 0) endSelect.value = endSelect.options[0].value;
+    
+    toggleAutoDim(true);
+    updateAllSelects();
+    document.querySelectorAll('.parent, .circ-start, .circ-end, .circ-zeta, .tapType, .syst').forEach(el => el.onchange = handleInputChange);
+});
+
+// --- UI FUNKTIONER ---
+function handleInputChange(e) {
+    // Tjekker om ændringen skete i en dropdown for tapstedstyper
+    if (e.target.classList.contains('tapType')) {
+        const div = e.target.closest('[data-id]');
+        
+        // Opdater qf-inputfeltet med værdien fra den valgte tapstedstype
+        div.querySelector('.qf').value = e.target.value;
+        
+        // Opdater om det er en lejlighed (for beholderberegning)
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        div.dataset.isApartment = selectedOption.dataset.isApartment || 'false';
+    }
+    
+    // Opdater resten af UI'en
+    updateAllSelects();
+}
+
+function toggleGlobalOptimizationInputs() {
+    const principle = document.getElementById('dimPrinciple').value;
+    // Vis kun de ekstra radio-knapper, når global optimering er valgt
+    if (principle === 'global_pressure') {
+        document.getElementById('globalInputs').style.display = 'block';
+    } else {
+        document.getElementById('globalInputs').style.display = 'none';
+    }
+}
+
+// Funktion til at håndtere skift af rørmateriale
+function handleMaterialChange(e) {
+    const materialSelect = e.target;
+    const newMaterial = materialSelect.value;
+    const container = materialSelect.closest('[data-id]');
+    const dimInput = container.querySelector('.dim');
+    
+    if (!dimInput) return;
+
+    const currentDim = dimInput.value;
+    const availableDims = Object.keys(ID[newMaterial]).map(Number);
+
+    // Tjek om den nuværende dimension er gyldig for det nye materiale
+    if (!availableDims.includes(Number(currentDim))) {
+        // Hvis ikke, vælg den første tilgængelige dimension som standard
+        dimInput.value = availableDims[0];
+    }
+}
+
+function addStreng() {
+    state.sC++;
+    const id = `S${state.sC}`;
+    const clone = document.getElementById('strengTemplate').content.cloneNode(true);
+    const card = clone.querySelector('.card');
+    card.dataset.id = id;
+    card.querySelector('.id-text').textContent = `Fremløbs-streng ${id}`;
+    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    document.getElementById('strengeContainer').appendChild(clone);
+    addRorSektion(card.querySelector('.btn-outline-secondary'));
+}
+
+function addReturRor() {
+    state.rC++;
+    const id = `Retur${state.rC}`;
+    const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
+    const div = clone.querySelector('div');
+    div.dataset.id = id;
+    div.querySelector('.id-text').textContent = id;
+    div.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    // highlight-start
+    // Tilføj event listener til materialevalg
+    div.querySelector('.material').onchange = handleMaterialChange;
+    // highlight-end
+    document.getElementById('returContainer').appendChild(clone);
+    updateAllSelects();
+}
+
+function addRorSektion(btn) {
+    state.tC++;
+    const sId = btn.closest('.card').dataset.id;
+    const id = `${sId}-R${state.tC}`;
+    const container = btn.closest('.card-body').querySelector('.fremløb-container');
+    const div = createInputElement(id, 'ror');
+    div.querySelector('.input-group-text').innerHTML = `<span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn">`;
+    div.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    container.appendChild(div);
+    const pSel = div.querySelector('.parent');
+    const rorInStreng = container.querySelectorAll('[data-type="ror"]');
+    pSel.value = rorInStreng.length > 1 ? rorInStreng[rorInStreng.length - 2].dataset.id : 'Beholder';
+    updateAllSelects();
+}
+
+function addTapsted(btn) {
+    state.tC++;
+    const sId = btn.closest('.card').dataset.id;
+    const id = `${sId}-T${state.tC}`;
+    const container = btn.closest('.card-body').querySelector('.fremløb-container');
+    const div = createInputElement(id, 'tapsted');
+    let opts = ''; 
+    Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
+    Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
+
+    // RETTELSE: Tilføjet onchange-handler og dynamisk start-værdi for qf-feltet
+    const defaultQf = ST["Lejlighed (standard)"];
+    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></div>`);
+    
+    // Sæt dropdown til at matche standardværdien
+    div.querySelector('.tapType').value = defaultQf;
+    div.dataset.isApartment = 'true';
+
+    div.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    container.appendChild(div);
+    const rorInStreng = container.querySelectorAll('[data-type="ror"]');
+    if(rorInStreng.length > 0) div.querySelector('.parent').value = rorInStreng[rorInStreng.length-1].dataset.id;
+    updateAllSelects();
+}
+
+let valveCounter = 0;
+function addValve() {
+    const selectedType = document.getElementById('valveTypeSelect').value;
+    if (!selectedType) {
+        alert("Ingen ventiltyper er defineret.");
+        return;
+    }
+    valveCounter++;
+    const id = `V${valveCounter}`;
+    const clone = document.getElementById('valveTemplate').content.cloneNode(true);
+    const div = clone.querySelector('div');
+    div.dataset.id = id;
+    div.dataset.valveType = selectedType; // Gem den valgte type på elementet
+    div.querySelector('.id-text').textContent = `${id} (${selectedType})`;
+    div.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
+    document.getElementById('returContainer').appendChild(clone);
+    updateAllSelects();
+}
+
+function createInputElement(id, type) {
+    const div = document.createElement('div');
+    div.className = 'input-group input-group-sm mb-2'; div.dataset.id = id; div.dataset.type = type;
+    div.innerHTML = `<span class="input-group-text"><span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn"></span><select class="form-select parent" aria-label="Forælder node"></select>`;
+    if (type === 'ror') {
+        div.innerHTML += `<select class="form-select material" aria-label="Materiale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
+            <select class="form-select location" title="Placering">
+                <option value="heated" selected>Opvarmet rum</option>
+                <option value="unheated">Uopvarmet rum</option>
+                <option value="outside">Udendørs</option>
+            </select>
+            <input type="number" min="0" class="form-control dim-input dim" value="20" title="Dim (mm)" aria-label="Nominel diameter (mm)">
+            <input type="number" min="0" class="form-control len" value="10" title="Længde (m)" aria-label="Længde (m)">
+            <input type="number" min="0" class="form-control fittings" value="0" title="Zeta" aria-label="Sum af enkeltmodstande (zeta)">`;
+    }
+    div.innerHTML += `<button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button>`;
+    if (type === 'ror') {
+        div.querySelector('.material').onchange = handleMaterialChange;
+    }
+    return div;
+}
+
+function removeElement(btn) { 
+    const id = btn.closest('[data-id]').dataset.id;
+    state.names.delete(id);
+    btn.closest('[data-id], .streng-card').remove(); 
+    updateAllSelects(); 
+}
+
+function toggleAutoDim(isAuto) {
+    document.getElementById('autoDimInputs').style.display = isAuto ? 'flex' : 'none';
+    document.querySelectorAll('.dim-input').forEach(i => i.disabled = isAuto);
+}
+
+function updateAllSelects() {
+    const fremløbRør = Array.from(document.querySelectorAll('[data-type="ror"]'));
+    // RETTELSE: Inkluder ventiler i listen over retur-komponenter
+    const returKomponenter = Array.from(document.querySelectorAll('.retur-ror, [data-type="valve"]'));
+
+    const fremløbOptions = '<option value="Beholder">Beholder</option>' + fremløbRør.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    const returOptions = '<option value="">Ingen</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    const returParentOptions = '<option value="Beholder">Beholder</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+
+    document.querySelectorAll('.parent').forEach(s => {
+        const p = s.closest('[data-id]');
+        const ownId = p.dataset.id;
+        const val = s.value;
+        // RETTELSE: Tillad ventiler at have retur-forældre
+        if (p.dataset.type === 'retur' || p.dataset.type === 'valve') {
+            s.innerHTML = returParentOptions;
+        } else {
+            s.innerHTML = fremløbOptions;
+        }
+        
+        const ownOpt = s.querySelector(`option[value="${ownId}"]`); 
+        if(ownOpt) ownOpt.remove();
+        s.value = val || 'Beholder';
+    });
+
+    document.querySelectorAll('.streng-card').forEach(c => {
+        const start = c.querySelector('.circ-start'); 
+        const end = c.querySelector('.circ-end');
+        const startVal = start.value, endVal = end.value;
+        const rorInStreng = Array.from(c.querySelectorAll('[data-type="ror"]'));
+        start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+        end.innerHTML = returOptions;
+        start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
+        end.value = endVal || '';
+    });
+    
+    document.querySelectorAll('[data-id]').forEach(el => {
+        const idText = el.querySelector('.id-text');
+        const nameText = el.querySelector('.name-text');
+        if (idText) idText.textContent = el.dataset.id;
+        if (nameText) nameText.value = state.names.get(el.dataset.id) || '';
+    });
+
+    buildNetworkAndRender();
+}
+
+function getDisplayName(id) {
+    if (state.useNames && state.names.has(id)) return state.names.get(id);
+    return id;
+}
+
+function toggleDisplayNames(useNames) {
+    state.useNames = useNames;
+    document.querySelectorAll('.id-text').forEach(el => el.classList.toggle('d-none', useNames));
+    document.querySelectorAll('.name-text').forEach(el => el.classList.toggle('d-none', !useNames));
+    updateAllSelects();
+}
+
+function addCustomTapsted() {
+    const name = document.getElementById('newTapName').value.trim();
+    const qf = parseFloat(document.getElementById('newTapQf').value);
+    const isApartment = document.getElementById('newTapApartment').checked;
+    if (!name || isNaN(qf) || qf <= 0) return alert('Ugyldigt navn eller qf.');
+    ST[name] = qf;
+    state.customTapsteder[name] = { qf, isApartment };
+    const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
+    clone.querySelector('.input-group-text').dataset.key = name;
+    clone.querySelector('.input-group-text').textContent = name;
+    clone.querySelector('.qf').value = qf;
+    clone.querySelector('.is-apartment').checked = isApartment;
+    document.getElementById('customTapsteder').appendChild(clone);
+    document.getElementById('newTapName').value = '';
+    document.getElementById('newTapQf').value = '';
+    document.getElementById('newTapApartment').checked = false;
+    updateTapstedOptions();
+}
+
+function removeCustomTapsted(btn) {
+    const key = btn.closest('.input-group').querySelector('.input-group-text').dataset.key;
+    delete ST[key];
+    delete state.customTapsteder[key];
+    btn.closest('.input-group').remove();
+    updateTapstedOptions();
+}
+
+function updateTapstedOptions() {
+    document.querySelectorAll('.tapType').forEach(select => {
+        const val = select.value;
+        let opts = '';
+        Object.keys(ST).forEach(k => {
+            const isApt = state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed');
+            opts += `<option value="${ST[k]}" data-is-apartment="${isApt}">${k}</option>`;
+        });
+        select.innerHTML = opts;
+        select.value = val;
+    });
+}
+
+
+// --- DIAGRAM FUNKTIONER ---
+function buildNetworkAndRender() {
+    const oldNodes = new Map(state.nodes.map(n => [n.id, {fx: n.fx, fy: n.fy}]));
+    state.nodes = [{id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy}]; 
+    state.links = [];
+    
+    // RETTELSE: Tilføjet '[data-type="valve"]' så ventiler kommer med i diagrammet
+    const elements = document.querySelectorAll('.fremløb-container > [data-id], .retur-ror[data-id], [data-type="valve"]');
+    
+    elements.forEach(el => {
+        const pos = oldNodes.get(el.dataset.id);
+        state.nodes.push({id: el.dataset.id, type: el.dataset.type, fx: pos?.fx, fy: pos?.fy, displayName: getDisplayName(el.dataset.id)});
+    });
+    
+    elements.forEach(el => {
+        const p = el.querySelector('.parent')?.value; 
+        if(p) state.links.push({source: p, target: el.dataset.id, type: (el.dataset.type === 'ror' || el.dataset.type === 'tapsted') ? 'fremløb' : 'retur'});
+    });
+    document.querySelectorAll('.streng-card').forEach(c => {
+        const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
+        if(start && end) state.links.push({source: start, target: end, type: 'retur', zeta: parseFloat(c.querySelector('.circ-zeta').value) || 0});
+    });
+    updateDiagram();
+}
+
+/**
+ * Opdaterer det visuelle udseende af noder baseret på den aktuelle markering.
+ */
+function updateSelectionVisuals() {
+    d3.selectAll('.node').each(function(d) {
+        d3.select(this).classed('selected', state.selectedNodes.has(d.id));
+    });
+}
+
+function initDiagram() {
+    const svg = d3.select("#diagram").append("svg");
+    const width = svg.node().getBoundingClientRect().width;
+    const height = svg.node().getBoundingClientRect().height;
+    svg.attr("viewBox", `0 0 ${width} ${height}`);
+    
+    state.sim = d3.forceSimulation()
+        .force("link", d3.forceLink().id(d => d.id).distance(60).strength(0.1))
+        .force("charge", d3.forceManyBody().strength(-20))
+        .force("collide", d3.forceCollide(20));
+    
+    state.nodes[0].fx = width / 2;
+    state.nodes[0].fy = height / 2;
+        
+    const zoom = d3.zoom().on("zoom", (event) => {
+        svg.select('.zoom-container').attr('transform', event.transform);
+    });
+    svg.call(zoom);
+
+    updateDiagram();
+}
+
+function updateDiagram() {
+    const svg = d3.select("#diagram svg"); 
+    svg.selectAll(".zoom-container").remove();
+    const container = svg.append("g").attr("class", "zoom-container");
+
+    const link = container.append("g").selectAll("line").data(state.links).join("line")
+        .attr("class", d => `link-${d.type}`).style('stroke-width', '1.5px');
+    
+    const node = container.append("g").selectAll("g").data(state.nodes, d => d.id).join("g")
+        .attr("class", "node")
+        .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+        .on('click', handleNodeClick)
+        .on('contextmenu', handleNodeRightClick);
+    
+    node.selectAll("*").remove(); // Fjern gamle former før nye tilføjes
+
+    node.each(function(d) {
+        const group = d3.select(this);
+        if (d.type === 'valve') {
+            group.append('rect')
+                .attr('width', 14).attr('height', 14)
+                .attr('x', -7).attr('y', -7)
+                .attr('transform', 'rotate(45)')
+                .style('fill', '#6f42c1'); // Lilla farve for ventil
+        } else {
+            group.append("circle")
+                .attr("r", d => d.type === 'beholder' ? 10 : 5)
+                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#0d6efd' : '#343a40');
+        }
+    });
+    
+    node.append("text").text(d => getDisplayName(d.id)).attr("dy", "-1em").attr("font-size", "8px").attr("text-anchor", "middle");
+    
+    state.sim.nodes(state.nodes).on("tick", () => { 
+        link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+    state.sim.force("link").links(state.links); 
+    state.sim.alpha(0.3).restart();
+    updateSelectionVisuals();
+    if (state.lastModel) updateDiagramStyles();
+}
+
+function dragstarted(e, d) {
+    if (!e.active) state.sim.alphaTarget(0.1).restart();
+    if (e.sourceEvent.shiftKey) { 
+        state.reparentingNode = d; 
+        d3.select(this).classed('reparenting', true); 
+    }
+}
+
+function dragged(e, d) {
+    d.fx = Math.round(e.x / gridSize) * gridSize;
+    d.fy = Math.round(e.y / gridSize) * gridSize;
+}
+
+function dragended(e, d) {
+    if (!e.active) state.sim.alphaTarget(0);
+    if (state.reparentingNode) {
+        d3.select(this).classed('reparenting', false);
+        const svgNode = d3.select('#diagram svg').node();
+        const transform = d3.zoomTransform(svgNode);
+        const [px, py] = d3.pointer(e.sourceEvent, svgNode);
+        const x = transform.invertX(px);
+        const y = transform.invertY(py);
+        const targetNode = state.sim.find(x, y, 30);
+        if (!targetNode || targetNode.id === state.reparentingNode.id) {
+            state.reparentingNode = null;
+            return;
+        }
+        const el = document.querySelector(`[data-id="${state.reparentingNode.id}"]`);
+        if (el) {
+            const pSel = el.querySelector('.parent');
+            if (pSel) {
+                const isTargetValid = (pSel.parentElement.dataset.type === 'retur' && (targetNode.type === 'retur' || targetNode.type === 'beholder')) || 
+                                     (pSel.parentElement.dataset.type !== 'retur' && (targetNode.type === 'ror' || targetNode.type === 'beholder'));
+                if (isTargetValid) { 
+                    pSel.value = targetNode.id; 
+                    updateAllSelects(); 
+                }
+            }
+        }
+        state.reparentingNode = null;
+    }
+}
+
+/**
+ * Synkroniserer data fra den færdige beregningsmodel over til
+ * det 'state'-objekt, som D3-diagrammet bruger til at tegne.
+ * Dette sikrer, at tegnedata altid er opdateret med de seneste resultater.
+ */
+function syncModelToState(model) {
+    const stateNodeMap = new Map(state.nodes.map(n => [n.id, n]));
+    
+    model.nodes.forEach((calculatedNode, id) => {
+        const stateNode = stateNodeMap.get(id);
+        if (stateNode) {
+            // Kopier alle beregnede egenskaber over til state-noden
+            Object.assign(stateNode, calculatedNode);
+        }
+    });
+
+    // Gem også den fulde model til rapportering og andre funktioner
+    state.lastModel = model;
+}
+
+function validateInputs(config) {
+    const advarslerDiv = document.getElementById('advarsler');
+    advarslerDiv.innerHTML = '';
+    let valid = true;
+    if (config.pln <= 0 || config.min_tap_tryk < 0 || config.T_v < 0 || config.T_omg < 0 || config.dT <= 0) {
+        advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: Forsyningstryk og ΔT skal være positive, øvrige værdier må ikke være negative.</p>`;
+        valid = false;
+    }
+    document.querySelectorAll('input[type="number"]').forEach(inp => {
+        if (parseFloat(inp.value) < parseFloat(inp.min || 0)) {
+            advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${inp.title} må ikke være negativ.</p>`;
+            valid = false;
+        }
+    });
+    document.querySelectorAll('.dim-input').forEach(inp => {
+        if (!inp.disabled) { // Kun tjek manuelle dimensioner
+            const material = inp.closest('[data-id]').querySelector('.material').value;
+            const dim = parseFloat(inp.value);
+            if (!ID[material][dim]) {
+                advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: Dimension ${dim} mm er ugyldig for ${material}.</p>`;
+                valid = false;
+            }
+        }
+    });
+    return valid;
+}
+
+function getGlobalConfig() {
+    return {
+        pln: parseFloat(document.getElementById('pln')?.value) || 0,
+        min_tap_tryk: parseFloat(document.getElementById('min_tap_tryk')?.value) || 0,
+        T_v: parseFloat(document.getElementById('T_v')?.value) || 55,
+        T_omg_inde: parseFloat(document.getElementById('T_omg')?.value) || 20,
+        T_omg_ude: parseFloat(document.getElementById('T_omg_ude')?.value) || 5,
+        dT: parseFloat(document.getElementById('dT')?.value) || 5,
+        lambda: parseFloat(document.getElementById('lambda')?.value) || 0.037,
+        isAuto: document.getElementById('autoDimToggle')?.checked || false,
+        dimPrinciple: document.getElementById('dimPrinciple')?.value || 'combined',
+        max_dp_m: parseFloat(document.getElementById('max_dp_m')?.value) || 150,
+        max_v_f: parseFloat(document.getElementById('max_v_f')?.value) || 1.5,
+        min_v_f: parseFloat(document.getElementById('min_v_f')?.value) || 0.5, // NY LINJE
+        max_v_c: parseFloat(document.getElementById('max_v_c')?.value) || 1.5
+    };
+	// Aflæs hvilken grænse der er valgt for global optimering
+    if (config.dimPrinciple === 'global_pressure') {
+        const constraintRadio = document.querySelector('input[name="globalConstraint"]:checked');
+        if (constraintRadio) {
+            config.globalConstraintType = constraintRadio.value;
+        } else {
+            config.globalConstraintType = 'pressure_drop'; // Default
+        }
+    }
+    return config;
+}
+
+function buildModel(config) {
+    const model = { tree: {id:'Beholder', children:[]}, nodes: new Map(), loops: [], isAuto: config.isAuto };
+    model.nodes.set('Beholder', model.tree);
+    document.querySelectorAll('.fremløb-container > [data-id], .retur-ror[data-id], [data-type="valve"]').forEach(el => {
+        const data = { id: el.dataset.id, type: el.dataset.type, children: [], parentId: el.querySelector('.parent')?.value, name: state.names.get(el.dataset.id) || '' };
+        
+        if (el.dataset.type === 'valve') {
+            data.valveType = el.dataset.valveType; // Gem ventiltype
+        }
+
+        if (data.type === 'ror' || data.type === 'retur') {
+            Object.assign(data, { 
+                L: parseFloat(el.querySelector('.len')?.value) || 0, 
+                zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
+                material: el.querySelector('.material')?.value,
+                location: el.querySelector('.location')?.value || 'heated'
+            });
+        }
+        if (data.type === 'tapsted') {
+            data.qf = parseFloat(el.querySelector('.qf')?.value) || 0;
+            data.isSyst = el.querySelector('.syst')?.checked || false;
+            data.isApartment = el.dataset.isApartment === 'true';
+        }
+         if (!config.isAuto && (data.type === 'ror' || data.type === 'retur')) data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
+        
+        model.nodes.set(data.id, data);
+    });
+    model.nodes.forEach(n => { 
+        if(n.parentId && model.nodes.has(n.parentId)) model.nodes.get(n.parentId).children.push(n); 
+    });
+    document.querySelectorAll('.streng-card').forEach(c => {
+        const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
+        const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
+        if(start && end) model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id) || '', startNodeId: start, endNodeId: end, zeta });
+    });
+    return model;
+}
+
+// NY FUNKTION: Beregner isoleringstykkelse for et enkelt rør
+function calculateInsulation(model, config) {
+    const standardLambda = 0.037;
+    model.nodes.forEach(n => {
+        if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
+            // Find den nærmeste rørstørrelse i DS 452 tabellen
+            const pipeOD = n.nom_dim;
+            const availableSizes = Object.keys(DS452_THICKNESS).map(Number);
+            const closestSize = availableSizes.reduce((prev, curr) => (Math.abs(curr - pipeOD) < Math.abs(prev - pipeOD) ? curr : prev));
+            
+            // 1. Find basistykkelse fra DS 452
+            const baseThickness = DS452_THICKNESS[closestSize];
+            
+            // 2. Juster for placering
+            const adjustmentFactor = DS452_ADJUSTMENT[n.location] || 1.0;
+            const adjustedThickness = baseThickness * adjustmentFactor;
+
+            // 3. Juster for materialets lambda-værdi
+            const finalTheoreticalThickness = adjustedThickness * (config.lambda / standardLambda);
+            
+            // 4. Rund op til nærmeste 5mm
+            n.insulationThickness = Math.ceil(finalTheoreticalThickness / 5) * 5;
+
+            // 5. Beregn U-værdi for dette rør
+            const d_outer = pipeOD / 1000;
+            const d_insul_outer = d_outer + (2 * (n.insulationThickness / 1000));
+            // Termisk modstand for isoleringen
+            const R_insulation = Math.log(d_insul_outer / d_outer) / (2 * Math.PI * config.lambda);
+            n.u_value_per_meter = 1 / R_insulation;
+        }
+    });
+}
+
+// FUNKTION BEREGN
+function beregn() {
+    const config = getGlobalConfig();
+    if (!validateInputs(config)) return;
+    
+    let model;
+    if (config.dimPrinciple === 'global_pressure') {
+        document.getElementById('advarsler').innerHTML = `<p class="alert alert-info">Kører global optimering. Dette kan tage et øjeblik...</p>`;
+        setTimeout(() => {
+            model = beregnGlobalOptimering(config);
+            finishCalculation(model, config);
+        }, 50);
+    } else {
+        model = beregnStandard(config);
+        finishCalculation(model, config);
+    }
+}
+
+// Ny hjælpefunktion til at afslutte beregningen
+function finishCalculation(model, config) {
+    if (!model) {
+        document.getElementById('advarsler').innerHTML = `<p class="alert alert-danger">Beregningen fejlede.</p>`;
+        return;
+    }
+    syncModelToState(model);
+    state.lastConfig = config;
+    displayResults(model, config);
+    updateDiagram();
+}
+
+function validateCirculationLoops(model, advarslerDiv) {
+    let isValid = true;
+    model.loops.forEach(loop => {
+        const valvesInLoop = loop.path.filter(id => model.nodes.get(id)?.type === 'valve');
+        if (valvesInLoop.length === 0) {
+            advarslerDiv.innerHTML += `<p class="alert alert-warning">Advarsel: Cirkulationsstreng "${getDisplayName(loop.id)}" mangler en cirkulationsventil.</p>`;
+        }
+        if (valvesInLoop.length > 1) {
+            advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: Cirkulationsstreng "${getDisplayName(loop.id)}" har mere end én ventil. Der må kun være én.</p>`;
+            isValid = false;
+        }
+    });
+    return isValid;
+}
+
+
+function beregnStandard(config) {
+    const advarslerDiv = document.getElementById('advarsler');
+    const model = buildModel(config);
+    if (!model) return null;
+    
+    calculateQd(model);
+    if (config.isAuto) dimensionFremløb(model, config);
+    
+    calculatePressureDrop(model.tree, 'dp_tap', 'qd');
+    const pressureDropResult = findMaxPathDp(model.tree);
+    model.max_dp_tapning = pressureDropResult.max_dp;
+    model.criticalPath = new Set(pressureDropResult.path);
+    
+    for (let i = 0; i < 3; i++) {
+        calculateInsulation(model, config);
+        calculateHeatLoss(model, config);
+        calculateCirculationFlows(model, config);
+        calculateCirculationFlowsAggregation(model);
+        if (config.isAuto) dimensionRetur(model, config);
+    }
+
+    if (!validateCirculationLoops(model, advarslerDiv)) return null; // Validering
+    
+    calculateCirculationDP(model);
+    calculateBeholder(model);
+    
+    return model;
+}
+
+
+function calculateQd(model) {
+    function traverse(node) {
+        let downstream_qf_random = 0, downstream_qf_syst = 0;
+        if (node.type === 'tapsted') {
+            if (node.isSyst) downstream_qf_syst = node.qf; else downstream_qf_random = node.qf;
+        } else {
+            node.children.forEach(child => {
+                const flows = traverse(child);
+                downstream_qf_random += flows.random; downstream_qf_syst += flows.syst;
+            });
+        }
+        if(node.type === 'ror') {
+            node.sum_qf_random = downstream_qf_random; node.sum_qf_syst = downstream_qf_syst;
+            const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
+            node.qd = qd_random + downstream_qf_syst;
+        }
+        return { random: downstream_qf_random, syst: downstream_qf_syst };
+    }
+    traverse(model.tree);
+    return model;
+}
+
+function dimensionFremløb(model, config) {
+    model.nodes.forEach(n => {
+        if (n.type !== 'ror' || !n.qd) return;
+
+        const mat = n.material;
+        const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+        let bestDim = sortedDims[sortedDims.length - 1]; // Default til største rør
+
+        if (config.dimPrinciple === 'min_velocity_pressure') {
+            // NY LOGIK: Find mindste tryktab, der overholder min. hastighed
+            let bestPaM = Infinity;
+            let foundDim = false;
+
+            for (const dim of sortedDims) {
+                const d_i = ID[mat][dim] / 1000;
+                const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
+
+                // Trin 1: Tjek om hastighedskravet er overholdt
+                if (v >= config.min_v_f) {
+                    const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
+                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter);
+
+                    // Trin 2: Find det rør, der giver det laveste tryktab
+                    if (dp_m < bestPaM) {
+                        bestPaM = dp_m;
+                        bestDim = dim;
+                        foundDim = true;
+                    }
+                }
+            }
+            // Hvis intet rør overholdt min. hastighed, vælg det mindste for at opnå højest mulig hastighed
+            if (!foundDim) {
+                bestDim = sortedDims[0];
+            }
+
+        } else {
+            // Gammel, velfungerende logik for de andre principper
+            for (const dim of sortedDims) {
+                const d_i = ID[mat][dim] / 1000;
+                const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
+                const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
+                const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter);
+                let criteriaMet = false;
+
+                switch (config.dimPrinciple) {
+                    case 'pressure_drop':
+                        if (dp_m < config.max_dp_m) criteriaMet = true;
+                        break;
+                    case 'velocity':
+                        if (v < config.max_v_f) criteriaMet = true;
+                        break;
+                    case 'combined':
+                    default:
+                        if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true;
+                        break;
+                }
+                if (criteriaMet) {
+                    bestDim = dim;
+                    break;
+                }
+            }
+        }
+        n.nom_dim = bestDim;
+    });
+    return model;
+}
+
+function dimensionRetur(model, config) {
+    // Denne funktion er typisk styret af max hastighed for at undgå støj.
+    // Vi beholder den simple logik her, men den kan udvides med samme princip som fremløb, hvis det ønskes.
+    model.nodes.forEach(n => {
+        if (n.type !== 'retur') return;
+
+        const flow = model.circFlows.get(n.id) || 0;
+        n.circ_flow = flow;
+        const mat = n.material;
+        const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+        let bestDim = sortedDims[sortedDims.length - 1];
+
+        for (const dim of sortedDims) {
+            const d_i = ID[mat][dim] / 1000;
+            const v = (flow / 1000) / (Math.PI * (d_i / 2) ** 2);
+            // Cirkulation optimeres typisk kun på max hastighed for at undgå støj
+            if (v < config.max_v_c) {
+                bestDim = dim;
+                break;
+            }
+        }
+        n.nom_dim = bestDim;
+    });
+    return model;
+}
+function calculatePressureDrop(startNode, dp_prop, flow_prop) {
+    if ((startNode.type === 'ror' || startNode.type === 'retur') && startNode.nom_dim) {
+        const d_i = ID[startNode.material][startNode.nom_dim]/1000;
+        startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum);
+    }
+    startNode.children.forEach(c => calculatePressureDrop(c, dp_prop, flow_prop));
+    return startNode;
+}
+
+function getDP(flow_ls, d_inner, roughness, L, zeta) {
+    if(!flow_ls || flow_ls < 0.0001) return 0;
+    const v = (flow_ls/1000)/(Math.PI*(d_inner/2)**2); 
+    const Re = RHO*v*d_inner/MU;
+    let lambda = 0.02;
+    if (Re < 2300) { 
+        lambda = 64 / Re;
+    } else { 
+        for(let i=0; i<10; i++) { 
+            let f=1/Math.sqrt(lambda); 
+            f=-2*Math.log10(roughness/(3.7*d_inner)+2.51/(Re*f)); 
+            lambda=1/(f*f); 
+        } 
+    }
+    return (lambda * (L / d_inner) + zeta) * (RHO * v**2 / 2);
+}
+
+function findMaxPathDp(startNode) {
+    let max_dp = 0;
+    let critical_path = []; // Holder styr på den kritiske sti
+
+    function traverse(node, current_dp, current_path) {
+        const new_dp = current_dp + (node.dp_tap || 0);
+        const new_path = [...current_path, node.id];
+
+        if (node.type === 'tapsted' || (node.type === 'ror' && node.children.length === 0)) {
+            if (new_dp > max_dp) {
+                max_dp = new_dp;
+                critical_path = new_path;
+            }
+        } else {
+            node.children.forEach(c => traverse(c, new_dp, new_path));
+        }
+    }
+    traverse(startNode, 0, []);
+    return { max_dp: max_dp, path: critical_path }; // Returner både værdi og sti
+}
+
+function calculateHeatLoss(model, config) {
+    model.nodes.forEach(n => {
+        if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
+            let T_ambient;
+            if (n.location === 'outside') {
+                T_ambient = config.T_omg_ude;
+            } else {
+                T_ambient = config.T_omg_inde; // Både "heated" og "unheated" antages at være indendørs temp.
+            }
+            // Brug det unikke, beregnede U-værdi pr. meter
+            n.q_tab = (n.u_value_per_meter || 0) * n.L * (config.T_v - T_ambient);
+        }
+    });
+    return model;
+}
+
+function calculateCirculationFlows(model, config) {
+    if(config.dT <= 0) return model;
+    model.loops.forEach(l => {
+        l.path = getPath(model, l.startNodeId, l.endNodeId);
+        l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
+        l.circ_flow = l.q_tab_tot / (RHO*C*config.dT) * 1000;
+    });
+    return model;
+}
+
+function calculateCirculationFlowsAggregation(model) {
+    model.circFlows = new Map();
+    model.loops.forEach(l => {
+        let current = l.startNodeId;
+        while (current && current !== 'Beholder') {
+            model.circFlows.set(current, (model.circFlows.get(current) || 0) + l.circ_flow);
+            current = model.nodes.get(current).parentId;
+        }
+        current = l.endNodeId;
+        while (current && current !== 'Beholder') {
+            model.circFlows.set(current, (model.circFlows.get(current) || 0) + l.circ_flow);
+            current = model.nodes.get(current).parentId;
+        }
+    });
+    return model;
+}
+
+function calculateCirculationDP(model) {
+    model.max_dp_circ = 0;
+    model.nodes.forEach(n => { if (n.type === 'retur' || n.type === 'ror') n.dp_circ = 0; });
+
+    model.loops.forEach(l => {
+        l.dp_circ_total = 0;
+        l.selectedValve = null;
+
+        // Find en eventuel ventil i strengen
+        const valveNode = l.path.map(id => model.nodes.get(id)).find(n => n?.type === 'valve');
+        
+        if (valveNode && valveNode.valveType && VALVE_TYPES[valveNode.valveType]) {
+            const flowLH = (l.circ_flow || 0) * 3600;
+            const valveData = VALVE_TYPES[valveNode.valveType].data; // Brug den korrekte datatabel
+            const selectedValveData = valveData.find(v => v.maxFlowLH >= flowLH);
+            if (selectedValveData) {
+                l.selectedValve = selectedValveData;
+                l.dp_circ_total += selectedValveData.deltaP_Pa;
+            }
+        } else {
+             l.dp_circ_total += getDP(l.circ_flow, 0.015, 0, 0, l.zeta); // Brug manuel zeta hvis ingen ventil
+        }
+
+        l.path.forEach(id => {
+            const n = model.nodes.get(id);
+            if (!n || !n.nom_dim || (n.type !== 'ror' && n.type !== 'retur')) return;
+            const flow = model.circFlows.get(id) || 0;
+            const d_i = ID[n.material][n.nom_dim] / 1000;
+            const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum);
+            if (n.type === 'retur' || n.type === 'ror') n.dp_circ = (n.dp_circ || 0) + segment_dp;
+            l.dp_circ_total += segment_dp;
+        });
+
+        if (l.dp_circ_total > model.max_dp_circ) model.max_dp_circ = l.dp_circ_total;
+    });
+    return model;
+}
+
+function getPath(model, startId, endId) {
+    const path = new Set();
+    let current = model.nodes.get(startId);
+    while(current && current.id !== 'Beholder') { path.add(current.id); current = model.nodes.get(current.parentId); }
+    current = model.nodes.get(endId);
+    while(current && current.id !== 'Beholder') { path.add(current.id); current = model.nodes.get(current.parentId); }
+    return Array.from(path);
+}
+
+function calculateBeholder(model) {
+    const apartmentCount = Array.from(model.nodes.values()).filter(n => n.isApartment).length;
+    model.N = apartmentCount;
+    if (model.N > 0) {
+        model.Pmax_veksler = 1.19 * model.N + 18.8 * Math.sqrt(model.N) + 17.6;
+        model.pv_kurver = { 2: {20: 3.8, 30: 2.8, 40: 2.2, 50: 1.8}, 4: {20: 3.2, 40: 2.1, 60: 1.6}, 8: {20: 2.5, 40: 1.6, 60: 1.2, 80: 0.9}, 16: {20: 2.0, 40: 1.2, 60: 0.9, 80: 0.7}, 32: {20: 1.5, 40: 0.9, 60: 0.7, 80: 0.5}, 64: {20: 1.2, 40: 0.7, 60: 0.5, 80: 0.4}, 128: {20: 0.9, 40: 0.5, 60: 0.4, 80: 0.3} };
+    }
+    return model;
+}
+
+function solveBeholder(model) {
+    const N = model.N;
+    if (!N || N <= 0) return;
+    const userEffekt = parseFloat(document.getElementById('userEffekt')?.value);
+    const userVolumen = parseFloat(document.getElementById('userVolumen')?.value);
+    const n_keys = Object.keys(model.pv_kurver).map(Number);
+    const closest_n = n_keys.reduce((p, c) => (Math.abs(c - N) < Math.abs(p - N) ? c : p));
+    const kurve = model.pv_kurver[closest_n];
+    const kurveVol = Object.keys(kurve).map(Number);
+    const kurveEff = Object.values(kurve);
+    if (!isNaN(userEffekt) && userEffekt > 0) {
+        const effektPrLejl = userEffekt / N;
+        const beregnetVolumen = interpolate(effektPrLejl, [...kurveEff].reverse(), [...kurveVol].reverse());
+        document.getElementById('beregnetVolumen').textContent = (beregnetVolumen * N).toFixed(0);
+        document.getElementById('userVolumen').value = '';
+    } else if (!isNaN(userVolumen) && userVolumen > 0) {
+        const volumenPrLejl = userVolumen / N;
+        const beregnetEffekt = interpolate(volumenPrLejl, kurveVol, kurveEff);
+        document.getElementById('beregnetEffekt').textContent = (beregnetEffekt * N).toFixed(1);
+        document.getElementById('userEffekt').value = '';
+    }
+}
+
+function interpolate(x, x_pts, y_pts) {
+    if (x <= x_pts[0]) return y_pts[0];
+    if (x >= x_pts[x_pts.length-1]) return y_pts[y_pts.length-1];
+    let i = 1;
+    while (x > x_pts[i]) i++;
+    return y_pts[i-1] + (y_pts[i] - y_pts[i-1]) * (x - x_pts[i-1]) / (x_pts[i] - x_pts[i-1]);
+}
+//... import/export funktioner (uændret) ...
+
+function exportProject() {
+    const data = {
+        config: getGlobalConfig(),
+        strenge: [],
+        retur: [],
+        valves: [], // NYT: Array til at gemme ventiler
+        names: Array.from(state.names),
+        nodePositions: state.nodes.map(n => ({ id: n.id, fx: n.fx, fy: n.fy })),
+        customTapsteder: state.customTapsteder
+    };
+    document.querySelectorAll('.streng-card').forEach(card => {
+        const strengData = {
+            id: card.dataset.id,
+            ror: [],
+            tapsted: [],
+            circ_start: card.querySelector('.circ-start').value,
+            circ_end: card.querySelector('.circ-end').value,
+            circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
+        };
+        card.querySelectorAll('[data-type="ror"]').forEach(el => {
+            strengData.ror.push({
+                id: el.dataset.id,
+                parent: el.querySelector('.parent').value,
+                material: el.querySelector('.material').value,
+                location: el.querySelector('.location').value, // Gem placering
+                dim: parseFloat(el.querySelector('.dim').value),
+                len: parseFloat(el.querySelector('.len').value),
+                fittings: parseFloat(el.querySelector('.fittings').value)
+            });
+        });
+        card.querySelectorAll('[data-type="tapsted"]').forEach(el => {
+            strengData.tapsted.push({
+                id: el.dataset.id,
+                parent: el.querySelector('.parent').value,
+                tapType: el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text,
+                qf: parseFloat(el.querySelector('.qf').value),
+                syst: el.querySelector('.syst').checked,
+                isApartment: el.dataset.isApartment === 'true'
+            });
+        });
+        data.strenge.push(strengData);
+    });
+    document.querySelectorAll('.retur-ror').forEach(el => {
+        data.retur.push({
+            id: el.dataset.id,
+            parent: el.querySelector('.parent').value,
+            material: el.querySelector('.material').value,
+            location: el.querySelector('.location').value, // Gem placering
+            dim: parseFloat(el.querySelector('.dim').value),
+            len: parseFloat(el.querySelector('.len').value),
+            fittings: parseFloat(el.querySelector('.fittings').value)
+        });
+    });
+
+    // NYT: Gem ventiler
+    document.querySelectorAll('[data-type="valve"]').forEach(el => {
+        data.valves.push({
+            id: el.dataset.id,
+            parent: el.querySelector('.parent').value,
+            valveType: el.dataset.valveType
+        });
+    });
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brugsvand_projekt.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importProject(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const data = JSON.parse(e.target.result);
+        
+        document.getElementById('strengeContainer').innerHTML = '';
+        document.getElementById('returContainer').innerHTML = '';
+        document.getElementById('customTapsteder').innerHTML = '';
+        state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
+let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
+if (data.strenge) {
+    data.strenge.forEach(streng => {
+        const sNum = parseInt(streng.id.replace('S', ''), 10);
+        if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
+        const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+        components.forEach(comp => {
+            const idParts = comp.id.split(/[RT-]/);
+            const tNum = parseInt(idParts[idParts.length - 1], 10);
+            if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
+        });
+    });
+}
+	if (data.retur) {
+	    data.retur.forEach(r => {
+	        const rNum = parseInt(r.id.replace('Retur', ''), 10);
+	        if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
+	    });
+}
+        if (data.valves) { // NYT: Find højeste ventil-ID
+            data.valves.forEach(v => {
+                const vNum = parseInt(v.id.replace('V', ''), 10);
+                if (!isNaN(vNum) && vNum > maxV) maxV = vNum;
+            });
+        }
+        state.sC = maxS;
+        state.rC = maxR;
+        state.tC = maxT;
+        valveCounter = maxV;
+state.sC = maxS;
+state.rC = maxR;
+state.tC = maxT;
+
+        state.names = new Map(data.names);
+        if (data.nodePositions) state.nodes = data.nodePositions;
+        state.customTapsteder = data.customTapsteder;
+        Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
+        
+        // Sæt globale config-værdier
+        Object.entries(data.config).forEach(([k, v]) => {
+            const el = document.getElementById(k);
+            if (el) el.value = v;
+            if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
+        });
+        toggleAutoDim(data.config.isAuto);
+
+        // Genopbyg custom tapsteder
+        Object.keys(state.customTapsteder).forEach(k => {
+            const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
+            clone.querySelector('.input-group-text').dataset.key = k;
+            clone.querySelector('.input-group-text').textContent = k;
+            clone.querySelector('.qf').value = state.customTapsteder[k].qf;
+            clone.querySelector('.is-apartment').checked = state.customTapsteder[k].isApartment;
+            document.getElementById('customTapsteder').appendChild(clone);
+        });
+
+        // Genopbyg strenge og deres elementer UDEN at sætte .parent endnu
+        data.strenge.forEach(streng => {
+            state.sC++;
+            const clone = document.getElementById('strengTemplate').content.cloneNode(true);
+            const card = clone.querySelector('.card');
+            card.dataset.id = streng.id;
+            document.getElementById('strengeContainer').appendChild(clone);
+            const container = card.querySelector('.fremløb-container');
+streng.ror.forEach(r => {
+    state.tC++;
+    const div = createInputElement(r.id, 'ror');
+    div.querySelector('.material').value = r.material;
+    div.querySelector('.location').value = r.location; // Genskab placering
+    div.querySelector('.dim').value = r.dim;
+    div.querySelector('.len').value = r.len;
+    div.querySelector('.fittings').value = r.fittings;
+    container.appendChild(div);
+});
+            streng.tapsted.forEach(t => {
+                state.tC++;
+                const div = createInputElement(t.id, 'tapsted');
+                let opts = '';
+                const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
+                Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
+                div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
+                div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
+                div.dataset.isApartment = t.isApartment ? 'true' : 'false';
+                container.appendChild(div);
+            });
+        });
+
+        // Genopbyg retur-rør UDEN at sætte .parent endnu
+data.retur.forEach(r => {
+    const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
+    const div = clone.querySelector('div');
+    div.dataset.id = r.id;
+    div.querySelector('.material').value = r.material;
+    div.querySelector('.location').value = r.location; // Genskab placering
+    div.querySelector('.dim').value = r.dim;
+    div.querySelector('.len').value = r.len;
+    div.querySelector('.fittings').value = r.fittings;
+    document.getElementById('returContainer').appendChild(clone);
+});
+
+        // NYT: Genopbyg ventiler
+        if (data.valves) {
+            data.valves.forEach(v => {
+                const clone = document.getElementById('valveTemplate').content.cloneNode(true);
+                const div = clone.querySelector('div');
+                div.dataset.id = v.id;
+                div.dataset.valveType = v.valveType;
+                div.querySelector('.id-text').textContent = `${v.id} (${v.valveType})`;
+                div.querySelector('.name-input').onchange = (ev) => state.names.set(v.id, ev.target.value);
+                document.getElementById('returContainer').appendChild(clone);
+            });
+        }
+
+        // KALD updateAllSelects() FØRST for at opbygge alle dropdowns
+        updateAllSelects();
+
+        // SÆT SÅ DE KORREKTE RELATIONER, nu hvor valgmulighederne eksisterer
+        data.strenge.forEach(streng => {
+            const card = document.querySelector(`[data-id="${streng.id}"]`);
+            if (!card) return;
+            card.querySelector('.name-text').value = state.names.get(streng.id) || '';
+            card.querySelector('.circ-start').value = streng.circ_start;
+            card.querySelector('.circ-end').value = streng.circ_end;
+            card.querySelector('.circ-zeta').value = streng.circ_zeta;
+
+            streng.ror.forEach(r => {
+                const el = document.querySelector(`[data-id="${r.id}"]`);
+                if(el) {
+                    el.querySelector('.parent').value = r.parent;
+                    el.querySelector('.name-text').value = state.names.get(r.id) || '';
+                }
+            });
+            streng.tapsted.forEach(t => {
+                const el = document.querySelector(`[data-id="${t.id}"]`);
+                if(el) {
+                    el.querySelector('.parent').value = t.parent;
+                    el.querySelector('.name-text').value = state.names.get(t.id) || '';
+                }
+            });
+        });
+
+        data.retur.forEach(r => {
+             const el = document.querySelector(`[data-id="${r.id}"]`);
+             if(el) {
+                el.querySelector('.parent').value = r.parent;
+                el.querySelector('.name-text').value = state.names.get(r.id) || '';
+             }
+        });
+        
+if (data.valves) {
+            data.valves.forEach(v => {
+                const el = document.querySelector(`[data-id="${v.id}"]`);
+                if (el) {
+                    el.querySelector('.parent').value = v.parent;
+                    el.querySelector('.name-input').value = state.names.get(v.id) || '';
+                }
+            });
+        }
+        // Kald updateAllSelects() IGEN for at sikre at alt er synkroniseret og diagrammet opdateres korrekt
+        updateAllSelects();
+        toggleDisplayNames(state.useNames);
+    };
+    reader.readAsText(file);
+}
+
+function exportDetailedResults() {
+    if (!state.lastModel || !state.lastConfig) {
+        alert('Kør beregning først!');
+        return;
+    }
+    const data = generateDetailedResults(state.lastModel, state.lastConfig);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brugsvand_detaljerede_resultater.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function generateDetailedResults(model, config) {
+    const results = {
+        section1_config: config,
+        section2_nodes: Array.from(model.nodes.values()).map(n => ({...n, displayName: n.name || n.id})),
+        section3_loops: model.loops.map(l => ({...l, displayName: l.name || l.id})),
+        section4_qd_calculations: calculateQd({...model}),
+        section5_dimension_fremlob: config.isAuto ? dimensionFremløb({...model}, config) : 'Manual dimensionering',
+        section6_pressure_drop_tap: calculatePressureDrop({...model.tree}, 'dp_tap', 'qd'),
+        section7_max_dp_tapning: model.max_dp_tapning,
+        section8_heat_loss: calculateHeatLoss({...model}, config),
+        section9_circulation_flows: calculateCirculationFlows({...model}, config),
+        section10_circ_aggregation: calculateCirculationFlowsAggregation({...model}),
+        section11_dimension_retur: config.isAuto ? dimensionRetur({...model}, config) : 'Manual dimensionering',
+        section12_circ_dp: calculateCirculationDP({...model}),
+        section13_beholder: calculateBeholder({...model}),
+        section14_summary: {
+            resttryk: config.pln - model.max_dp_tapning,
+            total_q_tab: model.loops.reduce((s,l) => s + l.q_tab_tot, 0),
+            total_circ_flow_lh: model.loops.reduce((s,l) => s + l.circ_flow, 0) * 3600,
+            max_dp_circ: model.max_dp_circ
+        }
+    };
+    return results;
+}
+
+// --- DISPLAY ---
+function displayResults(model, config) {
+    const advarslerDiv = document.getElementById('advarsler');
+    advarslerDiv.innerHTML = '';
+    const resttryk = config.pln - model.max_dp_tapning;
+    if (resttryk < config.min_tap_tryk) advarslerDiv.innerHTML += `<p class="alert alert-danger">ADVARSEL: Tryk ved fjerneste tapsted (${(resttryk/1000).toFixed(0)} kPa) er for lavt.</p>`;
+    else advarslerDiv.innerHTML += `<p class="alert alert-success">OK: Tryk ved fjerneste tapsted er tilstrækkeligt (${(resttryk/1000).toFixed(0)} kPa).</p>`;
+
+    if (config.isAuto) {
+        model.nodes.forEach(n => {
+            if (n.type === 'ror' || n.type === 'retur') {
+                const el = document.querySelector(`[data-id="${n.id}"]`);
+                if (el) {
+                    const dimInput = el.querySelector('.dim');
+                    if (dimInput && n.nom_dim) {
+                        dimInput.value = n.nom_dim;
+                    }
+                }
+            }
+        });
+    }
+
+    const total_q_tab = model.loops.reduce((s,l) => s + (l.q_tab_tot || 0), 0);
+    const total_circ_flow_lh = model.loops.reduce((s,l) => s + (l.circ_flow || 0), 0) * 3600;
+    document.getElementById('summaryTableBody').innerHTML = `
+        <tr><td>Samlet tryktab (spidslast)</td><td><b>${model.max_dp_tapning.toFixed(0)} Pa</b></td></tr>
+        <tr><td>Samlet varmetab</td><td><b>${total_q_tab.toFixed(1)} W</b></td></tr>
+        <tr class="table-group-divider"><td colspan="2" class="bg-light"><b>Pumpe Dimensionering</b></td></tr>
+        <tr><td>Pumpeflow (total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
+        <tr><td>Pumpetryk (løftehøjde)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (RHO*G)).toFixed(2)} mVs)</td></tr>`;
+    
+    const metodeA_div = document.getElementById('metodeA_content');
+    if (model.N > 0) {
+        const closest_n_for_display = Object.keys(model.pv_kurver).map(Number).reduce((p, c) => (Math.abs(c - model.N) < Math.abs(p - model.N) ? c : p));
+        metodeA_div.innerHTML = `
+            <p>Antal lejligheder fundet i systemet: <b>${model.N}</b></p>
+            <p>Maksimalt spidseffektbehov for ren vekslerdrift: <b>${model.Pmax_veksler.toFixed(1)} kW</b></p>
+            <hr>
+            <h6>Interaktiv Dimensionering (baseret på P-V kurve for N ≈ ${closest_n_for_display})</h6>
+            <p><small>Indtast én værdi og tryk "Beregn Beholder" for at finde den anden.</small></p>
+            <div class="row g-2">
+                <div class="col-md-6"><label class="form-label" for="userEffekt">Indtast tilgængelig effekt:</label><div class="input-group"><input type="number" min="0" id="userEffekt" class="form-control"><span class="input-group-text">kW</span></div></div>
+                <div class="col-md-6"><label class="form-label" for="userVolumen">Indtast ønsket total volumen:</label><div class="input-group"><input type="number" min="0" id="userVolumen" class="form-control"><span class="input-group-text">L</span></div></div>
+            </div>`;
+    } else { 
+        metodeA_div.innerHTML = `<p class="text-muted">Metode A kræver, at du tilføjer tapsteder af typen "Lejlighed".</p>`; 
+    }
+
+    const rørTable = document.getElementById('rørResultTable');
+    rørTable.querySelector('thead').innerHTML = `<tr><th>ID/Navn</th><th>Type</th><th>Dim.</th><th>Isolering</th><th>q [l/s]</th><th>v [m/s]</th><th>Δp/L [Pa/m]</th><th>Δp Total [Pa]</th><th>Varmetab [W]</th></tr>`;
+    
+    let rørTbody = '';
+    model.nodes.forEach(n => {
+        if((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
+            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+            const d_i = ID[n.material][n.nom_dim] / 1000;
+            const area = Math.PI * (d_i / 2) ** 2;
+            const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
+            const dp_total = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+            const dp_pr_meter = n.L > 0 ? dp_total / n.L : 0;
+            let velocityWarning = '';
+            if (config.dimPrinciple === 'min_velocity_pressure' && n.type === 'ror' && velocity < config.min_v_f) {
+                velocityWarning = ' <span class="text-danger fw-bold" title="Hastighed er under minimumskravet!">OBS!</span>';
+            }
+
+            rørTbody += `<tr>
+                <td><b>${getDisplayName(n.id)}</b></td>
+                <td>${n.type}</td>
+                <td>${n.nom_dim} mm</td>
+                <td>${n.insulationThickness || '-'} mm</td>
+                <td>${flow_ls.toFixed(3)}</td>
+                <td>${velocity.toFixed(2)}${velocityWarning}</td>
+                <td>${dp_pr_meter.toFixed(1)}</td>
+                <td>${dp_total.toFixed(0)}</td>
+                <td>${(n.q_tab||0).toFixed(1)}</td>
+            </tr>`;
+        }
+    });
+    rørTable.querySelector('tbody').innerHTML = rørTbody;
+    
+     const cirkTable = document.getElementById('cirkResultTable');
+    cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Δp [Pa]</th></tr>`;
+    let cirkTbody = '';
+    model.loops.forEach(l => {
+        cirkTbody += `<tr data-loop-id="${l.id}" onmouseenter="highlightLoop('${l.id}')" onmouseleave="clearHighlight()">
+                      <td><b>${getDisplayName(l.id)}</b></td>
+                      <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
+                      <td>${(l.q_tab_tot || 0).toFixed(1)}</td>
+                      <td>${((l.circ_flow || 0) * 3600).toFixed(1)}</td>
+                      <td>${(l.dp_circ_total || 0).toFixed(0)}</td>
+                      <td>${Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)}</td>
+                    </tr>`;
+    });
+    cirkTable.querySelector('tbody').innerHTML = cirkTbody;
+}
+
+// =================================================================================
+// == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
+// =================================================================================
+function updateDiagramStyles() {
+    if (!state.lastModel) return;
+    const model = state.lastModel;
+
+    // --- Del 1: Håndter farver og tykkelse (uændret) ---
+    const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur");
+    const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror' || n.type === 'retur') && n.nom_dim);
+    if (pipeNodes.length > 0) {
+        const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
+        if (dimDomain[0] === dimDomain[1]) dimDomain[0] -= 1;
+        const thicknessScale = d3.scaleLinear().domain(dimDomain).range([1.5, 8]);
+        links.style('stroke-width', d => {
+            const node = model.nodes.get(d.target.id);
+            return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '1.5px';
+        });
+    }
+    const visMode = document.querySelector('input[name="visMode"]:checked').value;
+    const showCritical = document.getElementById('visKritisk').checked;
+    links.style('stroke', null).style('opacity', null);
+    if (showCritical) {
+        highlightCriticalPath();
+    } else if (visMode !== 'none') {
+        applyColorGradient(visMode);
+    }
+    updateLegend();
+
+    // --- Del 2: NY LOGIK - Opdater tekst-labels ---
+    const showDim = document.getElementById('visDim').checked;
+    const showDpM = document.getElementById('visTryktabLabel').checked;
+    const showVel = document.getElementById('visHastighedLabel').checked;
+    const showLen = document.getElementById('visLaengde').checked;
+    const showFlow = document.getElementById('visFlow').checked;
+
+    d3.select("#diagram svg").selectAll(".link-text").text(d => {
+        const n = model.nodes.get(d.target.id);
+        if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";
+
+        const parts = [];
+        if (showDim) parts.push(`${n.nom_dim}mm`);
+        if (showLen) parts.push(`${n.L}m`);
+	if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
+
+        if (showVel) {
+            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+            const d_i = ID[n.material][n.nom_dim] / 1000;
+            const area = Math.PI * (d_i / 2) ** 2;
+            const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
+            parts.push(`${velocity.toFixed(2)} m/s`);
+        }
+        if (showDpM) {
+            const dp_total = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+            const dp_pr_meter = n.L > 0 ? dp_total / n.L : 0;
+            parts.push(`${dp_pr_meter.toFixed(1)} Pa/m`);
+        }
+        return parts.join(' | ');
+    });
+}
+
+
+
+
+function applyColorGradient(mode) {
+    const model = state.lastModel;
+    let values = [];
+    model.nodes.forEach(n => {
+        if ((n.type === 'ror' || n.type === 'retur') && n.L > 0 && n.nom_dim) {
+            let value;
+            if (mode === 'velocity') {
+                const flow = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+                const d_i = ID[n.material][n.nom_dim];
+                value = (flow / 1000) / (Math.PI * (d_i / 2000) ** 2);
+            } else if (mode === 'pressure_drop') {
+                const dp = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+                value = dp / n.L;
+            } else if (mode === 'heat_loss') {
+                value = (n.q_tab || 0) / n.L;
+            }
+            n._visValue = value;
+            if (isFinite(value)) values.push(value);
+        }
+    });
+
+    if (values.length === 0) return;
+    const domain = d3.extent(values);
+    if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
+    if (!domain[0] && !domain[1]) return;
+
+    const colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
+    
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+      .style('stroke', d => {
+          const node = model.nodes.get(d.target.id);
+          return node && isFinite(node._visValue) ? colorScale(node._visValue) : '#ccc';
+      });
+      // Linjen, der satte stroke-width, er fjernet herfra
+}
+
+function highlightCriticalPath() {
+    const criticalPath = state.lastModel.criticalPath;
+    if (!criticalPath) return;
+
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+        .each(function(d) {
+            const link = d3.select(this);
+            const isCritical = criticalPath.has(d.source.id) && criticalPath.has(d.target.id);
+            if (isCritical) {
+                link.style('stroke', '#007bff').style('stroke-width', '4px').style('opacity', 1); // RETTELSE: .attr -> .style
+            } else {
+                link.style('opacity', 0.2);
+            }
+        });
+}
+
+function updateLegend() {
+    const legendDiv = document.getElementById('diagram-legend');
+    if (!document.getElementById('visLegend').checked || !state.lastModel) {
+        legendDiv.style.display = 'none';
+        return;
+    }
+
+    // Justeringer til legendens stil
+    legendDiv.style.display = 'block';
+    legendDiv.style.position = 'absolute';
+    legendDiv.style.bottom = '10px';
+    legendDiv.style.left = '10px'; // Flyttet til venstre
+    legendDiv.style.width = '25%';  // Sat til 1/4 bredde
+    legendDiv.style.fontSize = '0.8rem';
+    legendDiv.classList.add('p-2', 'bg-light', 'border', 'rounded');
+
+
+    const visMode = document.querySelector('input[name="visMode"]:checked').value;
+    const showCritical = document.getElementById('visKritisk').checked;
+
+    let html = '';
+
+    if (showCritical) {
+        html = `<div><span style="background-color:#007bff; display:inline-block; width:20px; height:10px; margin-right:5px; vertical-align: middle;"></span> Kritisk Streng</div>`;
+    } else if (visMode !== 'none') {
+        const nodesWithValues = Array.from(state.lastModel.nodes.values()).filter(n => n._visValue !== undefined && isFinite(n._visValue));
+        if (nodesWithValues.length > 0) {
+            const minVal = d3.min(nodesWithValues, n => n._visValue);
+            const maxVal = d3.max(nodesWithValues, n => n._visValue);
+            const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m'};
+            html = `
+                <div class="d-flex justify-content-between">
+                    <span>${minVal.toFixed(2)}</span>
+                    <span><b>${units[visMode]}</b></span>
+                    <span>${maxVal.toFixed(2)}</span>
+                </div>
+                <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.25)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(0.75)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
+            `;
+        }
+    } else {
+        legendDiv.style.display = 'none';
+    }
+    legendDiv.innerHTML = html;
+}
+
+
+// =================================================================================
+// == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING                                       ==
+// =================================================================================
+
+function beregnGlobalOptimering(config) {
+    const model = buildModel(config);
+    config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
+
+    model.nodes.forEach(n => {
+        if (n.type === 'ror' || n.type === 'retur') {
+            n.nom_dim = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b)[0];
+        }
+    });
+
+    let iterations = 0;
+    const maxIterations = 200;
+
+    while (iterations < maxIterations) {
+        calculateQd(model);
+        calculatePressureDrop(model.tree, 'dp_tap', 'qd');
+        
+        const localFailures = findLocalFailures(model, config);
+        const globalFailures = findFailingTapPoints(model, config);
+
+        if (localFailures.length === 0 && globalFailures.length === 0) {
+            break; // Færdig!
+        }
+
+        let pipeToUpgradeId;
+        if (localFailures.length > 0) {
+            // Prioriter at rette lokale fejl (højeste hastighed/tryktab)
+            pipeToUpgradeId = localFailures[0].id;
+        } else {
+            // Hvis ingen lokale fejl, ret den værste globale fejl
+            const worstPath = getPathToTapPoint(model, globalFailures[0].id);
+            pipeToUpgradeId = findWorstOffendingPipe(model, worstPath);
+        }
+
+        if (pipeToUpgradeId) {
+            const success = upgradePipeDimension(model.nodes.get(pipeToUpgradeId));
+            if (!success) break;
+        } else {
+            break;
+        }
+        iterations++;
+    }
+
+    // Kør afsluttende beregninger
+    const pressureDropResult = findMaxPathDp(model.tree);
+    model.max_dp_tapning = pressureDropResult.max_dp;
+    model.criticalPath = new Set(pressureDropResult.path);
+    for (let i = 0; i < 3; i++) {
+        calculateInsulation(model, config);
+        calculateHeatLoss(model, config);
+        calculateCirculationFlows(model, config);
+        calculateCirculationFlowsAggregation(model);
+        dimensionRetur(model, config); // Retur dimensioneres simpelt
+    }
+    calculateCirculationDP(model);
+    calculateBeholder(model);
+
+    return model;
+}
+
+function findLocalFailures(model, config) {
+    const failures = [];
+    model.nodes.forEach(n => {
+        if (n.type === 'ror' && n.nom_dim && n.qd > 0) {
+            const d_i = ID[n.material][n.nom_dim] / 1000;
+            const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
+            const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
+            const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, zeta_pr_meter);
+
+            if (config.globalConstraintType === 'velocity' && v > config.max_v_f) {
+                failures.push({ id: n.id, value: v, type: 'velocity' });
+            } else if (config.globalConstraintType === 'pressure_drop' && dp_m > config.max_dp_m) {
+                failures.push({ id: n.id, value: dp_m, type: 'pressure_drop' });
+            }
+        }
+    });
+    return failures.sort((a, b) => b.value - a.value); // Sorter med den værste først
+}
+
+// --- Hjælpefunktioner til Global Optimering ---
+
+function findFailingTapPoints(model, config) {
+    const failingPoints = [];
+    model.nodes.forEach(n => {
+        if (n.type === 'tapsted') {
+            const path = getPathToTapPoint(model, n.id);
+            const totalDp = path.reduce((sum, nodeId) => sum + (model.nodes.get(nodeId).dp_tap || 0), 0);
+            const remainingPressure = config.pln - totalDp;
+            if (remainingPressure < config.min_tap_tryk) {
+                failingPoints.push({ id: n.id, pressure: remainingPressure });
+            }
+        }
+    });
+    // Sorter, så det tapsted med det laveste tryk kommer først
+    return failingPoints.sort((a, b) => a.pressure - b.pressure);
+}
+
+function getPathToTapPoint(model, tapPointId) {
+    const path = [];
+    let current = model.nodes.get(tapPointId);
+    while(current && current.id !== 'Beholder') {
+        path.push(current.id);
+        current = model.nodes.get(current.parentId);
+    }
+    return path.reverse();
+}
+
+function findWorstOffendingPipe(model, path) {
+    let worstPipeId = null;
+    let maxPaPerMeter = -1;
+
+    path.forEach(nodeId => {
+        const n = model.nodes.get(nodeId);
+        if (n.type === 'ror' && n.L > 0) {
+            const dp_pr_meter = (n.dp_tap || 0) / n.L;
+            if (dp_pr_meter > maxPaPerMeter) {
+                maxPaPerMeter = dp_pr_meter;
+                worstPipeId = n.id;
+            }
+        }
+    });
+    return worstPipeId;
+}
+
+function upgradePipeDimension(pipeNode) {
+    const mat = pipeNode.material;
+    const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+    const currentIndex = sortedDims.indexOf(pipeNode.nom_dim);
+
+    if (currentIndex < sortedDims.length - 1) {
+        pipeNode.nom_dim = sortedDims[currentIndex + 1];
+        return true; // Opgradering lykkedes
+    }
+    return false; // Allerede på største dimension
+}
+
+
+// =================================================================================
+// == FUNKTIONER TIL RAPPORTGENERERING                                            ==
+// =================================================================================
+
+/**
+ * Kaldes når "Vis Beregningsrapport" knappen klikkes.
+ */
+function showCalculationReport() {
+    if (!state.lastModel || !state.lastConfig) {
+        alert('Du skal først køre en beregning for at kunne generere en rapport.');
+        return;
+    }
+    const reportHTML = generateReportHTML(state.lastModel, state.lastConfig);
+    const reportWindow = window.open('', '_blank');
+    reportWindow.document.open();
+    reportWindow.document.write(reportHTML);
+    reportWindow.document.close();
+}
+
+/**
+ * Formaterer et komponentnavn til rapporten, f.eks. "Mit Rør (S1-R1)".
+ * @param {object} node - Node-objektet fra modellen.
+ * @returns {string} Det formaterede navn.
+ */
+function getReportName(node) {
+    if (!node) return '';
+    if (node.name) {
+        return `${node.name} (${node.id})`;
+    }
+    return node.id;
+}
+
+/**
+ * Hovedfunktionen der samler hele HTML-strengen for rapporten.
+ */
+function generateReportHTML(model, config) {
+    const reportDate = new Date().toLocaleDateString('da-DK', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    return `
+        <!DOCTYPE html>
+        <html lang="da">
+        <head>
+            <meta charset="UTF-8">
+            <title>Detaljeret Beregningsrapport</title>
+            <style>
+                body { font-family: sans-serif; line-height: 1.6; margin: 0; padding: 2rem; }
+                .container { max-width: 1200px; margin: auto; }
+                h1, h2, h3 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                .parameter { font-weight: bold; }
+                .unit { color: #666; }
+                .critical { background-color: #fffbe6; }
+                .conclusion { border-top: 2px solid #333; padding-top: 1rem; }
+                .ok { color: green; font-weight: bold; }
+                .fail { color: red; font-weight: bold; }
+                @media print {
+                    body { padding: 1rem; }
+                    .no-print { display: none; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <button class="no-print" onclick="window.print()">Print til PDF</button>
+                <h1>Detaljeret Beregningsrapport: Brugsvandssystem</h1>
+                <p><strong>Projektdato:</strong> ${reportDate}</p>
+                ${generateInputsSection(config)}
+                ${generateComponentsSection(model)}
+                ${generateTappingLoadSection(model)}
+                ${generateCirculationSection(model)}
+            </div>
+        </body>
+        </html>
+    `;
+}
+
+/**
+ * Genererer HTML for sektionen med systemforudsætninger.
+ */
+function generateInputsSection(config) {
+    return `
+        <h2>1. Systemforudsætninger</h2>
+        <h3>1.1 Globale Inputs og Designkriterier</h3>
+        <table>
+            <tr><th>Parameter</th><th>Værdi</th><th>Enhed</th></tr>
+            <tr><td class="parameter">Forsyningstryk (p<sub>ln</sub>)</td><td>${config.pln.toLocaleString('da-DK')}</td><td class="unit">Pa</td></tr>
+            <tr><td class="parameter">Minimumstryk ved tapsted</td><td>${config.min_tap_tryk.toLocaleString('da-DK')}</td><td class="unit">Pa</td></tr>
+            <tr><td class="parameter">Fremløbstemperatur (T<sub>v</sub>)</td><td>${config.T_v}</td><td class="unit">°C</td></tr>
+            <tr><td class="parameter">Omgivelsestemperatur, Indendørs</td><td>${config.T_omg_inde}</td><td class="unit">°C</td></tr>
+            <tr><td class="parameter">Omgivelsestemperatur, Udendørs</td><td>${config.T_omg_ude}</td><td class="unit">°C</td></tr>
+            <tr><td class="parameter">Ønsket ΔT for cirkulation</td><td>${config.dT}</td><td class="unit">K</td></tr>
+            ${config.isAuto ? `
+            <tr><td class="parameter">Designkriterie: Max Δp pr. meter</td><td>${config.max_dp_m}</td><td class="unit">Pa/m</td></tr>
+            <tr><td class="parameter">Designkriterie: Max hastighed (fremløb)</td><td>${config.max_v_f}</td><td class="unit">m/s</td></tr>
+            <tr><td class="parameter">Designkriterie: Max hastighed (cirkulation)</td><td>${config.max_v_c}</td><td class="unit">m/s</td></tr>
+            ` : ''}
+        </table>
+    `;
+}
+
+/**
+ * Genererer HTML for sektionen med komponentlister.
+ */
+function generateComponentsSection(model) {
+    let pipeRows = '';
+    let tapRows = '';
+    model.nodes.forEach(n => {
+        const parentDisplay = n.parentId === 'Beholder' ? 'Beholder' : getReportName(model.nodes.get(n.parentId));
+        if (n.type === 'ror' || n.type === 'retur') {
+            pipeRows += `<tr>
+                <td>${getReportName(n)}</td>
+                <td>${n.type}</td>
+                <td>${parentDisplay}</td>
+                <td>${n.L}</td>
+                <td>${n.zeta_sum}</td>
+                <td>${n.material}</td>
+                <td>${n.location === 'outside' ? 'Udendørs' : 'Indendørs'}</td>
+            </tr>`;
+        } else if (n.type === 'tapsted') {
+            tapRows += `<tr>
+                <td>${getReportName(n)}</td>
+                <td>${parentDisplay}</td>
+                <td>${n.qf}</td>
+                <td>${n.isSyst ? 'Ja' : 'Nej'}</td>
+            </tr>`;
+        }
+    });
+
+    return `
+        <h3>1.2 Komponentliste</h3>
+        <h4>Rør-komponenter</h4>
+        <table>
+            <tr><th>Navn (ID)</th><th>Type</th><th>Forælder</th><th>Længde [m]</th><th>Zeta (Σζ)</th><th>Materiale</th><th>Placering</th></tr>
+            ${pipeRows}
+        </table>
+        <h4>Tapsteder</h4>
+        <table>
+            <tr><th>Navn (ID)</th><th>Forælder</th><th>Normflow (q<sub>f</sub>) [l/s]</th><th>Systematisk brug</th></tr>
+            ${tapRows}
+        </table>
+    `;
+}
+
+/**
+ * Genererer HTML for sektionen om spidslast og tryktab.
+ */
+function generateTappingLoadSection(model) {
+    let rows = '';
+    model.nodes.forEach(n => {
+        if (n.type === 'ror') {
+            const d_i = ID[n.material][n.nom_dim];
+            const v = (n.qd / 1000) / (Math.PI * (d_i / 2000) ** 2);
+            rows += `<tr>
+                <td>${getReportName(n)}</td>
+                <td>${n.qd.toFixed(3)}</td>
+                <td>${n.material} ${n.nom_dim}</td>
+                <td>${v.toFixed(2)}</td>
+                <td>${(n.dp_tap || 0).toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td>
+            </tr>`;
+        }
+    });
+
+    const resttryk = state.lastConfig.pln - model.max_dp_tapning;
+    const kravOpfyldt = resttryk >= state.lastConfig.min_tap_tryk;
+
+    return `
+        <h2>2. Resultater: Spidslast og Tryktab (Fremløb)</h2>
+        <p>Nedenstående tabel opsummerer de primære beregningsresultater for hvert enkelt rørsegment i fremløbet under spidslast.</p>
+        <h3>2.1 Opsummerende Resultattabel</h3>
+        <table>
+            <tr><th>Navn (ID)</th><th>Dim. Vandstrøm (q<sub>d</sub>) [l/s]</th><th>Valgt Dimension</th><th>Hastighed (v) [m/s]</th><th>Tryktab (Δp) [Pa]</th></tr>
+            ${rows}
+        </table>
+        <h3>2.2 Konklusion for Spidslast</h3>
+        <table>
+            <tr><td class="parameter">Samlet tryktab i kritisk streng</td><td>${model.max_dp_tapning.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td><td class="unit">Pa</td></tr>
+            <tr><td class="parameter">Resttryk ved fjerneste tapsted</td><td>${resttryk.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td><td class="unit">Pa</td></tr>
+            <tr><td class="parameter">Overholder minimumskrav (${state.lastConfig.min_tap_tryk.toLocaleString('da-DK')} Pa)?</td><td class="${kravOpfyldt ? 'ok' : 'fail'}">${kravOpfyldt ? 'JA' : 'NEJ'}</td><td class="unit">-</td></tr>
+        </table>
+    `;
+}
+
+/**
+ * Genererer HTML for sektionen om cirkulation.
+ */
+function generateCirculationSection(model) {
+    if (model.loops.length === 0) return '<h2>3. Resultater: Cirkulation</h2><p>Der er ikke defineret nogen cirkulationsstrenge i systemet.</p>';
+
+    let loopRows = '';
+    model.loops.forEach(l => {
+        const loopDisplayName = l.name ? `${l.name} (${l.id})` : l.id;
+        
+        const pathNames = l.path
+            .map(nodeId => model.nodes.get(nodeId))
+            .filter(node => node && (node.type === 'ror' || node.type === 'retur' || node.type === 'valve'))
+            .map(node => getReportName(node))
+            .join('<br>');
+
+        loopRows += `<tr>
+            <td>${loopDisplayName}</td>
+            <td>${pathNames}</td>
+            <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
+            <td>${(l.q_tab_tot || 0).toFixed(1)}</td>
+            <td>${((l.circ_flow || 0) * 3600).toFixed(1)}</td>
+            <td>${(l.dp_circ_total || 0).toFixed(0)}</td> 
+            <td>${Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)}</td>
+        </tr>`;
+    });
+    
+    const total_circ_flow_lh = model.loops.reduce((s,l) => s + (l.circ_flow || 0), 0) * 3600;
+
+    return `
+        <h2>3. Resultater: Cirkulation</h2>
+        <h3>3.1 Resultattabel pr. Cirkulationsstreng</h3>
+        <table>
+            <tr>
+                <th>Streng Navn (ID)</th>
+                <th>Komponenter i Streng</th>
+                <th>Valgt Ventil</th>
+                <th>Varmetab [W]</th>
+                <th>Flow [l/h]</th>
+                <th>Streng-tryktab [Pa]</th>
+                <th>Ventil-tryktab [Pa]</th>
+            </tr>
+            ${loopRows}
+        </table>
+        <h3>3.2 Konklusion og Pumpespecifikation</h3>
+        <table>
+            <tr><td class="parameter">Dimensionerende pumpetryk (løftehøjde)</td><td>${model.max_dp_circ.toFixed(0)}</td><td class="unit">Pa</td></tr>
+            <tr><td class="parameter">Samlet pumpeflow</td><td>${total_circ_flow_lh.toFixed(1)}</td><td class="unit">l/h</td></tr>
+        </table>
+    `;
+}
+
+// =================================================================================
+// == FUNKTIONER TIL BEHOLDERBEREGNING (3 METODER)                               ==
+// =================================================================================
+
+/**
+ * Styrer hvilken sektion af inputfelter, der vises, baseret på valg af metode.
+ */
+function toggleBeholderMetode() {
+    document.querySelectorAll('.beholder-metode').forEach(div => div.style.display = 'none');
+    const valg = document.querySelector('input[name="beholderMetode"]:checked').value;
+    document.getElementById(`metode${valg}_inputs`).style.display = 'block';
+}
+
+/**
+ * Tilføjer en ny række til tappemønster-tabellen for Metode C.
+ */
+function addTappemonsterRow() {
+    const tbody = document.getElementById('metodeC_tablebody');
+    tbody.insertAdjacentHTML('beforeend', `
+        <tr>
+            <td><input type="number" step="0.01" class="form-control form-control-sm" value="0.15"></td>
+            <td><input type="number" class="form-control form-control-sm" value="5"></td>
+            <td><input type="number" class="form-control form-control-sm" value="5"></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">&times;</button></td>
+        </tr>
+    `);
+}
+
+/**
+ * Hovedfunktion der kaldes, når "Beregn Beholder" klikkes.
+ * Den aflæser den valgte metode og kalder den relevante beregningsfunktion.
+ */
+function beregnBeholder() {
+    const valg = document.querySelector('input[name="beholderMetode"]:checked').value;
+    let resultat = { volumen: 0, beskrivelse: '' };
+    const config = getGlobalConfig(); // Få T_v for energi-beregning
+
+    try {
+        if (valg === 'A') {
+            resultat = beregnBeholderMetodeA();
+        } else if (valg === 'B') {
+            resultat = beregnBeholderMetodeB(config.T_v);
+        } else if (valg === 'C') {
+            resultat = beregnBeholderMetodeC(config.T_v);
+        }
+    } catch (e) {
+        alert(`Der opstod en fejl under beregningen: ${e.message}`);
+        return;
+    }
+
+    // Vis resultatet
+    document.getElementById('beholderResultatVolumen').textContent = `${resultat.volumen.toFixed(0)} L`;
+    document.getElementById('beholderResultatBeskrivelse').innerHTML = resultat.beskrivelse;
+}
+
+/**
+ * Metode A: Interaktiv P-V kurve beregning for etagebyggeri.
+ */
+function beregnBeholderMetodeA() {
+    const model = state.lastModel; // Hent model fra sidste fulde beregning
+
+    if (!model || !model.N || model.N <= 0) {
+        throw new Error('Metode A kræver, at der først køres en fuld systemberegning med tapsteder af typen "Lejlighed".');
+    }
+
+    const userEffekt = parseFloat(document.getElementById('userEffekt')?.value);
+    const userVolumen = parseFloat(document.getElementById('userVolumen')?.value);
+    const N = model.N;
+    const n_keys = Object.keys(model.pv_kurver).map(Number);
+    const closest_n = n_keys.reduce((p, c) => (Math.abs(c - N) < Math.abs(p - N) ? c : p));
+    const kurve = model.pv_kurver[closest_n];
+    const kurveVol = Object.keys(kurve).map(Number);
+    const kurveEff = Object.values(kurve);
+
+    let beregnetVolumen = 0;
+    let beskrivelse = 'Indtast enten tilgængelig effekt eller ønsket volumen i felterne ovenfor for at beregne den anden værdi.';
+
+    if (!isNaN(userEffekt) && userEffekt > 0) {
+        const effektPrLejl = userEffekt / N;
+        const volPrLejl = interpolate(effektPrLejl, [...kurveEff].reverse(), [...kurveVol].reverse());
+        beregnetVolumen = volPrLejl * N;
+        beskrivelse = `For en tilgængelig effekt på <b>${userEffekt} kW</b>, kræves et beholdervolumen på ca. <b>${beregnetVolumen.toFixed(0)} L</b>.`;
+        document.getElementById('userVolumen').value = ''; // Ryd det andet felt
+    } else if (!isNaN(userVolumen) && userVolumen > 0) {
+        const volPrLejl = userVolumen / N;
+        const effektPrLejl = interpolate(volPrLejl, kurveVol, kurveEff);
+        const beregnetEffekt = effektPrLejl * N;
+        beregnetVolumen = userVolumen; // Volumen er det indtastede
+        beskrivelse = `For et ønsket volumen på <b>${userVolumen} L</b>, er det nødvendige effektbehov ca. <b>${beregnetEffekt.toFixed(1)} kW</b>.`;
+        document.getElementById('userEffekt').value = ''; // Ryd det andet felt
+    } else {
+         throw new Error("Indtast venligst enten en gyldig effekt eller et volumen for Metode A.");
+    }
+
+    return {
+        volumen: beregnetVolumen,
+        beskrivelse: beskrivelse
+    };
+}
+
+/**
+ * Metode B: Simpel beregning baseret på største enkeltforbruger.
+ * @param {number} T_v - Fremløbstemperatur i °C.
+ */
+function beregnBeholderMetodeB(T_v) {
+    const flow_ls = parseFloat(document.getElementById('metodeB_flow').value);
+    const varighed_min = parseFloat(document.getElementById('metodeB_varighed').value);
+    const effekt_kW = parseFloat(document.getElementById('metodeB_effekt').value);
+    
+    if (isNaN(flow_ls) || isNaN(varighed_min) || isNaN(effekt_kW)) throw new Error("Ugyldige inputværdier.");
+
+    const T_kold = 10; // Antaget koldtvandstemperatur i °C
+    const delta_T = T_v - T_kold;
+    const varighed_s = varighed_min * 60;
+
+    // Energi (Joule) der kræves for at opvarme vandet
+    const total_vand_L = flow_ls * varighed_s;
+    const energi_krævet_J = total_vand_L * C * delta_T;
+
+    // Energi (Joule) som varmekilden leverer i perioden
+    const effekt_W = effekt_kW * 1000;
+    const energi_leveret_J = effekt_W * varighed_s;
+
+    // Underskud af energi, som beholderen skal levere
+    const energi_underskud_J = Math.max(0, energi_krævet_J - energi_leveret_J);
+
+    // Konverter energi-underskuddet tilbage til et volumen i liter
+    const volumen_L = energi_underskud_J / (C * delta_T);
+
+    return {
+        volumen: volumen_L,
+        beskrivelse: `Beregnet ud fra et spidsforbrug på ${total_vand_L.toFixed(0)} L over ${varighed_min} minutter med en varmekilde på ${effekt_kW} kW.`
+    };
+}
+
+/**
+ * Metode C: Detaljeret beregning baseret på tappemønster.
+ * @param {number} T_v - Fremløbstemperatur i °C.
+ */
+function beregnBeholderMetodeC(T_v) {
+    const effekt_kW = parseFloat(document.getElementById('metodeC_effekt').value);
+    if (isNaN(effekt_kW)) throw new Error("Ugyldig effektværdi.");
+
+    const rækker = document.querySelectorAll('#metodeC_tablebody tr');
+    let tappemønster = [];
+    let max_tid_s = 0;
+
+    rækker.forEach(r => {
+        const inputs = r.querySelectorAll('input');
+        const flow_ls = parseFloat(inputs[0].value);
+        const start_min = parseFloat(inputs[1].value);
+        const varighed_min = parseFloat(inputs[2].value);
+        if (![flow_ls, start_min, varighed_min].some(isNaN)) {
+            const start_s = start_min * 60;
+            const slut_s = start_s + (varighed_min * 60);
+            tappemønster.push({ flow_ls, start_s, slut_s });
+            if (slut_s > max_tid_s) max_tid_s = slut_s;
+        }
+    });
+
+    if (tappemønster.length === 0) return { volumen: 0, beskrivelse: "Intet tappemønster defineret." };
+    
+    const T_kold = 10; // Antaget koldtvandstemperatur
+    const delta_T = T_v - T_kold;
+    const effekt_W = effekt_kW * 1000;
+    
+    let maks_energi_underskud_J = 0;
+    let nuværende_energi_underskud_J = 0;
+
+    // Simuler sekund for sekund
+    for (let t = 0; t <= max_tid_s; t++) {
+        let nuværende_flow_ls = 0;
+        tappemønster.forEach(tap => {
+            if (t >= tap.start_s && t < tap.slut_s) {
+                nuværende_flow_ls += tap.flow_ls;
+            }
+        });
+
+        const energi_forbrugt_J_pr_s = nuværende_flow_ls * C * delta_T;
+        const energi_leveret_J_pr_s = effekt_W;
+
+        nuværende_energi_underskud_J += (energi_forbrugt_J_pr_s - energi_leveret_J_pr_s);
+        
+        // Underskud kan ikke være negativt (beholderen kan ikke være "mere end fuld")
+        if (nuværende_energi_underskud_J < 0) {
+            nuværende_energi_underskud_J = 0;
+        }
+        
+        if (nuværende_energi_underskud_J > maks_energi_underskud_J) {
+            maks_energi_underskud_J = nuværende_energi_underskud_J;
+        }
+    }
+
+    const volumen_L = maks_energi_underskud_J / (C * delta_T);
+
+    return {
+        volumen: volumen_L,
+        beskrivelse: `Beregnet ud fra et detaljeret tappemønster over ${Math.ceil(max_tid_s / 60)} minutter. Det maksimale energiunderskud kræver et lagervolumen på ${volumen_L.toFixed(0)} L.`
+    };
+}
+
+/**
+ * Fremhæver en specifik cirkulationsstreng i D3-diagrammet.
+ * @param {string} loopId - ID'et på den streng, der skal fremhæves (f.eks. "S1").
+ */
+function highlightLoop(loopId) {
+    if (!state.lastModel) return;
+    const loop = state.lastModel.loops.find(l => l.id === loopId);
+    if (!loop || !loop.path) return;
+
+    const pathIds = new Set(loop.path);
+
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+        .each(function(d) {
+            const link = d3.select(this);
+            const isPartOfPath = pathIds.has(d.target.id);
+
+            if (isPartOfPath) {
+                link.style('stroke', '#ff7f0e').style('stroke-width', '4px').style('opacity', 1.0); // RETTELSE: .attr -> .style
+            } else {
+                link.style('opacity', 0.1);
+            }
+        });
+}
+
+
+function clearHighlight() {
+    updateDiagramStyles();
+
+}
+
+/**
+ * Håndterer venstre-klik på en node. Enten for at redigere, eller for at færdiggøre en forbindelse.
+ * @param {object} event - Klik-eventet.
+ * @param {object} d - Data-objektet for den klikkede node.
+ */
+function handleNodeClick(event, d) {
+    // Tjek om vi er i "forbindelsestilstand"
+    if (state.connectingNodeInfo) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const sourceInfo = state.connectingNodeInfo;
+        const targetNodeData = d;
+        const sourceElement = document.querySelector(`[data-id="${sourceInfo.nodeData.id}"]`);
+
+        // Håndter PARENT forbindelse (rør til rør, retur til retur)
+        if (sourceInfo.type === 'parent') {
+            // Tjek at man ikke forbinder til sig selv, og at typerne passer
+            if (sourceInfo.nodeData.id !== targetNodeData.id && sourceInfo.nodeData.type === targetNodeData.type) {
+                sourceElement.querySelector('.parent').value = targetNodeData.id;
+            }
+        }
+
+        // Håndter RETURN forbindelse (fremløbsrør til returrør)
+        if (sourceInfo.type === 'return') {
+            if (targetNodeData.type === 'retur') {
+                const strengId = sourceInfo.nodeData.id.split('-')[0];
+                const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
+                if (strengCard) {
+                    strengCard.querySelector('.circ-start').value = sourceInfo.nodeData.id;
+                    strengCard.querySelector('.circ-end').value = targetNodeData.id;
+                }
+            }
+        }
+        
+        // Nulstil og opdater
+        state.connectingNodeInfo = null;
+        document.body.style.cursor = 'default';
+        updateAllSelects();
+        return;
+    }
+
+    // --- Normal "Klik for at redigere" logik ---
+    const element = document.querySelector(`[data-id="${d.id}"]`);
+    if (!element) return;
+
+    document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
+    element.classList.add('highlighted-row');
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    setTimeout(() => {
+        element.classList.remove('highlighted-row');
+    }, 2500);
+}
+
+/**
+ * Håndterer højre-klik på en node for at vise en kontekstmenu.
+ * @param {object} event - Højreklik-eventet.
+ * @param {object} d - Data-objektet for den klikkede node.
+ */
+function handleNodeRightClick(event, d) {
+    event.preventDefault();
+    removeContextMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'context-menu';
+    // ... (menu styling er uændret) ...
+    menu.style.position = 'absolute';
+    menu.style.left = `${event.pageX}px`;
+    menu.style.top = `${event.pageY}px`;
+    menu.style.background = 'white';
+    menu.style.border = '1px solid #ccc';
+    menu.style.borderRadius = '5px';
+    menu.style.boxShadow = '2px 2px 5px rgba(0,0,0,0.2)';
+    menu.style.padding = '5px 0';
+    menu.style.zIndex = '1000';
+
+    const createMenuItem = (text, onClick) => {
+        const item = document.createElement('div');
+        item.textContent = text;
+        item.style.padding = '8px 15px';
+        item.style.cursor = 'pointer';
+        item.onmouseenter = () => item.style.backgroundColor = '#f2f2f2';
+        item.onmouseleave = () => item.style.backgroundColor = 'white';
+        item.onclick = () => {
+            onClick();
+            removeContextMenu();
+        };
+        menu.appendChild(item);
+    };
+
+    const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
+
+    // --- Byg menuen baseret på nodetype ---
+
+        // Forbindelses-funktioner
+    // RETTELSE: Tillad "Forbind til..." for ventiler
+    if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
+        createMenuItem('Forbind til...', () => {
+            state.connectingNodeInfo = { nodeData: d, type: 'parent' };
+            document.body.style.cursor = 'crosshair';
+        });
+    }
+    if (nodeType === 'ror') {
+        createMenuItem('Forbind til retur...', () => {
+            state.connectingNodeInfo = { nodeData: d, type: 'return' };
+            document.body.style.cursor = 'crosshair';
+        });
+    }
+
+    if (menu.hasChildNodes()) {
+        menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+    }
+
+    // Tilføj-funktioner
+    if (nodeType === 'ror') {
+        createMenuItem('Tilføj rør her', () => {
+            const parentId = d.id;
+            const strengId = parentId.split('-')[0];
+            const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
+            if (strengCard) {
+                const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
+                addRorSektion(addRorButton);
+                const newPipe = strengCard.querySelector('.fremløb-container > [data-type="ror"]:last-child');
+                if (newPipe) {
+                    newPipe.querySelector('.parent').value = parentId;
+                    updateAllSelects();
+                }
+            }
+        });
+        createMenuItem('Tilføj tapsted her', () => {
+            const parentId = d.id;
+            const strengId = parentId.split('-')[0];
+            const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
+            if (strengCard) {
+                const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
+                addTapsted(addTapstedButton);
+                const newTapsted = strengCard.querySelector('.fremløb-container > [data-type="tapsted"]:last-child');
+                if (newTapsted) {
+                    newTapsted.querySelector('.parent').value = parentId;
+                    updateAllSelects();
+                }
+            }
+        });
+    }
+    
+    if (nodeType === 'beholder' || nodeType === 'ror') {
+        createMenuItem('Tilføj ny streng herfra', () => {
+            addStreng();
+            const newStreng = document.querySelector('.streng-card:last-child');
+            if (newStreng) {
+                const firstPipe = newStreng.querySelector('[data-type="ror"]');
+                if (firstPipe) {
+                    firstPipe.querySelector('.parent').value = d.id;
+                    updateAllSelects();
+                }
+            }
+        });
+    }
+
+if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
+        createMenuItem('Tilføj retur-rør her', () => { /* ... uændret ... */ });
+        
+        // NYT: Tilføj ventil via højreklik
+        createMenuItem('Tilføj Cirkulationsventil her', () => {
+            addValve();
+            const newValve = document.querySelector('#returContainer > [data-type="valve"]:last-child');
+            if (newValve) {
+                newValve.querySelector('.parent').value = d.id;
+                updateAllSelects();
+            }
+        });
+    }
+
+    // Slet-funktion
+    if (nodeType !== 'beholder') {
+        if (menu.hasChildNodes() && !menu.querySelector('hr')) {
+             menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+        }
+        createMenuItem('Slet Komponent', () => {
+            const element = document.querySelector(`[data-id="${d.id}"]`);
+            if (element) {
+                const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
+                if (uiDeleteButton) uiDeleteButton.click();
+            }
+        });
+    }
+    
+    // Tilføj kun menuen til siden, HVIS den har indhold
+    if (menu.hasChildNodes()) {
+        document.body.appendChild(menu);
+        setTimeout(() => {
+            window.addEventListener('click', removeContextMenu, { once: true });
+        }, 0);
+    }
+}
+
+/**
+ * Fjerner kontekstmenuen fra siden.
+ */
+function removeContextMenu() {
+    const menu = document.getElementById('context-menu');
+    if (menu) {
+        menu.remove();
+    }
+}
+</script>
+</body>
+</html>
