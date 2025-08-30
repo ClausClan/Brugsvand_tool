@@ -1812,7 +1812,7 @@ function updateDiagramStyles() {
     }
     updateLegend();
 
-    // --- Del 2: NY LOGIK - Opdater tekst-labels ---
+    // --- Del 2: RETTELSE - Opdater tekst-labels ---
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
@@ -1824,12 +1824,14 @@ function updateDiagramStyles() {
         if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";
 
         const parts = [];
+        // RETTELSE: 'flow_ls' defineres nu heroppe, så den er tilgængelig for alle labels
+        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
-	if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
+        if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`); // Nu virker denne linje
 
         if (showVel) {
-            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
@@ -1843,8 +1845,6 @@ function updateDiagramStyles() {
         return parts.join(' | ');
     });
 }
-
-
 
 
 function applyColorGradient(mode) {
