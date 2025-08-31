@@ -431,7 +431,16 @@ const VALVE_TYPES = {
             { freseNr: '47-20200', vvsNr: '406782.060', maxFlowLH: 60, deltaP_Pa: 12000 },
             { freseNr: '47-20230', vvsNr: '406782.080', maxFlowLH: 80, deltaP_Pa: 13000 },
             { freseNr: '47-20260', vvsNr: '406782.105', maxFlowLH: 105, deltaP_Pa: 14000 },
-            // ... (resten af Frese-dataene som før)
+            { freseNr: '47-20300', vvsNr: '406782.135', maxFlowLH: 135, deltaP_Pa: 14000 },
+            { freseNr: '47-20350', vvsNr: '406782.180', maxFlowLH: 180, deltaP_Pa: 14000 },
+            { freseNr: '47-20400', vvsNr: '406782.240', maxFlowLH: 240, deltaP_Pa: 14000 },
+            { freseNr: '47-20460', vvsNr: '406782.310', maxFlowLH: 310, deltaP_Pa: 14000 },
+            { freseNr: '47-20510', vvsNr: '406782.410', maxFlowLH: 410, deltaP_Pa: 15000 },
+            { freseNr: '47-20530', vvsNr: '406782.450', maxFlowLH: 450, deltaP_Pa: 16000 },
+            { freseNr: '47-20570', vvsNr: '406782.500', maxFlowLH: 500, deltaP_Pa: 17000 },
+            { freseNr: '47-20590', vvsNr: '406782.550', maxFlowLH: 550, deltaP_Pa: 18000 },
+            { freseNr: '47-20620', vvsNr: '406782.600', maxFlowLH: 600, deltaP_Pa: 19000 },
+            { freseNr: '47-20680', vvsNr: '406782.700', maxFlowLH: 700, deltaP_Pa: 20000 },
             { freseNr: '47-20740', vvsNr: '406782.800', maxFlowLH: 800, deltaP_Pa: 20000 }
         ]
     },
@@ -799,21 +808,31 @@ function initDiagram() {
 }
 
 function updateDiagram() {
-    const svg = d3.select("#diagram svg"); 
+    const svg = d3.select("#diagram svg");
     svg.selectAll(".zoom-container").remove();
     const container = svg.append("g").attr("class", "zoom-container");
 
-    const link = container.append("g").selectAll("line").data(state.links).join("line")
-        .attr("class", d => `link-${d.type}`).style('stroke-width', '1.5px');
-    
-    const node = container.append("g").selectAll("g").data(state.nodes, d => d.id).join("g")
+    // Opret linjerne (links)
+    const link = container.append("g").selectAll("line")
+        .data(state.links).join("line")
+        .attr("class", d => `link-${d.type}`);
+
+    // Opret tekst-elementerne
+    const linkText = container.append("g").selectAll("text")
+        .data(state.links).join("text")
+        .attr("class", "link-text")
+        .attr("dy", -2);
+
+    // Opret punkterne (noder)
+    const node = container.append("g").selectAll("g")
+        .data(state.nodes, d => d.id).join("g")
         .attr("class", "node")
         .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
         .on('click', handleNodeClick)
         .on('contextmenu', handleNodeRightClick);
-    
-    node.selectAll("*").remove(); // Fjern gamle former før nye tilføjes
 
+    // Tilføj former til noderne (cirkel/rombe)
+    node.selectAll("circle, rect").remove(); // Fjern gamle former
     node.each(function(d) {
         const group = d3.select(this);
         if (d.type === 'valve') {
@@ -821,7 +840,7 @@ function updateDiagram() {
                 .attr('width', 14).attr('height', 14)
                 .attr('x', -7).attr('y', -7)
                 .attr('transform', 'rotate(45)')
-                .style('fill', '#6f42c1'); // Lilla farve for ventil
+                .style('fill', '#6f42c1');
         } else {
             group.append("circle")
                 .attr("r", d => d.type === 'beholder' ? 10 : 5)
@@ -829,17 +848,33 @@ function updateDiagram() {
         }
     });
     
+    // Tilføj ID/Navn-tekst til noderne
     node.append("text").text(d => getDisplayName(d.id)).attr("dy", "-1em").attr("font-size", "8px").attr("text-anchor", "middle");
-    
-    state.sim.nodes(state.nodes).on("tick", () => { 
-        link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
-        node.attr("transform", d => `translate(${d.x},${d.y})`);
+
+    // Håndter opdatering af alle positioner for hver "tick" i simulationen
+    state.sim.nodes(state.nodes).on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        node
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // RETTELSE: Placer tekst-labels korrekt baseret på link-data
+        linkText
+            .attr("x", d => (d.source.x + d.target.x) / 2)
+            .attr("y", d => (d.source.y + d.target.y) / 2);
     });
-    state.sim.force("link").links(state.links); 
+
+    state.sim.force("link").links(state.links);
     state.sim.alpha(0.3).restart();
+
     updateSelectionVisuals();
-    if (state.lastModel) updateDiagramStyles();
+    if (state.lastModel) {
+        updateDiagramStyles();
+    }
 }
 
 function dragstarted(e, d) {
@@ -1790,7 +1825,6 @@ function updateDiagramStyles() {
     if (!state.lastModel) return;
     const model = state.lastModel;
 
-    // --- Del 1: Håndter farver og tykkelse (uændret) ---
     const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur");
     const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror' || n.type === 'retur') && n.nom_dim);
     if (pipeNodes.length > 0) {
@@ -1812,7 +1846,6 @@ function updateDiagramStyles() {
     }
     updateLegend();
 
-    // --- Del 2: RETTELSE - Opdater tekst-labels ---
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
@@ -1821,17 +1854,17 @@ function updateDiagramStyles() {
 
     d3.select("#diagram svg").selectAll(".link-text").text(d => {
         const n = model.nodes.get(d.target.id);
-        if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";
+        if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";        
 
         const parts = [];
-        // RETTELSE: 'flow_ls' defineres nu heroppe, så den er tilgængelig for alle labels
-        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+  //   const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
 
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
-        if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`); // Nu virker denne linje
+        if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
 
         if (showVel) {
+            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
@@ -2619,7 +2652,6 @@ function handleNodeRightClick(event, d) {
 
     const menu = document.createElement('div');
     menu.id = 'context-menu';
-    // ... (menu styling er uændret) ...
     menu.style.position = 'absolute';
     menu.style.left = `${event.pageX}px`;
     menu.style.top = `${event.pageY}px`;
@@ -2646,10 +2678,6 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
-    // --- Byg menuen baseret på nodetype ---
-
-        // Forbindelses-funktioner
-    // RETTELSE: Tillad "Forbind til..." for ventiler
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
         createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
@@ -2662,61 +2690,51 @@ function handleNodeRightClick(event, d) {
             document.body.style.cursor = 'crosshair';
         });
     }
-
     if (menu.hasChildNodes()) {
         menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
     }
-
-    // Tilføj-funktioner
     if (nodeType === 'ror') {
         createMenuItem('Tilføj rør her', () => {
-            const parentId = d.id;
-            const strengId = parentId.split('-')[0];
+            const parentId = d.id; const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
                 const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
                 addRorSektion(addRorButton);
                 const newPipe = strengCard.querySelector('.fremløb-container > [data-type="ror"]:last-child');
-                if (newPipe) {
-                    newPipe.querySelector('.parent').value = parentId;
-                    updateAllSelects();
-                }
+                if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
             }
         });
         createMenuItem('Tilføj tapsted her', () => {
-            const parentId = d.id;
-            const strengId = parentId.split('-')[0];
+            const parentId = d.id; const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
                 const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
                 addTapsted(addTapstedButton);
                 const newTapsted = strengCard.querySelector('.fremløb-container > [data-type="tapsted"]:last-child');
-                if (newTapsted) {
-                    newTapsted.querySelector('.parent').value = parentId;
-                    updateAllSelects();
-                }
+                if (newTapsted) { newTapsted.querySelector('.parent').value = parentId; updateAllSelects(); }
             }
         });
     }
-    
     if (nodeType === 'beholder' || nodeType === 'ror') {
         createMenuItem('Tilføj ny streng herfra', () => {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
                 const firstPipe = newStreng.querySelector('[data-type="ror"]');
-                if (firstPipe) {
-                    firstPipe.querySelector('.parent').value = d.id;
-                    updateAllSelects();
-                }
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
         });
     }
-
-if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
-        createMenuItem('Tilføj retur-rør her', () => { /* ... uændret ... */ });
-        
-        // NYT: Tilføj ventil via højreklik
+    if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
+        // RETTELSE: Koden for at tilføje retur-rør var tom. Den er nu genindsat.
+        createMenuItem('Tilføj retur-rør her', () => {
+            addReturRor();
+            const newReturRor = document.querySelector('#returContainer .retur-ror:last-child');
+            if (newReturRor) {
+                newReturRor.querySelector('.parent').value = d.id;
+                updateAllSelects();
+            }
+        });
         createMenuItem('Tilføj Cirkulationsventil her', () => {
             addValve();
             const newValve = document.querySelector('#returContainer > [data-type="valve"]:last-child');
@@ -2726,8 +2744,6 @@ if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
             }
         });
     }
-
-    // Slet-funktion
     if (nodeType !== 'beholder') {
         if (menu.hasChildNodes() && !menu.querySelector('hr')) {
              menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
@@ -2741,12 +2757,9 @@ if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
         });
     }
     
-    // Tilføj kun menuen til siden, HVIS den har indhold
     if (menu.hasChildNodes()) {
         document.body.appendChild(menu);
-        setTimeout(() => {
-            window.addEventListener('click', removeContextMenu, { once: true });
-        }, 0);
+        setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
 }
 
