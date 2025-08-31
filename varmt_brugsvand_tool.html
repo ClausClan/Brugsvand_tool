@@ -304,7 +304,7 @@
             </div>
         </div>
         <div class="d-flex align-items-center gap-3 border-top pt-2">
-            <strong class="me-2">Vis data på diagram:</strong>
+            <strong class="me-2">Vis data:</strong>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" role="switch" id="visDim" onclick="updateDiagramStyles()">
                 <label class="form-check-label" for="visDim">Dimension</label>
@@ -1857,7 +1857,7 @@ function updateDiagramStyles() {
         if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";        
 
         const parts = [];
-  //   const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
 
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
