@@ -2656,17 +2656,32 @@ function handleNodeClick(event, d) {
         const targetNodeData = d;
         const sourceElement = document.querySelector(`[data-id="${sourceInfo.nodeData.id}"]`);
 
-        // Håndter PARENT forbindelse (rør til rør, retur til retur)
-        if (sourceInfo.type === 'parent') {
-            // Tjek at man ikke forbinder til sig selv, og at typerne passer
-            if (sourceInfo.nodeData.id !== targetNodeData.id && sourceInfo.nodeData.type === targetNodeData.type) {
+        // ================================================================= //
+        // == KORRIGERET SEKTION: FORBEDRET VALIDERINGSLOGIK                == //
+        // ================================================================= //
+        if (sourceInfo.type === 'parent' && sourceElement) {
+            const isSourceReturn = ['retur', 'valve'].includes(sourceInfo.nodeData.type);
+            const isTargetReturn = ['retur', 'valve', 'Beholder'].includes(targetNodeData.type);
+            const isTargetSupply = ['ror', 'Beholder'].includes(targetNodeData.type);
+
+            // En forbindelse er gyldig hvis:
+            // 1. Kilden er en retur-del OG målet er en retur-del.
+            // 2. Kilden er en fremløbs-del OG målet er en fremløbs-del.
+            // 3. Målet ikke er et tapsted (man kan ikke forbinde TIL et tapsted).
+            // 4. Man ikke forbinder til sig selv.
+            const isValidConnection = (isSourceReturn && isTargetReturn) || (!isSourceReturn && isTargetSupply);
+            
+            if (isValidConnection && sourceInfo.nodeData.id !== targetNodeData.id && targetNodeData.type !== 'tapsted') {
                 sourceElement.querySelector('.parent').value = targetNodeData.id;
+            } else {
+                // Gør intet hvis forbindelsen er ugyldig
+                console.warn("Ugyldig forbindelse forsøgt.");
             }
         }
-
-        // Håndter RETURN forbindelse (fremløbsrør til returrør)
+        // ================================================================= //
+        
         if (sourceInfo.type === 'return') {
-            if (targetNodeData.type === 'retur') {
+            if (['retur', 'valve', 'Beholder'].includes(targetNodeData.type)) {
                 const strengId = sourceInfo.nodeData.id.split('-')[0];
                 const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
                 if (strengCard) {
