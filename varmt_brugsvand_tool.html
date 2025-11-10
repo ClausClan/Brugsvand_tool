@@ -139,13 +139,13 @@
     </div>
 </div>
                                     <hr>
-                                    <h6>Brugerdefinerede Tapsteder</h6>
+									<h6>Brugerdefinerede Tapsteder</h6>
                                     <div id="customTapsteder" class="mb-3"></div>
                                     <div class="input-group mb-2">
-                                        <input type="text" id="newTapName" class="form-control" placeholder="Navn" aria-label="Navn på nyt tapsted">
-                                        <input type="number" id="newTapQf" class="form-control" min="0" step="0.01" placeholder="qf (l/s)" aria-label="qf værdi">
-                                        <input type="checkbox" id="newTapApartment" class="form-check-input m-2" title="Lejlighed?">
-                                        <button class="btn btn-outline-primary" onclick="addCustomTapsted()">Tilføj</button>
+                                        <input type="text" id="newTapName" class="form-control" placeholder="Navn" aria-label="Navn på nyt tapsted" title="Navn på det nye tapsted, f.eks. 'Stort Bad'">
+                                        <input type="number" id="newTapQf" class="form-control" min="0" step="0.01" placeholder="qf (l/s)" aria-label="qf værdi" title="Normvandstrøm (qf) i l/s for det nye tapsted">
+                                        <input type="checkbox" id="newTapApartment" class="form-check-input m-2" title="Lejlighed? (Vigtigt for Beholder Metode A)">
+                                        <button class="btn btn-outline-primary" onclick="addCustomTapsted()" title="Gem det nye brugerdefinerede tapsted">Tilføj</button>
                                     </div>
                                 </div>
                             </div>
@@ -356,8 +356,8 @@
 <template id="strengTemplate">
     <div class="card mb-3 streng-card" data-type="streng-card">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn"></h6>
-            <button class="btn btn-sm btn-outline-danger" aria-label="Fjern streng" onclick="removeElement(this)">&times; Fjern</button>
+            <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv strengen et unikt navn"></h6>
+            <button class="btn btn-sm btn-outline-danger" aria-label="Fjern streng" onclick="removeElement(this)" title="Fjern hele strengen">&times; Fjern</button>
         </div>
         <div class="card-body">
             <h6>Rør & Tapsteder</h6><div class="fremløb-container"></div>
@@ -366,9 +366,9 @@
             <hr>
             <h6>Cirkulationskobling</h6>
             <div class="row gx-2">
-                <div class="col"><label class="form-label-sm" for="circ-start">Startpunkt</label><select class="form-select form-select-sm circ-start" id="circ-start"></select></div>
-                <div class="col"><label class="form-label-sm" for="circ-end">Tilsluttes Retur-rør</label><select class="form-select form-select-sm circ-end" id="circ-end"><option value="">Ingen</option></select></div>
-                <div class="col"><label class="form-label-sm" for="circ-zeta">Zeta (kobling)</label><div class="input-group"><input type="number" min="0" class="form-control form-control-sm circ-zeta" value="0"><span class="input-group-text">ζ</span></div></div>
+                <div class="col"><label class="form-label-sm" for="circ-start">Startpunkt</label><select class="form-select form-select-sm circ-start" id="circ-start" title="Startpunkt for cirkulation (ofte det fjerneste rør i strengen)"></select></div>
+                <div class="col"><label class="form-label-sm" for="circ-end">Tilsluttes Retur-rør</label><select class="form-select form-select-sm circ-end" id="circ-end" title="Tilslutningspunkt for cirkulation (skal være et retur-rør, en ventil eller Beholder)"><option value="">Ingen</option></select></div>
+                <div class="col"><label class="form-label-sm" for="circ-zeta">Zeta (kobling)</label><div class="input-group"><input type="number" min="0" class="form-control form-control-sm circ-zeta" value="0" title="Eventuel enkeltmodstand (zeta) i selve cirkulationskoblingen"><span class="input-group-text">ζ</span></div></div>
             </div>
         </div>
     </div>
@@ -376,10 +376,10 @@
 
 <template id="returRorTemplate">
     <div class="input-group input-group-sm mb-2 retur-ror" data-type="retur">
-        <span class="input-group-text"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn"></span>
-        <select class="form-select parent"></select>
-        <select class="form-select material"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
-<select class="form-select location" title="Placering">
+        <span class="input-group-text"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv retur-røret et unikt navn"></span>
+        <select class="form-select parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select>
+        <select class="form-select material" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
+<select class="form-select location" title="Placering (ift. varmetabsberegning)">
     <option value="heated" selected>Opvarmet rum</option>
     <option value="unheated">Uopvarmet rum</option>
     <option value="outside">Udendørs</option>
@@ -394,9 +394,9 @@
 <template id="customTapstedTemplate">
     <div class="input-group input-group-sm mb-2">
         <span class="input-group-text" data-key=""></span>
-        <input type="number" min="0" step="0.01" class="form-control qf" value="">
-        <div class="input-group-text"><input type="checkbox" class="form-check-input is-apartment" title="Lejlighed?"></div>
-        <button class="btn btn-sm btn-outline-danger" onclick="removeCustomTapsted(this)">&times;</button>
+        <input type="number" min="0" step="0.01" class="form-control qf" value="" title="Normvandstrøm (qf) i l/s">
+        <div class="input-group-text"><input type="checkbox" class="form-check-input is-apartment" title="Lejlighed? (Vigtigt for Beholder Metode A)"></div>
+        <button class="btn btn-sm btn-outline-danger" onclick="removeCustomTapsted(this)" title="Fjern brugerdefineret tapsted">&times;</button>
     </div>
 </template>
 
@@ -405,10 +405,10 @@
         <span class="input-group-text">
             <svg width="16" height="16" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg>
             <span class="id-text ms-2"></span>
-            <input type="text" class="name-input d-none name-text" placeholder="Navn">
+            <input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv ventilen et unikt navn">
         </span>
-        <select class="form-select parent" aria-label="Forælder node"></select>
-        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button>
+        <select class="form-select parent" aria-label="Forælder node" title="Vælg hvilket retur-rør, ventil eller Beholder denne ventil starter fra"></select>
+        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern ventil">&times;</button>
     </div>
 </template>
 
@@ -603,10 +603,10 @@ function addTapsted(btn) {
     Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
 
     // RETTELSE: Tilføjet onchange-handler og dynamisk start-værdi for qf-feltet
-    const defaultQf = ST["Lejlighed (standard)"];
-    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></div>`);
+	const defaultQf = ST["Lejlighed (standard)"];
+    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted (jf. DS 439)">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s. Udfyldes automatisk ved valg af type."><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote (m) (Geodætisk højde for tapsted)" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug (fx tapning til proces/maskine)" aria-label="Systematisk brug"></div>`);    
     
-    // Sæt dropdown til at matche standardværdien
+	// Sæt dropdown til at matche standardværdien
     div.querySelector('.tapType').value = defaultQf;
     div.dataset.isApartment = 'true';
 
@@ -639,19 +639,20 @@ function addValve() {
 function createInputElement(id, type) {
     const div = document.createElement('div');
     div.className = 'input-group input-group-sm mb-2'; div.dataset.id = id; div.dataset.type = type;
-    div.innerHTML = `<span class="input-group-text"><span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn"></span><select class="form-select parent" aria-label="Forælder node"></select>`;
+    // Tilføjet title til name-input og parent-select
+    div.innerHTML = `<span class="input-group-text"><span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span><select class="form-select parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select>`;
     if (type === 'ror') {
-        div.innerHTML += `<select class="form-select material" aria-label="Materiale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
-            <select class="form-select location" title="Placering">
+        div.innerHTML += `<select class="form-select material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
+            <select class="form-select location" title="Placering (ift. varmetabsberegning)">
                 <option value="heated" selected>Opvarmet rum</option>
                 <option value="unheated">Uopvarmet rum</option>
                 <option value="outside">Udendørs</option>
             </select>
-            <input type="number" min="0" class="form-control dim-input dim" value="20" title="Dim (mm)" aria-label="Nominel diameter (mm)">
+            <input type="number" min="0" class="form-control dim-input dim" value="20" title="Nominel diameter (mm)" aria-label="Nominel diameter (mm)">
             <input type="number" min="0" class="form-control len" value="10" title="Længde (m)" aria-label="Længde (m)">
-            <input type="number" min="0" class="form-control fittings" value="0" title="Zeta" aria-label="Sum af enkeltmodstande (zeta)">`;
+            <input type="number" min="0" class="form-control fittings" value="0" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)">`;
     }
-    div.innerHTML += `<button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button>`;
+    div.innerHTML += `<button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button>`;
     if (type === 'ror') {
         div.querySelector('.material').onchange = handleMaterialChange;
     }
