@@ -1494,6 +1494,7 @@ function exportProject() {
                 parent: el.querySelector('.parent').value,
                 tapType: el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text,
                 qf: parseFloat(el.querySelector('.qf').value),
+                kote: parseFloat(el.querySelector('.kote').value) || 0, // <-- TILFØJET KOTE
                 syst: el.querySelector('.syst').checked,
                 isApartment: el.dataset.isApartment === 'true'
             });
@@ -1511,6 +1512,24 @@ function exportProject() {
             fittings: parseFloat(el.querySelector('.fittings').value)
         });
     });
+
+    // NYT: Gem ventiler
+    document.querySelectorAll('[data-type="valve"]').forEach(el => {
+        data.valves.push({
+            id: el.dataset.id,
+            parent: el.querySelector('.parent').value,
+            valveType: el.dataset.valveType
+        });
+    });
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brugsvand_projekt.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
 
     // NYT: Gem ventiler
     document.querySelectorAll('[data-type="valve"]').forEach(el => {
@@ -1620,7 +1639,8 @@ streng.ror.forEach(r => {
                 let opts = '';
                 const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
                 Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
-                div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
+                // <-- FØLGENDE LINJE ER OPDATERET TIL AT INDLÆSE KOTE -->
+                div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
                 div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
                 div.dataset.isApartment = t.isApartment ? 'true' : 'false';
                 container.appendChild(div);
