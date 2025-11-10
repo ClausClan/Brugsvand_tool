@@ -167,29 +167,26 @@
                             <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Retur Netværk</button></h2>
                             <div id="collapseRetur" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
                                 <div class="accordion-body">
-                <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
+<table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
                     <thead>
                         <tr>
-                            <th style="width: 25%;">ID/Navn</th>
-                            <th style="width: 15%;">Forælder</th>
-                            <th style="width: 10%;">Type</th>
-                            <th style="width: 10%;">Mat.</th>
+                            <th style="width: 20%;">ID/Navn</th>
+                            <th style="width: 18%;">Forælder</th>
+                            <th style="width: 22%;">Mat./Type</th>
                             <th style="width: 10%;">Plac.</th>
                             <th style="width: 10%;">Dim [mm]</th>
-                            <th style="width: 10%;">Længde [m]</th>
-                            <th style="width: 10%;">Zeta [ζ]</th>
-                            <th style="width: 10%;"></th>
+                            <th style="width: 8%;">Længde [m]</th>
+                            <th style="width: 7%;">Zeta [ζ]</th>
+                            <th style="width: 5%;"></th>
                         </tr>
                     </thead>
                     <tbody id="returContainerBody">
                         </tbody>
                 </table>
-                <div class="d-flex gap-2 mt-2">
+					<div class="d-flex gap-2 mt-2">
 				    <button class="btn btn-primary" style="white-space: nowrap;" aria-label="Tilføj retur-rør" onclick="addReturRor()">+ Retur-rør</button>
 				    <div class="vr"></div>
-					<select id="valveTypeSelect" class="form-select w-auto" aria-label="Vælg ventli type">
-       					</select>
-   					<button class="btn btn-warning" style="white-space: nowrap;" aria-label="Tilføj valgt cirkulationsventil" onclick="addValve()">+ Ventil</button>
+   					<button class="btn btn-warning" style="white-space: nowrap;" aria-label="Tilføj cirkulationsventil" onclick="addValve()">+ Ventil</button>
                                 </div>
 </div>
 
@@ -385,14 +382,14 @@
             <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
                 <thead>
                     <tr>
-                        <th style="width: 18%;">ID/Navn</th>
-                        <th style="width: 15%;">Forælder</th>
+                        <th style="width: 20%;">ID/Navn</th>
+                        <th style="width: 18%;">Forælder</th>
                         <th style="width: 12%;">Mat.</th>
                         <th style="width: 15%;">Plac.</th>
-                        <th style="width: 10%;">Dim [mm]</th>
+                        <th style="width: 12%;">Dim [mm]</th>
                         <th style="width: 10%;">Længde [m]</th>
-                        <th style="width: 10%;">Zeta [ζ]</th>
-                        <th style="width: 10%;"></th>
+                        <th style="width: 8%;">Zeta [ζ]</th>
+                        <th style="width: 5%;"></th>
                     </tr>
                 </thead>
                 <tbody class="ror-container">
@@ -406,13 +403,13 @@
             <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
                 <thead>
                     <tr>
-                        <th style="width: 18%;">ID/Navn</th>
-                        <th style="width: 15%;">Forælder</th>
-                        <th style="width: 27%;">Type</th>
+                        <th style="width: 20%;">ID/Navn</th>
+                        <th style="width: 18%;">Forælder</th>
+                        <th style="width: 32%;">Type</th>
                         <th style="width: 10%;">qf [l/s]</th>
                         <th style="width: 10%;">Kote [m]</th>
-                        <th style="width: 10%;">Syst.</th>
-                        <th style="width: 10%;"></th>
+                        <th style="width: 5%;">Syst.</th>
+                        <th style="width: 5%;"></th>
                     </tr>
                 </thead>
                 <tbody class="tapsted-container">
@@ -441,7 +438,6 @@
             </span>
         </td>
         <td><select class="form-select form-select-sm parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select></td>
-        <td><span class="form-control-plaintext form-control-sm ms-2">Rør</span></td>
         <td><select class="form-select form-select-sm material" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select></td>
         <td>
             <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
@@ -450,7 +446,10 @@
                 <option value="outside">Udendørs</option>
             </select>
         </td>
-        <td><input type="number" min="0" class="form-control form-control-sm dim-input dim" value="16" title="Nominel diameter (mm)"></td>
+        <td>
+            <input type="text" class="form-control form-control-sm dim-input dim" value="16" title="Nominel diameter (mm)" list="">
+            <datalist id=""></datalist>
+        </td>
         <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde (m)"></td>
         <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Sum af enkeltmodstande (zeta)"></td>
         <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern retur-rør" onclick="removeElement(this)">&times;</button></td>
@@ -478,8 +477,9 @@
             </span>
         </td>
         <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg hvilket retur-rør, ventil eller Beholder denne ventil starter fra"></select></td>
-        <td><span class="form-control-plaintext form-control-sm ms-2">Ventil</span></td>
-        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td>
+            <select class="form-select form-select-sm valve-type-select" title="Vælg ventiltype"></select>
+        </td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
@@ -625,6 +625,34 @@ function handleMaterialChange(e) {
     }
 }
 
+// NY HJÆLPEFUNKTION til at opdatere datalist for dimensioner
+function updateDimOptions(materialSelectElement) {
+    const tr = materialSelectElement.closest('tr');
+    if (!tr) return;
+    
+    const datalist = tr.querySelector('datalist');
+    const dimInput = tr.querySelector('.dim-input');
+    if (!datalist || !dimInput) return;
+
+    const material = materialSelectElement.value;
+    const availableDims = Object.keys(ID[material] || {});
+    
+    // Opdater datalist-optionerne
+    datalist.innerHTML = availableDims.map(d => `<option value="${d}"></option>`).join('');
+    
+    // Tjek om den nuværende dimension er gyldig
+    const currentDim = dimInput.value;
+    if (!availableDims.includes(currentDim)) {
+        // Hvis ikke, vælg den første tilgængelige
+        dimInput.value = availableDims[0] || '';
+    }
+}
+
+// Opdater `handleMaterialChange` til at bruge den nye hjælpefunktion
+function handleMaterialChange(e) {
+    updateDimOptions(e.target);
+}
+	
 function addStreng() {
     state.sC++;
     const id = `S${state.sC}`;
@@ -640,13 +668,28 @@ function addStreng() {
 function addReturRor() {
     state.rC++;
     const id = `Retur${state.rC}`;
-    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true); // Opdateret template ID
-    const tr = clone.querySelector('tr'); // Finder <tr>
+    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true); 
+    const tr = clone.querySelector('tr'); 
     tr.dataset.id = id;
+    
+    // Sæt unikke ID'er til datalist
+    const datalistId = `list-${id}`;
+    const dimInput = tr.querySelector('.dim-input');
+    const datalist = tr.querySelector('datalist');
+    dimInput.setAttribute('list', datalistId);
+    datalist.id = datalistId;
+
     tr.querySelector('.id-text').textContent = id;
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-    tr.querySelector('.material').onchange = handleMaterialChange;
-    document.getElementById('returContainerBody').appendChild(clone); // Opdateret container ID
+    
+    const materialSelect = tr.querySelector('.material');
+    materialSelect.onchange = handleMaterialChange;
+    
+    document.getElementById('returContainerBody').appendChild(clone); 
+    
+    // Initialiser datalist
+    updateDimOptions(materialSelect);
+    
     updateAllSelects();
 }
 
@@ -654,15 +697,14 @@ function addRorSektion(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
     const id = `${sId}-R${state.tC}`;
-    // Opdateret container-selector til at finde den nye tbody
     const container = btn.closest('.card-body').querySelector('.ror-container');
     
-    // Opret en ny tabelrække (tr)
     const tr = document.createElement('tr');
     tr.dataset.id = id;
     tr.dataset.type = 'ror';
     
-    // Definer HTML for rækkens celler (td)
+    const datalistId = `list-${id}`; // Unikt ID for datalist
+    
     tr.innerHTML = `
         <td>
             <span class="input-group input-group-sm">
@@ -679,23 +721,28 @@ function addRorSektion(btn) {
                 <option value="outside">Udendørs</option>
             </select>
         </td>
-        <td><input type="number" min="0" class="form-control form-control-sm dim-input dim" value="20" title="Nominel diameter (mm)" aria-label="Nominel diameter (mm)"></td>
+        <td>
+            <input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Nominel diameter (mm)" list="${datalistId}">
+            <datalist id="${datalistId}"></datalist>
+        </td>
         <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde (m)" aria-label="Længde (m)"></td>
         <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
         <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
     `;
     
-    // Tilføj event listeners til den nye række
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-    tr.querySelector('.material').onchange = handleMaterialChange;
+    const materialSelect = tr.querySelector('.material');
+    materialSelect.onchange = handleMaterialChange;
     
-    // Tilføj rækken til containeren
     container.appendChild(tr);
     
     // Sæt "Forælder" dropdown
     const pSel = tr.querySelector('.parent');
     const rorInStreng = container.querySelectorAll('[data-type="ror"]');
     pSel.value = rorInStreng.length > 1 ? rorInStreng[rorInStreng.length - 2].dataset.id : 'Beholder';
+    
+    // Initialiser datalist for dimensioner
+    updateDimOptions(materialSelect);
     
     updateAllSelects();
 }
@@ -704,22 +751,18 @@ function addTapsted(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
     const id = `${sId}-T${state.tC}`;
-    // Opdateret container-selector til at finde den nye tbody
     const container = btn.closest('.card-body').querySelector('.tapsted-container');
     
-    // Byg option-streng til tapsteds-dropdown
     let opts = ''; 
     Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
     Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
     const defaultQf = ST["Lejlighed (standard)"];
 
-    // Opret en ny tabelrække (tr)
     const tr = document.createElement('tr');
     tr.dataset.id = id;
     tr.dataset.type = 'tapsted';
-    tr.dataset.isApartment = 'true'; // Default for "Lejlighed (standard)"
+    tr.dataset.isApartment = 'true'; 
     
-    // Definer HTML for rækkens celler (td)
     tr.innerHTML = `
         <td>
             <span class="input-group input-group-sm">
@@ -735,18 +778,12 @@ function addTapsted(btn) {
         <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
     `;
     
-    // Sæt dropdown til at matche standardværdien
     tr.querySelector('.tapType').value = defaultQf;
-
-    // Tilføj event listeners
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
-    // Tilføj rækken til containeren
     container.appendChild(tr);
     
-    // Sæt "Forælder" dropdown
     const pSel = tr.querySelector('.parent');
-    // Find rør i *denne* streng
     const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror"]');
     if(rorInStreng.length > 0) pSel.value = rorInStreng[rorInStreng.length-1].dataset.id;
     
@@ -755,20 +792,34 @@ function addTapsted(btn) {
 
 let valveCounter = 0;
 function addValve() {
-    const selectedType = document.getElementById('valveTypeSelect').value;
-    if (!selectedType) {
-        alert("Ingen ventiltyper er defineret.");
-        return;
-    }
+    // Fjernet læsning fra global selector
     valveCounter++;
     const id = `V${valveCounter}`;
-    const clone = document.getElementById('valveTRTemplate').content.cloneNode(true); // Opdateret template ID
-    const tr = clone.querySelector('tr'); // Finder <tr>
+    const clone = document.getElementById('valveTRTemplate').content.cloneNode(true); 
+    const tr = clone.querySelector('tr'); 
     tr.dataset.id = id;
-    tr.dataset.valveType = selectedType; 
-    tr.querySelector('.id-text').textContent = `${id} (${selectedType})`;
+    
+    const idText = tr.querySelector('.id-text');
+    idText.textContent = id; // Viser kun ID indtil type er valgt
+    
+    // Udfyld den lokale dropdown med ventil-typer
+    const valveSelect = tr.querySelector('.valve-type-select');
+    let opts = '<option value="" selected disabled>Vælg type...</option>';
+    for (const typeName in VALVE_TYPES) {
+        opts += `<option value="${typeName}">${typeName}</option>`;
+    }
+    valveSelect.innerHTML = opts;
+
+    // Tilføj onchange handler
+    valveSelect.onchange = (e) => {
+        const newType = e.target.value;
+        tr.dataset.valveType = newType;
+        // Opdater ID-tekst til at inkludere den valgte type
+        idText.textContent = `${id} (${newType.substring(0, 10)}...)`;
+    };
+
     tr.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
-    document.getElementById('returContainerBody').appendChild(clone); // Opdateret container ID
+    document.getElementById('returContainerBody').appendChild(clone); 
     updateAllSelects();
 }
 
@@ -1770,16 +1821,36 @@ function importProject(file) {
                 document.getElementById('strengeContainer').appendChild(clone);
                 const container = card.querySelector('.fremløb-container');
                 
-                (streng.ror || []).forEach(r => {
-                    state.tC++; // Samme som state.sC
-                    const div = createInputElement(r.id, 'ror');
-                    div.querySelector('.material').value = r.material;
-                    div.querySelector('.location').value = r.location || 'heated'; // Default til heated
-                    div.querySelector('.dim').value = r.dim;
-                    div.querySelector('.len').value = r.len;
-                    div.querySelector('.fittings').value = r.fittings;
-                    container.appendChild(div);
-                });
+		(streng.ror || []).forEach(r => {
+		    state.tC++;
+		    const id = r.id;
+		    const tr = document.createElement('tr');
+		    tr.dataset.id = id;
+		    tr.dataset.type = 'ror';
+		    const datalistId = `list-${id}`;
+		    
+		    tr.innerHTML = `
+		        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
+		        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
+		        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select></td>
+		        <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+		        <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+		        <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
+		        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
+		        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+		    `;
+		    
+		    // Sæt de gemte værdier
+		    tr.querySelector('.material').value = r.material;
+		    tr.querySelector('.location').value = r.location || 'heated';
+		    
+		    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+		    const materialSelect = tr.querySelector('.material');
+		    materialSelect.onchange = handleMaterialChange;
+		    
+		    container.appendChild(tr);
+		    updateDimOptions(materialSelect); // Initialiser datalist
+		});
                 
                 (streng.tapsted || []).forEach(t => {
                     state.tC++; // Samme som state.sC
@@ -1800,29 +1871,68 @@ function importProject(file) {
 
         // Genopbyg retur-rør
         if (data.retur) {
-            data.retur.forEach(r => {
-                const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
-                const div = clone.querySelector('div');
-                div.dataset.id = r.id;
-                div.querySelector('.material').value = r.material;
-                div.querySelector('.location').value = r.location || 'heated'; // Default til heated
-                div.querySelector('.dim').value = r.dim;
-                div.querySelector('.len').value = r.len;
-                div.querySelector('.fittings').value = r.fittings;
-                document.getElementById('returContainer').appendChild(clone);
-            });
-        }
+			(data.retur || []).forEach(r => {
+			    state.rC++;
+			    const id = r.id;
+			    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
+			    const tr = clone.querySelector('tr');
+			    tr.dataset.id = id;
+			    
+			    // Sæt unikke ID'er til datalist
+			    const datalistId = `list-${id}`;
+			    const dimInput = tr.querySelector('.dim-input');
+			    const datalist = tr.querySelector('datalist');
+			    dimInput.setAttribute('list', datalistId);
+			    datalist.id = datalistId;
+			    dimInput.value = r.dim; // Sæt den gemte dim-værdi
+			
+			    tr.querySelector('.id-text').textContent = id;
+			    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+			    
+			    const materialSelect = tr.querySelector('.material');
+			    materialSelect.value = r.material;
+			    materialSelect.onchange = handleMaterialChange;
+			    
+			    tr.querySelector('.location').value = r.location || 'heated';
+			    tr.querySelector('.len').value = r.len;
+			    tr.querySelector('.fittings').value = r.fittings;
+			
+			    document.getElementById('returContainerBody').appendChild(clone);
+			    updateDimOptions(materialSelect); // Initialiser datalist
+			});
 
-        // Genopbyg ventiler
+		// NYT: Genopbyg ventiler (til tabelstruktur)
         if (data.valves) {
             data.valves.forEach(v => {
-                const clone = document.getElementById('valveTemplate').content.cloneNode(true);
-                const div = clone.querySelector('div');
-                div.dataset.id = v.id;
-                div.dataset.valveType = v.valveType;
-                div.querySelector('.id-text').textContent = `${v.id} (${v.valveType})`;
-                div.querySelector('.name-input').onchange = (ev) => state.names.set(v.id, ev.target.value);
-                document.getElementById('returContainer').appendChild(clone);
+                valveCounter++;
+                const clone = document.getElementById('valveTRTemplate').content.cloneNode(true);
+                const tr = clone.querySelector('tr');
+                tr.dataset.id = v.id;
+                tr.dataset.valveType = v.valveType;
+                
+                // Udfyld den lokale dropdown
+                const valveSelect = tr.querySelector('.valve-type-select');
+                let opts = '';
+                for (const typeName in VALVE_TYPES) {
+                    opts += `<option value="${typeName}">${typeName}</option>`;
+                }
+                valveSelect.innerHTML = opts;
+                
+                // Sæt den gemte værdi
+                valveSelect.value = v.valveType;
+
+                // Sæt ID-tekst
+                tr.querySelector('.id-text').textContent = `${v.id} (${v.valveType.substring(0, 10)}...)`;
+
+                // Tilføj onchange handler
+                valveSelect.onchange = (e) => {
+                    const newType = e.target.value;
+                    tr.dataset.valveType = newType;
+                    tr.querySelector('.id-text').textContent = `${v.id} (${newType.substring(0, 10)}...)`;
+                };
+
+                tr.querySelector('.name-input').onchange = (ev) => state.names.set(v.id, ev.target.value);
+                document.getElementById('returContainerBody').appendChild(clone);
             });
         }
 
