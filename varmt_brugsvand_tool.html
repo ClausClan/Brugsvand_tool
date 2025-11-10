@@ -58,7 +58,11 @@
             font-size: 0.9em;
             margin-left: 4px;
             text-decoration: none;
-            /* Fjernet border, border-radius og padding for at fjerne cirklen */
+        }
+        
+        /* NYT: Normaliser tabel-overskrifter */
+        .card-body th {
+            font-weight: normal;
         }
 
     </style>
@@ -159,12 +163,28 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="accordion-item">
+							<div class="accordion-item">
                             <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Retur Netværk</button></h2>
                             <div id="collapseRetur" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
                                 <div class="accordion-body">
-				<div id="returContainer"></div>
-				<div class="d-flex gap-2 mt-2">
+                <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">ID/Navn</th>
+                            <th style="width: 15%;">Forælder</th>
+                            <th style="width: 10%;">Type</th>
+                            <th style="width: 10%;">Mat.</th>
+                            <th style="width: 10%;">Plac.</th>
+                            <th style="width: 10%;">Dim [mm]</th>
+                            <th style="width: 10%;">Længde [m]</th>
+                            <th style="width: 10%;">Zeta [ζ]</th>
+                            <th style="width: 10%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="returContainerBody">
+                        </tbody>
+                </table>
+                <div class="d-flex gap-2 mt-2">
 				    <button class="btn btn-primary" style="white-space: nowrap;" aria-label="Tilføj retur-rør" onclick="addReturRor()">+ Retur-rør</button>
 				    <div class="vr"></div>
 					<select id="valveTypeSelect" class="form-select w-auto" aria-label="Vælg ventli type">
@@ -412,21 +432,29 @@
     </div>
 </template>
 
-<template id="returRorTemplate">
-    <div class="input-group input-group-sm mb-2 retur-ror" data-type="retur">
-        <span class="input-group-text"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv retur-røret et unikt navn"></span>
-        <select class="form-select parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select>
-        <select class="form-select material" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
-<select class="form-select location" title="Placering (ift. varmetabsberegning)">
-    <option value="heated" selected>Opvarmet rum</option>
-    <option value="unheated">Uopvarmet rum</option>
-    <option value="outside">Udendørs</option>
-</select>
-        <input type="number" min="0" class="form-control dim-input dim" value="16" title="Nominel diameter (mm)">
-        <input type="number" min="0" class="form-control len" value="10" title="Længde (m)">
-        <input type="number" min="0" class="form-control fittings" value="0" title="Sum af enkeltmodstande (zeta)">
-        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern retur-rør" onclick="removeElement(this)">&times;</button>
-    </div>
+<template id="returRorTRTemplate">
+    <tr data-type="retur">
+        <td>
+            <span class="input-group input-group-sm">
+                <span class="input-group-text id-text"></span>
+                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv retur-røret et unikt navn">
+            </span>
+        </td>
+        <td><select class="form-select form-select-sm parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">Rør</span></td>
+        <td><select class="form-select form-select-sm material" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select></td>
+        <td>
+            <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
+                <option value="heated" selected>Opvarmet rum</option>
+                <option value="unheated">Uopvarmet rum</option>
+                <option value="outside">Udendørs</option>
+            </select>
+        </td>
+        <td><input type="number" min="0" class="form-control form-control-sm dim-input dim" value="16" title="Nominel diameter (mm)"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde (m)"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Sum af enkeltmodstande (zeta)"></td>
+        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern retur-rør" onclick="removeElement(this)">&times;</button></td>
+    </tr>
 </template>
 
 <template id="customTapstedTemplate">
@@ -438,16 +466,26 @@
     </div>
 </template>
 
-<template id="valveTemplate">
-    <div class="input-group input-group-sm mb-2" data-type="valve">
-        <span class="input-group-text">
-            <svg width="16" height="16" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg>
-            <span class="id-text ms-2"></span>
-            <input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv ventilen et unikt navn">
-        </span>
-        <select class="form-select parent" aria-label="Forælder node" title="Vælg hvilket retur-rør, ventil eller Beholder denne ventil starter fra"></select>
-        <button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern ventil">&times;</button>
-    </div>
+<template id="valveTRTemplate">
+     <tr data-type="valve">
+        <td>
+            <span class="input-group input-group-sm">
+                <span class="input-group-text">
+                    <svg width="14" height="14" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg>
+                    <span class="id-text ms-2"></span>
+                </span>
+                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv ventilen et unikt navn">
+            </span>
+        </td>
+        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg hvilket retur-rør, ventil eller Beholder denne ventil starter fra"></select></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">Ventil</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button></td>
+    </tr>
 </template>
 
 <script>
@@ -602,16 +640,13 @@ function addStreng() {
 function addReturRor() {
     state.rC++;
     const id = `Retur${state.rC}`;
-    const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
-    const div = clone.querySelector('div');
-    div.dataset.id = id;
-    div.querySelector('.id-text').textContent = id;
-    div.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-    // highlight-start
-    // Tilføj event listener til materialevalg
-    div.querySelector('.material').onchange = handleMaterialChange;
-    // highlight-end
-    document.getElementById('returContainer').appendChild(clone);
+    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true); // Opdateret template ID
+    const tr = clone.querySelector('tr'); // Finder <tr>
+    tr.dataset.id = id;
+    tr.querySelector('.id-text').textContent = id;
+    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    tr.querySelector('.material').onchange = handleMaterialChange;
+    document.getElementById('returContainerBody').appendChild(clone); // Opdateret container ID
     updateAllSelects();
 }
 
@@ -727,13 +762,13 @@ function addValve() {
     }
     valveCounter++;
     const id = `V${valveCounter}`;
-    const clone = document.getElementById('valveTemplate').content.cloneNode(true);
-    const div = clone.querySelector('div');
-    div.dataset.id = id;
-    div.dataset.valveType = selectedType; // Gem den valgte type på elementet
-    div.querySelector('.id-text').textContent = `${id} (${selectedType})`;
-    div.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
-    document.getElementById('returContainer').appendChild(clone);
+    const clone = document.getElementById('valveTRTemplate').content.cloneNode(true); // Opdateret template ID
+    const tr = clone.querySelector('tr'); // Finder <tr>
+    tr.dataset.id = id;
+    tr.dataset.valveType = selectedType; 
+    tr.querySelector('.id-text').textContent = `${id} (${selectedType})`;
+    tr.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
+    document.getElementById('returContainerBody').appendChild(clone); // Opdateret container ID
     updateAllSelects();
 }
 
@@ -887,7 +922,7 @@ function buildNetworkAndRender() {
     state.links = [];
     
     // RETTELSE: Tilføjet '[data-type="valve"]' så ventiler kommer med i diagrammet
- const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], .retur-ror[data-id], [data-type="valve"]');
+	const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
     
     elements.forEach(el => {
         const pos = oldNodes.get(el.dataset.id);
@@ -2912,23 +2947,45 @@ function handleNodeRightClick(event, d) {
     }
     if (nodeType === 'ror') {
         createMenuItem('Tilføj rør her', () => {
-            const parentId = d.id; const strengId = parentId.split('-')[0];
+            const parentId = d.id; 
+            const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
+                // 1. Find den korrekte knap
                 const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
+                if (!addRorButton) { console.error("Could not find 'Add Rør' button"); return; }
+                
+                // 2. Kald funktionen til at tilføje en ny række
                 addRorSektion(addRorButton);
-                const newPipe = strengCard.querySelector('.fremløb-container > [data-type="ror"]:last-child');
-                if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
+                
+                // 3. Find den NYE række i den korrekte tbody
+                const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror"]:last-child');
+                if (newPipe) { 
+                    // 4. Sæt dens forælder til den klikkede node
+                    newPipe.querySelector('.parent').value = parentId; 
+                    updateAllSelects(); 
+                }
             }
         });
         createMenuItem('Tilføj tapsted her', () => {
-            const parentId = d.id; const strengId = parentId.split('-')[0];
+            const parentId = d.id; 
+            const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
+                // 1. Find den korrekte knap
                 const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
+                if (!addTapstedButton) { console.error("Could not find 'Add Tapsted' button"); return; }
+
+                // 2. Kald funktionen
                 addTapsted(addTapstedButton);
-                const newTapsted = strengCard.querySelector('.fremløb-container > [data-type="tapsted"]:last-child');
-                if (newTapsted) { newTapsted.querySelector('.parent').value = parentId; updateAllSelects(); }
+                
+                // 3. Find den NYE række i den korrekte tbody
+                const newTapsted = strengCard.querySelector('.tapsted-container > tr[data-type="tapsted"]:last-child');
+                if (newTapsted) { 
+                    // 4. Sæt dens forælder
+                    newTapsted.querySelector('.parent').value = parentId; 
+                    updateAllSelects(); 
+                }
             }
         });
     }
@@ -2937,16 +2994,20 @@ function handleNodeRightClick(event, d) {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
-                const firstPipe = newStreng.querySelector('[data-type="ror"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+                // Find det første rør i den nye streng (i den nye container)
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror"]');
+                if (firstPipe) { 
+                    firstPipe.querySelector('.parent').value = d.id; 
+                    updateAllSelects(); 
+                }
             }
         });
     }
-    if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
+	if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
         // RETTELSE: Koden for at tilføje retur-rør var tom. Den er nu genindsat.
         createMenuItem('Tilføj retur-rør her', () => {
             addReturRor();
-            const newReturRor = document.querySelector('#returContainer .retur-ror:last-child');
+            const newReturRor = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child'); // Opdateret selector
             if (newReturRor) {
                 newReturRor.querySelector('.parent').value = d.id;
                 updateAllSelects();
@@ -2954,7 +3015,7 @@ function handleNodeRightClick(event, d) {
         });
         createMenuItem('Tilføj Cirkulationsventil her', () => {
             addValve();
-            const newValve = document.querySelector('#returContainer > [data-type="valve"]:last-child');
+            const newValve = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child'); // Opdateret selector
             if (newValve) {
                 newValve.querySelector('.parent').value = d.id;
                 updateAllSelects();
@@ -2966,7 +3027,8 @@ function handleNodeRightClick(event, d) {
              menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
         }
         createMenuItem('Slet Komponent', () => {
-            const element = document.querySelector(`[data-id="${d.id}"]`);
+            // Find elementet, uanset om det er en <tr> eller en <div>
+            const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
             if (element) {
                 const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
                 if (uiDeleteButton) uiDeleteButton.click();
@@ -2979,7 +3041,6 @@ function handleNodeRightClick(event, d) {
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
 }
-
 /**
  * Fjerner kontekstmenuen fra siden.
  */
