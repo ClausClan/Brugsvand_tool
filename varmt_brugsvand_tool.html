@@ -1483,7 +1483,7 @@ function exportProject() {
         config: getGlobalConfig(),
         strenge: [],
         retur: [],
-        valves: [], // NYT: Array til at gemme ventiler
+        valves: [],
         names: Array.from(state.names),
         nodePositions: state.nodes.map(n => ({ id: n.id, fx: n.fx, fy: n.fy })),
         customTapsteder: state.customTapsteder
@@ -1502,7 +1502,7 @@ function exportProject() {
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
                 material: el.querySelector('.material').value,
-                location: el.querySelector('.location').value, // Gem placering
+                location: el.querySelector('.location').value,
                 dim: parseFloat(el.querySelector('.dim').value),
                 len: parseFloat(el.querySelector('.len').value),
                 fittings: parseFloat(el.querySelector('.fittings').value)
@@ -1514,7 +1514,7 @@ function exportProject() {
                 parent: el.querySelector('.parent').value,
                 tapType: el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text,
                 qf: parseFloat(el.querySelector('.qf').value),
-                kote: parseFloat(el.querySelector('.kote').value) || 0, // <-- TILFØJET KOTE
+                kote: parseFloat(el.querySelector('.kote').value) || 0, // Kote er tilføjet
                 syst: el.querySelector('.syst').checked,
                 isApartment: el.dataset.isApartment === 'true'
             });
@@ -1526,14 +1526,13 @@ function exportProject() {
             id: el.dataset.id,
             parent: el.querySelector('.parent').value,
             material: el.querySelector('.material').value,
-            location: el.querySelector('.location').value, // Gem placering
+            location: el.querySelector('.location').value,
             dim: parseFloat(el.querySelector('.dim').value),
             len: parseFloat(el.querySelector('.len').value),
             fittings: parseFloat(el.querySelector('.fittings').value)
         });
     });
 
-    // NYT: Gem ventiler
     document.querySelectorAll('[data-type="valve"]').forEach(el => {
         data.valves.push({
             id: el.dataset.id,
@@ -1550,25 +1549,7 @@ function exportProject() {
     a.click();
     URL.revokeObjectURL(url);
 }
-
-    // NYT: Gem ventiler
-    document.querySelectorAll('[data-type="valve"]').forEach(el => {
-        data.valves.push({
-            id: el.dataset.id,
-            parent: el.querySelector('.parent').value,
-            valveType: el.dataset.valveType
-        });
-    });
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `brugsvand_projekt.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-}
-
+	
 function importProject(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -1579,51 +1560,52 @@ function importProject(file) {
         document.getElementById('returContainer').innerHTML = '';
         document.getElementById('customTapsteder').innerHTML = '';
         state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
-let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
-if (data.strenge) {
-    data.strenge.forEach(streng => {
-        const sNum = parseInt(streng.id.replace('S', ''), 10);
-        if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
-        const components = [...(streng.ror || []), ...(streng.tapsted || [])];
-        components.forEach(comp => {
-            const idParts = comp.id.split(/[RT-]/);
-            const tNum = parseInt(idParts[idParts.length - 1], 10);
-            if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
-        });
-    });
-}
-	if (data.retur) {
-	    data.retur.forEach(r => {
-	        const rNum = parseInt(r.id.replace('Retur', ''), 10);
-	        if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
-	    });
-}
-        if (data.valves) { // NYT: Find højeste ventil-ID
+        let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
+
+        if (data.strenge) {
+            data.strenge.forEach(streng => {
+                const sNum = parseInt(streng.id.replace('S', ''), 10);
+                if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
+                const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+                components.forEach(comp => {
+                    const idParts = comp.id.split(/[RT-]/);
+                    const tNum = parseInt(idParts[idParts.length - 1], 10);
+                    if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
+                });
+            });
+        }
+        if (data.retur) {
+            data.retur.forEach(r => {
+                const rNum = parseInt(r.id.replace('Retur', ''), 10);
+                if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
+            });
+        }
+        if (data.valves) { 
             data.valves.forEach(v => {
                 const vNum = parseInt(v.id.replace('V', ''), 10);
                 if (!isNaN(vNum) && vNum > maxV) maxV = vNum;
             });
         }
         
-        // SÆT COUNTERS (KUN ÉN GANG)
         state.sC = maxS;
         state.rC = maxR;
         state.tC = maxT;
         valveCounter = maxV;
-// (DUPLIKEREDE LINJER FJERNET HERFRA)
 
         state.names = new Map(data.names);
         if (data.nodePositions) state.nodes = data.nodePositions;
-        state.customTapsteder = data.customTapsteder;
+        state.customTapsteder = data.customTapsteder || {}; // Sikrer at customTapsteder ikke er null
         Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
         
         // Sæt globale config-værdier
-        Object.entries(data.config).forEach(([k, v]) => {
-            const el = document.getElementById(k);
-            if (el) el.value = v;
-            if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
-        });
-        toggleAutoDim(data.config.isAuto);
+        if (data.config) {
+            Object.entries(data.config).forEach(([k, v]) => {
+                const el = document.getElementById(k);
+                if (el) el.value = v;
+                if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
+            });
+            toggleAutoDim(data.config.isAuto);
+        }
 
         // Genopbyg custom tapsteder
         Object.keys(state.customTapsteder).forEach(k => {
@@ -1636,51 +1618,59 @@ if (data.strenge) {
         });
 
         // Genopbyg strenge og deres elementer UDEN at sætte .parent endnu
-        data.strenge.forEach(streng => {
-            state.sC++;
-            const clone = document.getElementById('strengTemplate').content.cloneNode(true);
-            const card = clone.querySelector('.card');
-            card.dataset.id = streng.id;
-            document.getElementById('strengeContainer').appendChild(clone);
-            const container = card.querySelector('.fremløb-container');
-streng.ror.forEach(r => {
-    state.tC++;
-    const div = createInputElement(r.id, 'ror');
-    div.querySelector('.material').value = r.material;
-    div.querySelector('.location').value = r.location; // Genskab placering
-    div.querySelector('.dim').value = r.dim;
-    div.querySelector('.len').value = r.len;
-    div.querySelector('.fittings').value = r.fittings;
-    container.appendChild(div);
-});
-            streng.tapsted.forEach(t => {
-                state.tC++;
-                const div = createInputElement(t.id, 'tapsted');
-                let opts = '';
-                const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
-                Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
-                // KORREKT LINJE MED KOTE
-                div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
-                div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
-                div.dataset.isApartment = t.isApartment ? 'true' : 'false';
-                container.appendChild(div);
+        if (data.strenge) {
+            data.strenge.forEach(streng => {
+                state.sC++; // Denne skal måske fjernes hvis vi stoler på maxS, men lader den stå for nu
+                const clone = document.getElementById('strengTemplate').content.cloneNode(true);
+                const card = clone.querySelector('.card');
+                card.dataset.id = streng.id;
+                document.getElementById('strengeContainer').appendChild(clone);
+                const container = card.querySelector('.fremløb-container');
+                
+                (streng.ror || []).forEach(r => {
+                    state.tC++; // Samme som state.sC
+                    const div = createInputElement(r.id, 'ror');
+                    div.querySelector('.material').value = r.material;
+                    div.querySelector('.location').value = r.location || 'heated'; // Default til heated
+                    div.querySelector('.dim').value = r.dim;
+                    div.querySelector('.len').value = r.len;
+                    div.querySelector('.fittings').value = r.fittings;
+                    container.appendChild(div);
+                });
+                
+                (streng.tapsted || []).forEach(t => {
+                    state.tC++; // Samme som state.sC
+                    const div = createInputElement(t.id, 'tapsted');
+                    let opts = '';
+                    const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
+                    Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
+                    
+                    // Indsæt HTML med den indlæste kote-værdi
+                    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
+                    
+                    div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
+                    div.dataset.isApartment = t.isApartment ? 'true' : 'false';
+                    container.appendChild(div);
+                });
             });
-        });
+        }
 
-        // Genopbyg retur-rør UDEN at sætte .parent endnu
-data.retur.forEach(r => {
-    const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
-    const div = clone.querySelector('div');
-    div.dataset.id = r.id;
-    div.querySelector('.material').value = r.material;
-    div.querySelector('.location').value = r.location; // Genskab placering
-    div.querySelector('.dim').value = r.dim;
-    div.querySelector('.len').value = r.len;
-    div.querySelector('.fittings').value = r.fittings;
-    document.getElementById('returContainer').appendChild(clone);
-});
+        // Genopbyg retur-rør
+        if (data.retur) {
+            data.retur.forEach(r => {
+                const clone = document.getElementById('returRorTemplate').content.cloneNode(true);
+                const div = clone.querySelector('div');
+                div.dataset.id = r.id;
+                div.querySelector('.material').value = r.material;
+                div.querySelector('.location').value = r.location || 'heated'; // Default til heated
+                div.querySelector('.dim').value = r.dim;
+                div.querySelector('.len').value = r.len;
+                div.querySelector('.fittings').value = r.fittings;
+                document.getElementById('returContainer').appendChild(clone);
+            });
+        }
 
-        // NYT: Genopbyg ventiler
+        // Genopbyg ventiler
         if (data.valves) {
             data.valves.forEach(v => {
                 const clone = document.getElementById('valveTemplate').content.cloneNode(true);
@@ -1693,43 +1683,47 @@ data.retur.forEach(r => {
             });
         }
 
-        // KALD updateAllSelects() FØRST for at opbygge alle dropdowns
+        // KALD updateAllSelects() FØRST
         updateAllSelects();
 
-        // SÆT SÅ DE KORREKTE RELATIONER, nu hvor valgmulighederne eksisterer
-        data.strenge.forEach(streng => {
-            const card = document.querySelector(`[data-id="${streng.id}"]`);
-            if (!card) return;
-            card.querySelector('.name-text').value = state.names.get(streng.id) || '';
-            card.querySelector('.circ-start').value = streng.circ_start;
-            card.querySelector('.circ-end').value = streng.circ_end;
-            card.querySelector('.circ-zeta').value = streng.circ_zeta;
+        // SÆT SÅ DE KORREKTE RELATIONER
+        if (data.strenge) {
+            data.strenge.forEach(streng => {
+                const card = document.querySelector(`[data-id="${streng.id}"]`);
+                if (!card) return;
+                card.querySelector('.name-text').value = state.names.get(streng.id) || '';
+                card.querySelector('.circ-start').value = streng.circ_start;
+                card.querySelector('.circ-end').value = streng.circ_end;
+                card.querySelector('.circ-zeta').value = streng.circ_zeta;
 
-            streng.ror.forEach(r => {
-                const el = document.querySelector(`[data-id="${r.id}"]`);
-                if(el) {
+                (streng.ror || []).forEach(r => {
+                    const el = document.querySelector(`[data-id="${r.id}"]`);
+                    if(el) {
+                        el.querySelector('.parent').value = r.parent;
+                        el.querySelector('.name-text').value = state.names.get(r.id) || '';
+                    }
+                });
+                (streng.tapsted || []).forEach(t => {
+                    const el = document.querySelector(`[data-id="${t.id}"]`);
+                    if(el) {
+                        el.querySelector('.parent').value = t.parent;
+                        el.querySelector('.name-text').value = state.names.get(t.id) || '';
+                    }
+                });
+            });
+        }
+
+        if (data.retur) {
+            data.retur.forEach(r => {
+                 const el = document.querySelector(`[data-id="${r.id}"]`);
+                 if(el) {
                     el.querySelector('.parent').value = r.parent;
                     el.querySelector('.name-text').value = state.names.get(r.id) || '';
-                }
+                 }
             });
-            streng.tapsted.forEach(t => {
-                const el = document.querySelector(`[data-id="${t.id}"]`);
-                if(el) {
-                    el.querySelector('.parent').value = t.parent;
-                    el.querySelector('.name-text').value = state.names.get(t.id) || '';
-                }
-            });
-        });
-
-        data.retur.forEach(r => {
-             const el = document.querySelector(`[data-id="${r.id}"]`);
-             if(el) {
-                el.querySelector('.parent').value = r.parent;
-                el.querySelector('.name-text').value = state.names.get(r.id) || '';
-             }
-        });
+        }
         
-if (data.valves) {
+        if (data.valves) {
             data.valves.forEach(v => {
                 const el = document.querySelector(`[data-id="${v.id}"]`);
                 if (el) {
@@ -1738,7 +1732,8 @@ if (data.valves) {
                 }
             });
         }
-        // Kald updateAllSelects() IGEN for at sikre at alt er synkroniseret og diagrammet opdateres korrekt
+        
+        // Kald updateAllSelects() IGEN
         updateAllSelects();
         toggleDisplayNames(state.useNames);
     };
