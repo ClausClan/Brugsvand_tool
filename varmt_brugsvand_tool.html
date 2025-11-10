@@ -484,11 +484,13 @@ const gridSize = 10;
 
 document.addEventListener('DOMContentLoaded', () => {
     populateValveTypes();
-	// Initialiser Bootstrap Popovers
+
+    // Initialiser Bootstrap Popovers
     const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
     const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {
         trigger: 'hover focus' // Vises ved hover og kan fokuseres (for mobil)
     }));
+
     initDiagram();
     addStreng();
     addTapsted(document.querySelector('.streng-card .btn-outline-secondary:last-of-type'));
