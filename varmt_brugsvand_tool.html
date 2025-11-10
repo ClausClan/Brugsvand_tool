@@ -51,17 +51,14 @@
         .link-text { font-size: 6px; fill: #333; }
         .name-input { font-size: 0.8rem; margin-left: 5px; }
 
-        /* NYT TILFØJET STYLING */
-        .info-popover {
+		.info-popover {
             font-weight: bold;
             color: #0d6efd; /* Bootstrap Blå */
             cursor: help;
             font-size: 0.9em;
             margin-left: 4px;
-            border: 1px solid #0d6efd;
-            border-radius: 50%;
-            padding: 0px 5px;
             text-decoration: none;
+            /* Fjernet border, border-radius og padding for at fjerne cirklen */
         }
 
     </style>
@@ -82,26 +79,26 @@
                                 <div class="accordion-body">
 									<h6>Grundlæggende Data</h6>
                                     <div class="row g-3 mb-3">
-                                        <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (Pa). Jf. [cite_start]DS 439:2024, afsnit 6.2.2.1. [cite: 395, 697, 698]">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningens Kote" data-bs-content="Den geodætiske kote (højde i meter) for forsyningspunktet. Anvendes som reference for beregning af løftehøjde til tapsteder. Jf. [cite_start]DS 439:2024, afsnit 6.3.5.1. [cite: 808]">(?)</a></label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 100.000 Pa / 1 bar). Jf. [cite_start]DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer. [cite: 425, 835]">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="T_v">Fremløbstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. [cite_start]DS 439:2024, afsnit 5.6.1 og 6.6.2.1. [cite: 662, 938, 939]">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (Pa). Jf. DS 439:2024, afsnit 6.2.2.1.">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningens Kote" data-bs-content="Den geodætiske kote (højde i meter) for forsyningspunktet. Anvendes som reference for beregning af løftehøjde til tapsteder. Jf. DS 439:2024, afsnit 6.3.5.1.">(?)</a></label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 100.000 Pa / 1 bar). Jf. DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer.">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="T_v">Fremløbstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. DS 439:2024, afsnit 5.6.1 og 6.6.2.1.">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6">
-    <label class="form-label" for="T_omg">Omgivelsestemperatur (Indendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Indendørs)" data-bs-content="Den omgivende temperatur for rør placeret i opvarmede rum (rum > 5°C). Anvendes til beregning af varmetab. Jf. [cite_start]DS 452, afsnit 3.12 og 6.1.11. [cite: 2167, 2323]">(?)</a></label>
+    <label class="form-label" for="T_omg">Omgivelsestemperatur (Indendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Indendørs)" data-bs-content="Den omgivende temperatur for rør placeret i opvarmede rum (rum > 5°C). Anvendes til beregning af varmetab. Jf. DS 452, afsnit 3.12 og 6.1.11.">(?)</a></label>
     <div class="input-group">
         <input id="T_omg" type="number" class="form-control" value="20">
         <span class="input-group-text">°C</span>
     </div>
 </div>
 <div class="col-md-6">
-    <label class="form-label" for="T_omg_ude">Omgivelsestemperatur (Udendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Udendørs)" data-bs-content="Den omgivende temperatur for rør placeret 'ude' (i det fri, i jord, eller i uopvarmede rum < 5°C). Anvendes til beregning af varmetab. Jf. [cite_start]DS 452, afsnit 3.18. [cite: 2189, 2192]">(?)</a></label>
+    <label class="form-label" for="T_omg_ude">Omgivelsestemperatur (Udendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Udendørs)" data-bs-content="Den omgivende temperatur for rør placeret 'ude' (i det fri, i jord, eller i uopvarmede rum < 5°C). Anvendes til beregning af varmetab. Jf. DS 452, afsnit 3.18.">(?)</a></label>
     <div class="input-group">
         <input id="T_omg_ude" type="number" class="form-control" value="5">
         <span class="input-group-text">°C</span>
     </div>
 </div>
-										<div class="col-md-6"><label class="form-label" for="dT">Ønsket ΔT for cirkulation <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Ønsket Delta-T (Cirkulation)" data-bs-content="Det acceptable temperaturtab (Delta-Temperatur) i cirkulationskredsen. Typisk 5 K (5°C). Et lavere dT kræver højere flow for at dække samme varmetab. Jf. [cite_start]DS 439:2024, afsnit 5.5.13. [cite: 619]">(?)</a></label><div class="input-group"><input id="dT" type="number" min="0.1" class="form-control" value="5"><span class="input-group-text">K</span></div></div>
-<div class="col-md-6"><label class="form-label" for="lambda">Isoleringsevne (Lambda, λ) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Isoleringsevne (Lambda, λ)" data-bs-content="Varmeledningsevnen for det valgte isoleringsmateriale. 0.037 W/m·K er en typisk værdi for mineraluld. Bruges til beregning af varmetab jf. [cite_start]DS 452. [cite: 2235]">(?)</a></label><div class="input-group"><input id="lambda" type="number" min="0" step="0.001" class="form-control" value="0.037"><span class="input-group-text">W/m·K</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="dT">Ønsket ΔT for cirkulation <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Ønsket Delta-T (Cirkulation)" data-bs-content="Det acceptable temperaturtab (Delta-Temperatur) i cirkulationskredsen. Typisk 5 K (5°C). Et lavere dT kræver højere flow for at dække samme varmetab. Jf. DS 439:2024, afsnit 5.5.13.">(?)</a></label><div class="input-group"><input id="dT" type="number" min="0.1" class="form-control" value="5"><span class="input-group-text">K</span></div></div>
+<div class="col-md-6"><label class="form-label" for="lambda">Isoleringsevne (Lambda, λ) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Isoleringsevne (Lambda, λ)" data-bs-content="Varmeledningsevnen for det valgte isoleringsmateriale. 0.037 W/m·K er en typisk værdi for mineraluld. Bruges til beregning af varmetab jf. DS 452.">(?)</a></label><div class="input-group"><input id="lambda" type="number" min="0" step="0.001" class="form-control" value="0.037"><span class="input-group-text">W/m·K</span></div></div>
                                     <hr>
                                     <h6>Automatisk Dimensionering</h6>
                                     <div class="form-check form-switch mb-2">
@@ -109,7 +106,7 @@
                                         <label class="form-check-label" for="autoDimToggle"><b>Aktiver "Design Mode"</b></label>
                                     </div>
 <div class="row g-3" id="autoDimInputs">
-<div class="col-md-12">
+    <div class="col-md-12">
         <label class="form-label" for="dimPrinciple">Dimensioneringsprincip <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Dimensioneringsprincip" data-bs-content="Vælg, hvordan 'Design Mode' skal prioritere. 'Kombineret' er standard. 'Global optimering' er langsommere, men forsøger at finde den mest materialebesparende løsning, der overholder alle globale trykkrav.">(?)</a></label>
         <select id="dimPrinciple" class="form-select" onchange="toggleGlobalOptimizationInputs()">
             <option value="combined" selected>Kombineret (Hastighed & Tryktab)</option>
@@ -123,8 +120,8 @@
 <div id="standardInputs" class="contents">
         <div class="row g-3">
             <div class="col-md-4"><label class="form-label" for="max_dp_m">Max Δp Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Max Tryktab (Pa/m)" data-bs-content="Maksimalt tilladt tryktab pr. meter rør (Pa/m). En almindelig designværdi er 150-500 Pa/m. Anvendes af 'Design Mode' til at vælge rørdimension.">(?)</a></label><div class="input-group"><input id="max_dp_m" type="number" min="0" value="500" class="form-control"><span class="input-group-text">Pa/m</span></div></div>
-            <div class="col-md-4"><label class="form-label" for="max_v_f">Max v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Max Hastighed (Fremløb)" data-bs-content="Maksimal tilladt vandhastighed (m/s) i fremløbsrør. Anvendes af 'Design Mode'. Høje hastigheder kan medføre støj og korrosion. Jf. [cite_start]DS 439:2024, afsnit 5.4 og Tabel 10. [cite: 491, 1395]">(?)</a></label><div class="input-group"><input id="max_v_f" type="number" min="0" value="1.0" class="form-control"><span class="input-group-text">m/s</span></div></div>
-            <div class="col-md-4"><label class="form-label" for="min_v_f">Min v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Min Hastighed (Fremløb)" data-bs-content="Mindste ønskede vandhastighed (m/s) i fremløbsrør for at sikre turbulent strømning og modvirke biofilm. Jf. [cite_start]DS 439:2024, afsnit 5.5.14. [cite: 622]">(?)</a></label><div class="input-group"><input id="min_v_f" type="number" min="0" step="0.1" value="0.5" class="form-control"><span class="input-group-text">m/s</span></div></div>
+            <div class="col-md-4"><label class="form-label" for="max_v_f">Max v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Max Hastighed (Fremløb)" data-bs-content="Maksimal tilladt vandhastighed (m/s) i fremløbsrør. Anvendes af 'Design Mode'. Høje hastigheder kan medføre støj og korrosion. Jf. DS 439:2024, afsnit 5.4 og Tabel 10.">(?)</a></label><div class="input-group"><input id="max_v_f" type="number" min="0" value="1.0" class="form-control"><span class="input-group-text">m/s</span></div></div>
+            <div class="col-md-4"><label class="form-label" for="min_v_f">Min v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Min Hastighed (Fremløb)" data-bs-content="Mindste ønskede vandhastighed (m/s) i fremløbsrør for at sikre turbulent strømning og modvirke biofilm. Jf. DS 439:2024, afsnit 5.5.14.">(?)</a></label><div class="input-group"><input id="min_v_f" type="number" min="0" step="0.1" value="0.5" class="form-control"><span class="input-group-text">m/s</span></div></div>
         </div>
     </div>
 
