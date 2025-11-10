@@ -1604,13 +1604,13 @@ if (data.strenge) {
                 if (!isNaN(vNum) && vNum > maxV) maxV = vNum;
             });
         }
+        
+        // SÆT COUNTERS (KUN ÉN GANG)
         state.sC = maxS;
         state.rC = maxR;
         state.tC = maxT;
         valveCounter = maxV;
-state.sC = maxS;
-state.rC = maxR;
-state.tC = maxT;
+// (DUPLIKEREDE LINJER FJERNET HERFRA)
 
         state.names = new Map(data.names);
         if (data.nodePositions) state.nodes = data.nodePositions;
@@ -1659,7 +1659,7 @@ streng.ror.forEach(r => {
                 let opts = '';
                 const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
                 Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
-                // <-- FØLGENDE LINJE ER OPDATERET TIL AT INDLÆSE KOTE -->
+                // KORREKT LINJE MED KOTE
                 div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
                 div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
                 div.dataset.isApartment = t.isApartment ? 'true' : 'false';
