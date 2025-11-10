@@ -1751,7 +1751,7 @@ function importProject(file) {
         const data = JSON.parse(e.target.result);
         
         document.getElementById('strengeContainer').innerHTML = '';
-        document.getElementById('returContainer').innerHTML = '';
+        document.getElementById('returContainerBody').innerHTML = ''; // Opdateret til den nye tbody ID
         document.getElementById('customTapsteder').innerHTML = '';
         state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
         let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
@@ -1788,10 +1788,9 @@ function importProject(file) {
 
         state.names = new Map(data.names);
         if (data.nodePositions) state.nodes = data.nodePositions;
-        state.customTapsteder = data.customTapsteder || {}; // Sikrer at customTapsteder ikke er null
+        state.customTapsteder = data.customTapsteder || {}; 
         Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
         
-        // Sæt globale config-værdier
         if (data.config) {
             Object.entries(data.config).forEach(([k, v]) => {
                 const el = document.getElementById(k);
@@ -1801,7 +1800,6 @@ function importProject(file) {
             toggleAutoDim(data.config.isAuto);
         }
 
-        // Genopbyg custom tapsteder
         Object.keys(state.customTapsteder).forEach(k => {
             const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
             clone.querySelector('.input-group-text').dataset.key = k;
@@ -1811,135 +1809,140 @@ function importProject(file) {
             document.getElementById('customTapsteder').appendChild(clone);
         });
 
-        // Genopbyg strenge og deres elementer UDEN at sætte .parent endnu
         if (data.strenge) {
             data.strenge.forEach(streng => {
-                state.sC++; // Denne skal måske fjernes hvis vi stoler på maxS, men lader den stå for nu
+                state.sC++; 
                 const clone = document.getElementById('strengTemplate').content.cloneNode(true);
                 const card = clone.querySelector('.card');
                 card.dataset.id = streng.id;
                 document.getElementById('strengeContainer').appendChild(clone);
-                const container = card.querySelector('.fremløb-container');
+                const rorContainer = card.querySelector('.ror-container');
+                const tapstedContainer = card.querySelector('.tapsted-container');
                 
-		(streng.ror || []).forEach(r => {
-		    state.tC++;
-		    const id = r.id;
-		    const tr = document.createElement('tr');
-		    tr.dataset.id = id;
-		    tr.dataset.type = 'ror';
-		    const datalistId = `list-${id}`;
-		    
-		    tr.innerHTML = `
-		        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
-		        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-		        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select></td>
-		        <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
-		        <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-		        <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
-		        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
-		        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
-		    `;
-		    
-		    // Sæt de gemte værdier
-		    tr.querySelector('.material').value = r.material;
-		    tr.querySelector('.location').value = r.location || 'heated';
-		    
-		    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-		    const materialSelect = tr.querySelector('.material');
-		    materialSelect.onchange = handleMaterialChange;
-		    
-		    container.appendChild(tr);
-		    updateDimOptions(materialSelect); // Initialiser datalist
-		});
+                (streng.ror || []).forEach(r => {
+                    state.tC++;
+                    const id = r.id;
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = id;
+                    tr.dataset.type = 'ror';
+                    const datalistId = `list-${id}`;
+                    
+                    tr.innerHTML = `
+                        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
+                        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
+                        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select></td>
+                        <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                        <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                        <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
+                        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
+                        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+                    `;
+                    
+                    tr.querySelector('.material').value = r.material;
+                    tr.querySelector('.location').value = r.location || 'heated';
+                    
+                    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+                    const materialSelect = tr.querySelector('.material');
+                    materialSelect.onchange = handleMaterialChange;
+                    
+                    rorContainer.appendChild(tr);
+                    updateDimOptions(materialSelect); 
+                });
                 
                 (streng.tapsted || []).forEach(t => {
-                    state.tC++; // Samme som state.sC
-                    const div = createInputElement(t.id, 'tapsted');
+                    state.tC++;
+                    const id = t.id;
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = id;
+                    tr.dataset.type = 'tapsted';
+
                     let opts = '';
                     const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
                     Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
                     
-                    // Indsæt HTML med den indlæste kote-værdi
-                    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></div>`);
+                    tr.innerHTML = `
+                        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
+                        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
+                        <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted (jf. DS 439)">${opts}</select></td>
+                        <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s. Udfyldes automatisk ved valg af type."></td>
+                        <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote (m) (Geodætisk højde for tapsted)" aria-label="Kote (m)"></td>
+                        <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug (fx tapning til proces/maskine)" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></td>
+                        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+                    `;
                     
-                    div.querySelector('.tapType').selectedIndex = Array.from(div.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
-                    div.dataset.isApartment = t.isApartment ? 'true' : 'false';
-                    container.appendChild(div);
+                    tr.querySelector('.tapType').selectedIndex = Array.from(tr.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
+                    tr.dataset.isApartment = t.isApartment ? 'true' : 'false';
+                    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+                    
+                    tapstedContainer.appendChild(tr);
                 });
             });
         }
 
-        // Genopbyg retur-rør
         if (data.retur) {
-			(data.retur || []).forEach(r => {
-			    state.rC++;
-			    const id = r.id;
-			    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
-			    const tr = clone.querySelector('tr');
-			    tr.dataset.id = id;
-			    
-			    // Sæt unikke ID'er til datalist
-			    const datalistId = `list-${id}`;
-			    const dimInput = tr.querySelector('.dim-input');
-			    const datalist = tr.querySelector('datalist');
-			    dimInput.setAttribute('list', datalistId);
-			    datalist.id = datalistId;
-			    dimInput.value = r.dim; // Sæt den gemte dim-værdi
-			
-			    tr.querySelector('.id-text').textContent = id;
-			    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-			    
-			    const materialSelect = tr.querySelector('.material');
-			    materialSelect.value = r.material;
-			    materialSelect.onchange = handleMaterialChange;
-			    
-			    tr.querySelector('.location').value = r.location || 'heated';
-			    tr.querySelector('.len').value = r.len;
-			    tr.querySelector('.fittings').value = r.fittings;
-			
-			    document.getElementById('returContainerBody').appendChild(clone);
-			    updateDimOptions(materialSelect); // Initialiser datalist
-			});
+            (data.retur || []).forEach(r => {
+                state.rC++;
+                const id = r.id;
+                const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
+                const tr = clone.querySelector('tr');
+                tr.dataset.id = id;
+                
+                const datalistId = `list-${id}`;
+                const dimInput = tr.querySelector('.dim-input');
+                const datalist = tr.querySelector('datalist');
+                dimInput.setAttribute('list', datalistId);
+                datalist.id = datalistId;
+                dimInput.value = r.dim; 
 
-		// NYT: Genopbyg ventiler (til tabelstruktur)
+                tr.querySelector('.id-text').textContent = id;
+                tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+                
+                const materialSelect = tr.querySelector('.material');
+                materialSelect.value = r.material;
+                materialSelect.onchange = handleMaterialChange;
+                
+                tr.querySelector('.location').value = r.location || 'heated';
+                tr.querySelector('.len').value = r.len;
+                tr.querySelector('.fittings').value = r.fittings;
+
+                document.getElementById('returContainerBody').appendChild(clone);
+                updateDimOptions(materialSelect); 
+            });
+        }
+        
         if (data.valves) {
-            data.valves.forEach(v => {
+            (data.valves || []).forEach(v => {
                 valveCounter++;
+                const id = v.id;
                 const clone = document.getElementById('valveTRTemplate').content.cloneNode(true);
                 const tr = clone.querySelector('tr');
-                tr.dataset.id = v.id;
+                tr.dataset.id = id;
                 tr.dataset.valveType = v.valveType;
                 
-                // Udfyld den lokale dropdown
                 const valveSelect = tr.querySelector('.valve-type-select');
-                let opts = '';
+                let opts = '<option value="" disabled>Vælg type...</option>';
                 for (const typeName in VALVE_TYPES) {
                     opts += `<option value="${typeName}">${typeName}</option>`;
                 }
                 valveSelect.innerHTML = opts;
-                
-                // Sæt den gemte værdi
-                valveSelect.value = v.valveType;
+                valveSelect.value = v.valveType || ""; // Sæt den gemte værdi
 
-                // Sæt ID-tekst
-                tr.querySelector('.id-text').textContent = `${v.id} (${v.valveType.substring(0, 10)}...)`;
+                const idText = tr.querySelector('.id-text');
+                idText.textContent = `${id} (${(v.valveType || 'Vælg').substring(0, 10)}...)`;
 
-                // Tilføj onchange handler
                 valveSelect.onchange = (e) => {
                     const newType = e.target.value;
                     tr.dataset.valveType = newType;
-                    tr.querySelector('.id-text').textContent = `${v.id} (${newType.substring(0, 10)}...)`;
+                    idText.textContent = `${id} (${newType.substring(0, 10)}...)`;
                 };
 
-                tr.querySelector('.name-input').onchange = (ev) => state.names.set(v.id, ev.target.value);
+                tr.querySelector('.name-input').onchange = (ev) => state.names.set(id, ev.target.value);
                 document.getElementById('returContainerBody').appendChild(clone);
             });
         }
 
-        // KALD updateAllSelects() FØRST
         updateAllSelects();
 
-        // SÆT SÅ DE KORREKTE RELATIONER
         if (data.strenge) {
             data.strenge.forEach(streng => {
                 const card = document.querySelector(`[data-id="${streng.id}"]`);
@@ -1967,7 +1970,7 @@ function importProject(file) {
         }
 
         if (data.retur) {
-            data.retur.forEach(r => {
+            (data.retur || []).forEach(r => {
                  const el = document.querySelector(`[data-id="${r.id}"]`);
                  if(el) {
                     el.querySelector('.parent').value = r.parent;
@@ -1977,7 +1980,7 @@ function importProject(file) {
         }
         
         if (data.valves) {
-            data.valves.forEach(v => {
+            (data.valves || []).forEach(v => {
                 const el = document.querySelector(`[data-id="${v.id}"]`);
                 if (el) {
                     el.querySelector('.parent').value = v.parent;
@@ -1986,7 +1989,6 @@ function importProject(file) {
             });
         }
         
-        // Kald updateAllSelects() IGEN
         updateAllSelects();
         toggleDisplayNames(state.useNames);
     };
