@@ -70,7 +70,7 @@
                                     <h6>Grundlæggende Data</h6>
                                     <div class="row g-3 mb-3">
                                         <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>)</label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote</label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control" value="0"><span class="input-group-text">m</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote</label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted</label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="T_v">Fremløbstemperatur (T<sub>v</sub>)</label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6">
@@ -587,7 +587,7 @@ function addTapsted(btn) {
 
     // RETTELSE: Tilføjet onchange-handler og dynamisk start-værdi for qf-feltet
     const defaultQf = ST["Lejlighed (standard)"];
-    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote" value="0" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></div>`);
+    div.insertAdjacentHTML('beforeend', `<select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type">${opts}</select><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)"><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote" aria-label="Kote (m)"><div class="input-group-text"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></div>`);
     
     // Sæt dropdown til at matche standardværdien
     div.querySelector('.tapType').value = defaultQf;
@@ -950,9 +950,13 @@ function validateInputs(config) {
         valid = false;
     }
     document.querySelectorAll('input[type="number"]').forEach(inp => {
-        if (parseFloat(inp.value) < parseFloat(inp.min || 0)) {
-            advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${inp.title} må ikke være negativ.</p>`;
-            valid = false;
+        // Tjek kun felter, der IKKE har klassen 'allow-negative'
+        if (!inp.classList.contains('allow-negative')) {
+            if (parseFloat(inp.value) < parseFloat(inp.min || 0)) {
+                // Brug .title eller .id for at give en mere specifik fejlmeddelelse
+                advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${inp.title || inp.id} må ikke være negativ.</p>`;
+                valid = false;
+            }
         }
     });
     document.querySelectorAll('.dim-input').forEach(inp => {
