@@ -3066,15 +3066,12 @@ function handleNodeClick(event, d) {
 
         const sourceInfo = state.connectingNodeInfo;
         const targetNodeData = d;
-        const sourceElement = document.querySelector(`[data-id="${sourceInfo.nodeData.id}"]`);
+        const sourceElement = document.querySelector(`tr[data-id="${sourceInfo.nodeData.id}"], div[data-id="${sourceInfo.nodeData.id}"]`);
 
-        // ================================================================= //
-        // == KORRIGERET SEKTION: FORBEDRET VALIDERINGSLOGIK                == //
-        // ================================================================= //
         if (sourceInfo.type === 'parent' && sourceElement) {
             const isSourceReturn = ['retur', 'valve'].includes(sourceInfo.nodeData.type);
-            const isTargetReturn = ['retur', 'valve', 'Beholder'].includes(targetNodeData.type);
-            const isTargetSupply = ['ror', 'Beholder'].includes(targetNodeData.type);
+            const isTargetReturn = ['retur', 'valve', 'beholder'].includes(targetNodeData.type);
+            const isTargetSupply = ['ror', 'beholder'].includes(targetNodeData.type);
 
             // En forbindelse er gyldig hvis:
             // 1. Kilden er en retur-del OG målet er en retur-del.
@@ -3086,14 +3083,13 @@ function handleNodeClick(event, d) {
             if (isValidConnection && sourceInfo.nodeData.id !== targetNodeData.id && targetNodeData.type !== 'tapsted') {
                 sourceElement.querySelector('.parent').value = targetNodeData.id;
             } else {
-                // Gør intet hvis forbindelsen er ugyldig
                 console.warn("Ugyldig forbindelse forsøgt.");
             }
         }
-        // ================================================================= //
         
         if (sourceInfo.type === 'return') {
-            if (['retur', 'valve', 'Beholder'].includes(targetNodeData.type)) {
+            // Denne logik håndterer "Forbind til retur..."
+            if (['retur', 'valve', 'beholder'].includes(targetNodeData.type)) {
                 const strengId = sourceInfo.nodeData.id.split('-')[0];
                 const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
                 if (strengCard) {
@@ -3111,7 +3107,7 @@ function handleNodeClick(event, d) {
     }
 
     // --- Normal "Klik for at redigere" logik ---
-    const element = document.querySelector(`[data-id="${d.id}"]`);
+    const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
     if (!element) return;
 
     document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
@@ -3160,12 +3156,14 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
+    // Menu: "Forbind til..." (Sæt forælder)
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
         createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
         });
     }
+    // Menu: "Forbind til retur..." (Sæt cirkulationskobling)
     if (nodeType === 'ror') {
         createMenuItem('Forbind til retur...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'return' };
@@ -3175,23 +3173,20 @@ function handleNodeRightClick(event, d) {
     if (menu.hasChildNodes()) {
         menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
     }
+    // Menu: Tilføj fremløbskomponenter
     if (nodeType === 'ror') {
         createMenuItem('Tilføj rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
-                // 1. Find den korrekte knap
                 const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
                 if (!addRorButton) { console.error("Could not find 'Add Rør' button"); return; }
                 
-                // 2. Kald funktionen til at tilføje en ny række
-                addRorSektion(addRorButton);
+                addRorSektion(addRorButton); // Tilføjer en ny <tr>
                 
-                // 3. Find den NYE række i den korrekte tbody
                 const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror"]:last-child');
                 if (newPipe) { 
-                    // 4. Sæt dens forælder til den klikkede node
                     newPipe.querySelector('.parent').value = parentId; 
                     updateAllSelects(); 
                 }
@@ -3202,29 +3197,25 @@ function handleNodeRightClick(event, d) {
             const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
-                // 1. Find den korrekte knap
                 const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
                 if (!addTapstedButton) { console.error("Could not find 'Add Tapsted' button"); return; }
 
-                // 2. Kald funktionen
-                addTapsted(addTapstedButton);
+                addTapsted(addTapstedButton); // Tilføjer en ny <tr>
                 
-                // 3. Find den NYE række i den korrekte tbody
                 const newTapsted = strengCard.querySelector('.tapsted-container > tr[data-type="tapsted"]:last-child');
                 if (newTapsted) { 
-                    // 4. Sæt dens forælder
                     newTapsted.querySelector('.parent').value = parentId; 
                     updateAllSelects(); 
                 }
             }
         });
     }
+    // Menu: Tilføj ny streng
     if (nodeType === 'beholder' || nodeType === 'ror') {
         createMenuItem('Tilføj ny streng herfra', () => {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
-                // Find det første rør i den nye streng (i den nye container)
                 const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror"]');
                 if (firstPipe) { 
                     firstPipe.querySelector('.parent').value = d.id; 
@@ -3233,31 +3224,32 @@ function handleNodeRightClick(event, d) {
             }
         });
     }
-	if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
-        // RETTELSE: Koden for at tilføje retur-rør var tom. Den er nu genindsat.
+    // Menu: Tilføj retur-komponenter
+    if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
         createMenuItem('Tilføj retur-rør her', () => {
-            addReturRor();
-            const newReturRor = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child'); // Opdateret selector
+            addReturRor(); // Tilføjer en ny <tr> til returContainerBody
+            const newReturRor = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child'); // Finder den nye række
             if (newReturRor) {
-                newReturRor.querySelector('.parent').value = d.id;
+                newReturRor.querySelector('.parent').value = d.id; // Sætter forælder til den klikkede node (d.id)
                 updateAllSelects();
             }
         });
         createMenuItem('Tilføj Cirkulationsventil her', () => {
-            addValve();
-            const newValve = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child'); // Opdateret selector
+            addValve(); // Tilføjer en ny <tr> til returContainerBody
+            const newValve = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child'); // Finder den nye række
             if (newValve) {
-                newValve.querySelector('.parent').value = d.id;
+                newValve.querySelector('.parent').value = d.id; // Sætter forælder til den klikkede node (d.id)
                 updateAllSelects();
             }
         });
     }
+    // Menu: Slet komponent
     if (nodeType !== 'beholder') {
         if (menu.hasChildNodes() && !menu.querySelector('hr')) {
              menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
         }
         createMenuItem('Slet Komponent', () => {
-            // Find elementet, uanset om det er en <tr> eller en <div>
+            // Finder elementet, uanset om det er en <tr> (rør/tapsted/retur/ventil) eller en <div> (gammel/andet)
             const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
             if (element) {
                 const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
@@ -3271,6 +3263,7 @@ function handleNodeRightClick(event, d) {
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
 }
+	
 /**
  * Fjerner kontekstmenuen fra siden.
  */
