@@ -69,7 +69,7 @@
 </head>
 <body>
 <div class="container-fluid main-container p-3">
-    <h1 class="mb-2 text-center h4">Varmt brugsvand dimensionering v0.15_Dev - DS 439:2024 + Rør isolering Klasse 6 DS452</h1>
+    <h1 class="mb-2 text-center h4">Varmt brugsvand dimensionering v0.15_Dev - DS 439:2024 + Rør isolering DS452</h1>
     
     <div class="row main-row">
         <div class="col-lg-6 scrollable-column">
@@ -920,9 +920,7 @@ function toggleAutoDim(isAuto) {
 
 function updateAllSelects() {
     // 1. Find alle gyldige forældre-emner
-    // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
     const fremløbRør = Array.from(document.querySelectorAll('.ror-container > tr[data-id]'));
-    // KORREKT SELECTOR: Leder nu efter <tr> i #returContainerBody
     const returKomponenter = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
     // 2. Byg option-strengene
@@ -933,10 +931,10 @@ function updateAllSelects() {
     // 3. Opdater alle '.parent' dropdowns
     document.querySelectorAll('.parent').forEach(s => {
         const p = s.closest('[data-id]');
-        if (!p) return; // Sikkerhedstjek
+        if (!p) return; 
         
         const ownId = p.dataset.id;
-        const val = s.value; // Gem den nuværende/ønskede værdi (f.eks. 'S1-R1')
+        const val = s.value; 
         
         // Sæt de korrekte valgmuligheder baseret på type
         if (p.dataset.type === 'retur' || p.dataset.type === 'valve') {
@@ -945,12 +943,20 @@ function updateAllSelects() {
             s.innerHTML = fremløbOptions;
         }
         
-        // Fjern muligheden for at vælge sig selv som forælder
         const ownOpt = s.querySelector(`option[value="${ownId}"]`); 
         if(ownOpt) ownOpt.remove();
         
-        // Sæt værdien tilbage til den, den burde være
+        // --- NY ROBUST LOGIK ---
+        // Prøv at sætte den gemte værdi
         s.value = val;
+        // Tjek om værdien *faktisk blev sat*. 
+        // Hvis 'val' ikke fandtes på den nye liste (f.eks. "S1-R1" fandtes ikke, da "S1-T2" blev tjekket),
+        // vil s.value nu være "" (eller den første option).
+        // Vi tvinger den til 'Beholder', hvis den er tom.
+        if (s.value === "") {
+            s.value = "Beholder";
+        }
+        // --- SLUT PÅ NY LOGIK ---
     });
 
     // 4. Opdater alle '.circ-end' (cirkulationskobling) dropdowns
@@ -959,11 +965,10 @@ function updateAllSelects() {
         const end = c.querySelector('.circ-end');
         const startVal = start.value, endVal = end.value;
         
-        // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
         const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
         start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
         
-        end.innerHTML = returOptions; // Sætter den nu korrekte liste over retur-rør
+        end.innerHTML = returOptions; 
         
         start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
         end.value = endVal || '';
@@ -974,7 +979,6 @@ function updateAllSelects() {
         const idText = el.querySelector('.id-text');
         const nameText = el.querySelector('.name-text');
         if (idText) {
-            // Håndter opdatering af ventil-navne specifikt
             if (el.dataset.type === 'valve') {
                 const type = el.dataset.valveType || "Vælg";
                 idText.textContent = `${el.dataset.id} (${type.substring(0, 10)}...)`;
