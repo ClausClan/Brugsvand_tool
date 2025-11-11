@@ -1831,6 +1831,8 @@ function exportProject() {
         nodePositions: state.nodes.map(n => ({ id: n.id, fx: n.fx, fy: n.fy })),
         customTapsteder: state.customTapsteder
     };
+
+    // Gennemgå hvert streng-kort
     document.querySelectorAll('.streng-card').forEach(card => {
         const strengData = {
             id: card.dataset.id,
@@ -1840,51 +1842,61 @@ function exportProject() {
             circ_end: card.querySelector('.circ-end').value,
             circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
         };
-		document.querySelectorAll('#returContainerBody > tr[data-type="retur"]').forEach(el => {
-	        data.retur.push({
-	            id: el.dataset.id,
-	            parent: el.querySelector('.parent').value,
-	            material: el.querySelector('.material').value,
-	            location: el.querySelector('.location').value,
-	            insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto', // <-- NY LINJE
-	            dim: el.querySelector('.dim').value, // Gem som tekst pga. datalist
-	            len: parseFloat(el.querySelector('.len').value),
-	            fittings: parseFloat(el.querySelector('.fittings').value)
-	        });
-	    });
-        card.querySelectorAll('[data-type="tapsted"]').forEach(el => {
+
+        // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
+        card.querySelectorAll('.ror-container > tr[data-type="ror"]').forEach(el => {
+            strengData.ror.push({
+                id: el.dataset.id,
+                parent: el.querySelector('.parent').value,
+                material: el.querySelector('.material').value,
+                location: el.querySelector('.location').value,
+                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto',
+                dim: el.querySelector('.dim').value, // Gem som tekst pga. datalist
+                len: parseFloat(el.querySelector('.len').value),
+                fittings: parseFloat(el.querySelector('.fittings').value)
+            });
+        });
+
+        // KORREKT SELECTOR: Leder nu efter <tr> i .tapsted-container
+        card.querySelectorAll('.tapsted-container > tr[data-type="tapsted"]').forEach(el => {
             strengData.tapsted.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
                 tapType: el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text,
                 qf: parseFloat(el.querySelector('.qf').value),
-                kote: parseFloat(el.querySelector('.kote').value) || 0, // Kote er tilføjet
+                kote: parseFloat(el.querySelector('.kote').value) || 0,
                 syst: el.querySelector('.syst').checked,
                 isApartment: el.dataset.isApartment === 'true'
             });
         });
+        
         data.strenge.push(strengData);
     });
-    document.querySelectorAll('.retur-ror').forEach(el => {
+
+    // Indsaml retur-rør (denne var allerede korrekt)
+    document.querySelectorAll('#returContainerBody > tr[data-type="retur"]').forEach(el => {
         data.retur.push({
             id: el.dataset.id,
             parent: el.querySelector('.parent').value,
             material: el.querySelector('.material').value,
             location: el.querySelector('.location').value,
-            dim: parseFloat(el.querySelector('.dim').value),
+            insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto',
+            dim: el.querySelector('.dim').value, 
             len: parseFloat(el.querySelector('.len').value),
             fittings: parseFloat(el.querySelector('.fittings').value)
         });
     });
 
-    document.querySelectorAll('[data-type="valve"]').forEach(el => {
+    // Indsaml ventiler (denne var allerede korrekt)
+    document.querySelectorAll('#returContainerBody > tr[data-type="valve"]').forEach(el => {
         data.valves.push({
             id: el.dataset.id,
             parent: el.querySelector('.parent').value,
-            valveType: el.dataset.valveType
+            valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType
         });
     });
 
+    // Opret og download filen
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
