@@ -1298,20 +1298,28 @@ function getGlobalConfig() {
 function buildModel(config) {
     const model = { tree: {id:'Beholder', children:[]}, nodes: new Map(), loops: [], isAuto: config.isAuto };
     model.nodes.set('Beholder', model.tree);
-    document.querySelectorAll('.fremløb-container > [data-id], .retur-ror[data-id], [data-type="valve"]').forEach(el => {
-        const data = { id: el.dataset.id, type: el.dataset.type, children: [], parentId: el.querySelector('.parent')?.value, name: state.names.get(el.dataset.id) || '' };
+
+    // KORREKT SELECTOR: Leder nu efter <tr> i de nye <tbody> containere
+    document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]').forEach(el => {
+        const data = { 
+            id: el.dataset.id, 
+            type: el.dataset.type, 
+            children: [], 
+            parentId: el.querySelector('.parent')?.value, 
+            name: state.names.get(el.dataset.id) || '' 
+        };
         
         if (el.dataset.type === 'valve') {
-            data.valveType = el.dataset.valveType; // Gem ventiltype
+            data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType; // Hent fra valgt dropdown
         }
 
-		if (data.type === 'ror' || data.type === 'retur') {
+        if (data.type === 'ror' || data.type === 'retur') {
             Object.assign(data, { 
                 L: parseFloat(el.querySelector('.len')?.value) || 0, 
                 zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
                 material: el.querySelector('.material')?.value,
                 location: el.querySelector('.location')?.value || 'heated',
-                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto' // <-- NY LINJE
+                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto'
             });
         }
         if (data.type === 'tapsted') {
@@ -1320,13 +1328,17 @@ function buildModel(config) {
             data.isApartment = el.dataset.isApartment === 'true';
             data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
         }
-         if (!config.isAuto && (data.type === 'ror' || data.type === 'retur')) data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
+         if (!config.isAuto && (data.type === 'ror' || data.type === 'retur')) {
+             data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0; // Hent fra tekst-input
+         }
         
         model.nodes.set(data.id, data);
     });
+
     model.nodes.forEach(n => { 
         if(n.parentId && model.nodes.has(n.parentId)) model.nodes.get(n.parentId).children.push(n); 
     });
+    
     document.querySelectorAll('.streng-card').forEach(c => {
         const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
         const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
