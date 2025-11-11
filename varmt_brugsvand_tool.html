@@ -2528,6 +2528,9 @@ function beregnGlobalOptimering(config) {
     }
 
     // Kør afsluttende beregninger;
+	// Kald findMaxPathDp for at definere 'pressureDropResult'
+    const pressureDropResult = findMaxPathDp(model.tree, config);
+	
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
     for (let i = 0; i < 3; i++) {
