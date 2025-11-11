@@ -438,7 +438,15 @@
             </span>
         </td>
         <td><select class="form-select form-select-sm parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select></td>
-        <td><select class="form-select form-select-sm material" title="Vælg rørmateriale"><option value="PEX">PEX</option><option value="Kobber">Kobber</option><option value="Rustfri">Rustfri</option></select></td>
+        <td><select class="form-select form-select-sm material" title="Vælg rørmateriale">
+            <option value="Kobber">Kobber</option>
+            <option value="Rustfri Press 316L">Rustfri Press 316L</option>
+            <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+            <option value="Pex">Pex</option>
+            <option value="Alupex">Alupex</option>
+            <option value="PE100">PE100</option>
+            <option value="Geberit Mepla">Geberit Mepla</option>
+        </select></td>
         <td>
             <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
                 <option value="heated" selected>Opvarmet rum</option>
@@ -492,18 +500,36 @@
 // --- KONSTANTER OG DATA ---
 // Standard Tapsteder (ST) med normvandstrøm (qf) i l/s jf. DS 439:2024
 let ST = { "Lejlighed (standard)": 0.8, "Håndvask": 0.1, "Brusebad": 0.15, "Køkkenvask": 0.2, "Vaskemaskine": 0.2, "Opvaskemaskine": 0.2, "Badekar": 0.3 };
-const RH = { "Kobber": 0.0015, "Rustfri": 0.015, "PEX": 0.007 };
 
-// highlight-start
+// =================================================================================
+// == RØR-SERIER: DEFINITION AF RUHED (RH) i mm                                 ==
+// Værdier er baseret på DS 439:2024 (6.3.5.4) og brugerdata.
+// Metaller regnes med afsætning (0.15 mm), plast regnes uden (0.007-0.01 mm).
+// =================================================================================
+const RH = {
+    "Kobber": 0.15,
+    "Rustfri Press 316L": 0.15,
+    "Rustfri Svejse 316L": 0.15,
+    "Pex": 0.01,
+    "Alupex": 0.007,
+    "PE100": 0.01,
+    "Geberit Mepla": 0.007
+};
+
 // =================================================================================
 // == RØR-SERIER: DEFINITION AF INDVENDIGE DIAMETRE (ID) i mm                     ==
-// Her kan du opdatere, tilføje eller fjerne rørtyper og dimensioner.
-// Format: "Materialenavn": { Nominel_Diameter: Indvendig_Diameter, ... }
-// Eksempel for Geberit Mepla:
-// "Geberit Mepla": { 16: 12, 20: 15.5, 26: 20, 32: 26, 40: 32, 50: 40, 63: 50 }
+// Format: "Materialenavn": { Nominel_Ydre_Diameter: Indre_Diameter, ... }
+// Data er fra brugerinput.
 // =================================================================================
-const ID = { "Kobber": {10:8,12:10,15:13,18:16,22:20,28:26,35:32,42:39,54:50}, "Rustfri": {15:13,18:16,22:20,28:26,35:32,42:39,54:50.8}, "PEX": {12:8,15:11,16:12,20:16,25:20,32:26,40:32,50:40,63:50} };
-// highlight-end
+const ID = {
+    "Kobber": { 6: 4.4, 8: 6.4, 10: 8.4, 12: 10.0, 15: 13.0, 18: 16.0, 22: 20.0, 28: 25.6, 35: 32.0, 42: 39.0, 54: 51.0 },
+    "Rustfri Press 316L": { 12: 10.0, 15: 13.0, 18: 16.0, 22: 19.6, 28: 25.6, 35: 32.0, 42: 39.0, 54: 51.0, 76.1: 72.1, 88.9: 84.9, 108: 104.0 },
+    "Rustfri Svejse 316L": { 6: 4.0, 8: 6.0, 10: 8.0, 12: 10.0, 13.5: 8.9, 14: 12.0, 15: 13.0, 16: 14.0, 17.2: 14.0, 18: 16.0, 20: 18.0, 21.3: 17.3, 22: 20.0, 25: 22.0, 26.9: 22.9, 28: 25.0, 30: 27.0, 33.7: 29.7, 35: 31.0, 38: 35.0, 40: 36.0, 42.4: 38.4, 43: 40.0, 44.5: 40.5, 48.3: 44.3, 51: 47.0, 53: 50.0, 54: 50.0, 60.3: 56.3, 76.1: 68.9, 88.9: 80.9 },
+    "Pex": { 10: 6.4, 12: 8.0, 15: 10.0, 18: 13.0, 22: 16.0, 28: 20.0, 32: 23.2, 40: 29.0, 50: 36.2, 63: 45.6, 75: 54.4, 90: 65.4, 110: 79.8 },
+    "Alupex": { 16: 12.0, 20: 15.5, 25: 20.0, 32: 26.0, 40: 32.0, 50: 41.0, 63: 51.0 },
+    "PE100": { 63: 55.4, 75: 66.0, 90: 79.2, 110: 96.8, 125: 110.2, 160: 141.0, 200: 176.2, 225: 198.2, 250: 220.4, 315: 277.6, 400: 352.6 },
+    "Geberit Mepla": { 16: 11.5, 20: 15.0, 26: 20.0, 32: 26.0, 40: 33.0, 50: 42.0, 63: 54.0, 75: 65.8 }
+};
 
 // =================================================================================
 // == VENTILTYPER                                                                 ==
@@ -714,7 +740,15 @@ function addRorSektion(btn) {
             </span>
         </td>
         <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale"><option value="PEX">PEX</option><option value="Kobber">Kobber</option><option value="Rustfri">Rustfri</option></select></td>
+        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
+            <option value="Kobber">Kobber</option>
+            <option value="Rustfri Press 316L">Rustfri Press 316L</option>
+            <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+            <option value="Pex">Pex</option>
+            <option value="Alupex">Alupex</option>
+            <option value="PE100">PE100</option>
+            <option value="Geberit Mepla">Geberit Mepla</option>
+        </select></td>
 ...
         <td>
             <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
@@ -1832,7 +1866,15 @@ function importProject(file) {
                     tr.innerHTML = `
                         <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
                         <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-                        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale"><option value="PEX">PEX</option><option value="Kobber">Kobber</option><option value="Rustfri">Rustfri</option></select></td>
+                       <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
+                            <option value="Kobber">Kobber</option>
+                            <option value="Rustfri Press 316L">Rustfri Press 316L</option>
+                            <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+                            <option value="Pex">Pex</option>
+                            <option value="Alupex">Alupex</option>
+                            <option value="PE100">PE100</option>
+                            <option value="Geberit Mepla">Geberit Mepla</option>
+                        </select></td>
                         <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
                         <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
                         <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
