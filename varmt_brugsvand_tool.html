@@ -920,8 +920,9 @@ function toggleAutoDim(isAuto) {
 
 function updateAllSelects() {
     // 1. Find alle gyldige forældre-emner
+    // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
     const fremløbRør = Array.from(document.querySelectorAll('.ror-container > tr[data-id]'));
-    // KORREKT SELECTOR: Leder nu efter <tr> i <tbody> med ID #returContainerBody
+    // KORREKT SELECTOR: Leder nu efter <tr> i #returContainerBody
     const returKomponenter = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
     // 2. Byg option-strengene
@@ -935,7 +936,7 @@ function updateAllSelects() {
         if (!p) return; // Sikkerhedstjek
         
         const ownId = p.dataset.id;
-        const val = s.value; // Gem den nuværende/ønskede værdi (f.eks. 'Retur1')
+        const val = s.value; // Gem den nuværende/ønskede værdi (f.eks. 'S1-R1')
         
         // Sæt de korrekte valgmuligheder baseret på type
         if (p.dataset.type === 'retur' || p.dataset.type === 'valve') {
@@ -948,9 +949,8 @@ function updateAllSelects() {
         const ownOpt = s.querySelector(`option[value="${ownId}"]`); 
         if(ownOpt) ownOpt.remove();
         
-        // Prøv at sætte værdien tilbage til den, den burde være
+        // Sæt værdien tilbage til den, den burde være
         s.value = val;
-        // HVIS 'val' ikke findes (f.eks. ved første load), vil den automatisk vælge den første option, typisk 'Beholder'.
     });
 
     // 4. Opdater alle '.circ-end' (cirkulationskobling) dropdowns
@@ -959,6 +959,7 @@ function updateAllSelects() {
         const end = c.querySelector('.circ-end');
         const startVal = start.value, endVal = end.value;
         
+        // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
         const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
         start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
         
@@ -977,7 +978,7 @@ function updateAllSelects() {
             if (el.dataset.type === 'valve') {
                 const type = el.dataset.valveType || "Vælg";
                 idText.textContent = `${el.dataset.id} (${type.substring(0, 10)}...)`;
-            } else if (!idText.textContent.includes(el.dataset.id)) { // Undgå at overskrive ventilnavne
+            } else if (!idText.textContent.includes(el.dataset.id)) { 
                 idText.textContent = el.dataset.id;
             }
         }
@@ -1046,8 +1047,8 @@ function buildNetworkAndRender() {
     state.nodes = [{id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy}]; 
     state.links = [];
     
-    // RETTELSE: Tilføjet '[data-type="valve"]' så ventiler kommer med i diagrammet
-	const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
+    // KORREKT SELECTOR: Leder nu efter <tr> i de nye <tbody> containere
+    const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
     
     elements.forEach(el => {
         const pos = oldNodes.get(el.dataset.id);
@@ -1060,7 +1061,8 @@ function buildNetworkAndRender() {
     });
     document.querySelectorAll('.streng-card').forEach(c => {
         const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
-        if(start && end) state.links.push({source: start, target: end, type: 'retur', zeta: parseFloat(c.querySelector('.circ-zeta').value) || 0});
+        const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
+        if(start && end) state.links.push({source: start, target: end, type: 'retur', zeta: zeta});
     });
     updateDiagram();
 }
