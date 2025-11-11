@@ -919,45 +919,68 @@ function toggleAutoDim(isAuto) {
 }
 
 function updateAllSelects() {
-    const fremløbRør = Array.from(document.querySelectorAll('[data-type="ror"]'));
-    // RETTELSE: Inkluder ventiler i listen over retur-komponenter
-    const returKomponenter = Array.from(document.querySelectorAll('.retur-ror, [data-type="valve"]'));
+    // 1. Find alle gyldige forældre-emner
+    const fremløbRør = Array.from(document.querySelectorAll('.ror-container > tr[data-id]'));
+    // KORREKT SELECTOR: Leder nu efter <tr> i <tbody> med ID #returContainerBody
+    const returKomponenter = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
+    // 2. Byg option-strengene
     const fremløbOptions = '<option value="Beholder">Beholder</option>' + fremløbRør.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
     const returOptions = '<option value="">Ingen</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
     const returParentOptions = '<option value="Beholder">Beholder</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
 
+    // 3. Opdater alle '.parent' dropdowns
     document.querySelectorAll('.parent').forEach(s => {
         const p = s.closest('[data-id]');
+        if (!p) return; // Sikkerhedstjek
+        
         const ownId = p.dataset.id;
-        const val = s.value;
-        // RETTELSE: Tillad ventiler at have retur-forældre
+        const val = s.value; // Gem den nuværende/ønskede værdi (f.eks. 'Retur1')
+        
+        // Sæt de korrekte valgmuligheder baseret på type
         if (p.dataset.type === 'retur' || p.dataset.type === 'valve') {
             s.innerHTML = returParentOptions;
         } else {
             s.innerHTML = fremløbOptions;
         }
         
+        // Fjern muligheden for at vælge sig selv som forælder
         const ownOpt = s.querySelector(`option[value="${ownId}"]`); 
         if(ownOpt) ownOpt.remove();
-        s.value = val || 'Beholder';
+        
+        // Prøv at sætte værdien tilbage til den, den burde være
+        s.value = val;
+        // HVIS 'val' ikke findes (f.eks. ved første load), vil den automatisk vælge den første option, typisk 'Beholder'.
     });
 
+    // 4. Opdater alle '.circ-end' (cirkulationskobling) dropdowns
     document.querySelectorAll('.streng-card').forEach(c => {
         const start = c.querySelector('.circ-start'); 
         const end = c.querySelector('.circ-end');
         const startVal = start.value, endVal = end.value;
-        const rorInStreng = Array.from(c.querySelectorAll('[data-type="ror"]'));
+        
+        const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
         start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-        end.innerHTML = returOptions;
+        
+        end.innerHTML = returOptions; // Sætter den nu korrekte liste over retur-rør
+        
         start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
         end.value = endVal || '';
     });
     
+    // 5. Opdater diagram og navne-visning
     document.querySelectorAll('[data-id]').forEach(el => {
         const idText = el.querySelector('.id-text');
         const nameText = el.querySelector('.name-text');
-        if (idText) idText.textContent = el.dataset.id;
+        if (idText) {
+            // Håndter opdatering af ventil-navne specifikt
+            if (el.dataset.type === 'valve') {
+                const type = el.dataset.valveType || "Vælg";
+                idText.textContent = `${el.dataset.id} (${type.substring(0, 10)}...)`;
+            } else if (!idText.textContent.includes(el.dataset.id)) { // Undgå at overskrive ventilnavne
+                idText.textContent = el.dataset.id;
+            }
+        }
         if (nameText) nameText.value = state.names.get(el.dataset.id) || '';
     });
 
