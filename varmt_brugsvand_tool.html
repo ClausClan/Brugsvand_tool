@@ -211,7 +211,7 @@
     <button class="btn btn-secondary w-100" onclick="exportProject()">Eksport Projekt</button>
     <label class="btn btn-secondary w-100">
         Import Projekt
-        <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(file ? file[0] : null)"> </label>
+        <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(this.files[0])"> </label>
     <div class="vr"></div>
     <button class="btn btn-danger w-100" onclick="resetProject()">Nyt Projekt (Nulstil)</button>
 </div>
