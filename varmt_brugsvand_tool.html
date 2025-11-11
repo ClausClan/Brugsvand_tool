@@ -174,7 +174,8 @@
                             <th style="width: 18%;">Forælder</th>
                             <th style="width: 22%;">Mat./Type</th>
                             <th style="width: 10%;">Plac.</th>
-                            <th style="width: 10%;">Dim [mm]</th>
+							<th style="width: 12%;">Isol. Klasse</th> 
+							<th style="width: 10%;">Dim [mm]</th>
                             <th style="width: 8%;">Længde [m]</th>
                             <th style="width: 7%;">Zeta [ζ]</th>
                             <th style="width: 5%;"></th>
@@ -382,13 +383,13 @@
             <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
                 <thead>
                     <tr>
-                        <th style="width: 20%;">ID/Navn</th>
-                        <th style="width: 18%;">Forælder</th>
+                        <th style="width: 18%;">ID/Navn</th>
+                        <th style="width: 15%;">Forælder</th>
                         <th style="width: 12%;">Mat.</th>
-                        <th style="width: 15%;">Plac.</th>
-                        <th style="width: 12%;">Dim [mm]</th>
+                        <th style="width: 13%;">Plac.</th>
+                        <th style="width: 12%;">Isol. Klasse</th> <th style="width: 10%;">Dim [mm]</th>
                         <th style="width: 10%;">Længde [m]</th>
-                        <th style="width: 8%;">Zeta [ζ]</th>
+                        <th style="width: 7%;">Zeta [ζ]</th>
                         <th style="width: 5%;"></th>
                     </tr>
                 </thead>
@@ -429,6 +430,17 @@
     </div>
 </template>
 
+<datalist id="insulationClassOptions">
+    <option value="Auto"></option>
+    <option value="Kl. 0"></option>
+    <option value="Kl. 1"></option>
+    <option value="Kl. 2"></option>
+    <option value="Kl. 3"></option>
+    <option value="Kl. 4"></option>
+    <option value="Kl. 5"></option>
+    <option value="Kl. 6"></option>
+</datalist>
+
 <template id="returRorTRTemplate">
     <tr data-type="retur">
         <td>
@@ -453,6 +465,9 @@
                 <option value="unheated">Uopvarmet rum</option>
                 <option value="outside">Udendørs</option>
             </select>
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Vælg isoleringsklasse (Auto baseres på placering og DS 452, Tabel 6.4)">
         </td>
         <td>
             <input type="text" class="form-control form-control-sm dim-input dim" value="16" title="Nominel diameter (mm)" list="">
@@ -489,7 +504,7 @@
             <select class="form-select form-select-sm valve-type-select" title="Vælg ventiltype"></select>
         </td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
-        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
+        <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td> <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
         <td><span class="form-control-plaintext form-control-sm ms-2">-</span></td>
         <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)">&times;</button></td>
@@ -568,6 +583,8 @@ const VALVE_TYPES = {
 
 // Data fra DS 452: Nødvendig tykkelse [mm] for Klasse 6 ved λ=0.037 W/mK
 const DS452_THICKNESS = { 15: 40, 18: 40, 22: 50, 28: 50, 35: 50, 42: 50, 54: 60, 76: 60 };
+// NY KONSTANT: Standard handelstykkelser for isolering (i mm)
+const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
 const RHO=985, C=4184, MU=0.0005, G=9.82;
@@ -749,7 +766,6 @@ function addRorSektion(btn) {
             <option value="PE100">PE100</option>
             <option value="Geberit Mepla">Geberit Mepla</option>
         </select></td>
-...
         <td>
             <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
                 <option value="heated" selected>Opvarmet rum</option>
@@ -757,6 +773,7 @@ function addRorSektion(btn) {
                 <option value="outside">Udendørs</option>
             </select>
         </td>
+        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Vælg isoleringsklasse (Auto baseres på placering og DS 452, Tabel 6.4)"></td>
         <td>
             <input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Nominel diameter (mm)" list="${datalistId}">
             <datalist id="${datalistId}"></datalist>
@@ -772,12 +789,10 @@ function addRorSektion(btn) {
     
     container.appendChild(tr);
     
-    // Sæt "Forælder" dropdown
     const pSel = tr.querySelector('.parent');
     const rorInStreng = container.querySelectorAll('[data-type="ror"]');
     pSel.value = rorInStreng.length > 1 ? rorInStreng[rorInStreng.length - 2].dataset.id : 'Beholder';
     
-    // Initialiser datalist for dimensioner
     updateDimOptions(materialSelect);
     
     updateAllSelects();
@@ -1261,12 +1276,13 @@ function buildModel(config) {
             data.valveType = el.dataset.valveType; // Gem ventiltype
         }
 
-        if (data.type === 'ror' || data.type === 'retur') {
+		if (data.type === 'ror' || data.type === 'retur') {
             Object.assign(data, { 
                 L: parseFloat(el.querySelector('.len')?.value) || 0, 
                 zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
                 material: el.querySelector('.material')?.value,
-                location: el.querySelector('.location')?.value || 'heated'
+                location: el.querySelector('.location')?.value || 'heated',
+                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto' // <-- NY LINJE
             });
         }
         if (data.type === 'tapsted') {
@@ -1290,37 +1306,88 @@ function buildModel(config) {
     return model;
 }
 
-// NY FUNKTION: Beregner isoleringstykkelse for et enkelt rør
+// OPDATERET FUNKTION: Beregner isoleringstykkelse dynamisk
 function calculateInsulation(model, config) {
-    const standardLambda = 0.037;
+    const lambda = config.lambda; // f.eks. 0.037 W/mK
+    
     model.nodes.forEach(n => {
-        if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
-            // Find den nærmeste rørstørrelse i DS 452 tabellen
-            const pipeOD = n.nom_dim;
-            const availableSizes = Object.keys(DS452_THICKNESS).map(Number);
-            const closestSize = availableSizes.reduce((prev, curr) => (Math.abs(curr - pipeOD) < Math.abs(prev - pipeOD) ? curr : prev));
-            
-            // 1. Find basistykkelse fra DS 452
-            const baseThickness = DS452_THICKNESS[closestSize];
-            
-            // 2. Juster for placering
-            const adjustmentFactor = DS452_ADJUSTMENT[n.location] || 1.0;
-            const adjustedThickness = baseThickness * adjustmentFactor;
+        if ((n.type !== 'ror' && n.type !== 'retur') || !n.nom_dim) return;
 
-            // 3. Juster for materialets lambda-værdi
-            const finalTheoreticalThickness = adjustedThickness * (config.lambda / standardLambda);
-            
-            // 4. Rund op til nærmeste 5mm
-            n.insulationThickness = Math.ceil(finalTheoreticalThickness / 5) * 5;
+        // --- Trin A & B: Bestem Endelig Isoleringsklasse ---
+        let autoKlasse = 0;
+        
+        if (n.type === 'retur') { // "Cirkulationsledning"
+            autoKlasse = (n.location === 'heated') ? 4 : 6;
+        } else if (n.type === 'ror') { // "Fordelings-" eller "Koblingsledning"
+            autoKlasse = (n.location === 'heated') ? 4 : 6;
+        }
 
-            // 5. Beregn U-værdi for dette rør
-            const d_outer = pipeOD / 1000;
-            const d_insul_outer = d_outer + (2 * (n.insulationThickness / 1000));
-            // Termisk modstand for isoleringen
-            const R_insulation = Math.log(d_insul_outer / d_outer) / (2 * Math.PI * config.lambda);
-            n.u_value_per_meter = 1 / R_insulation;
+        let endeligKlasse = autoKlasse;
+        if (n.insulationClassSelection && n.insulationClassSelection !== 'Auto') {
+            endeligKlasse = parseInt(n.insulationClassSelection.replace('Kl. ', ''), 10) || 0;
+        }
+        
+        n.insulationClass = endeligKlasse;
+        
+        // --- Trin C: Find U-værdi Krav (DS 452, Tabel 5.1) ---
+        const Ul_constants = getInsulationClassUl(endeligKlasse);
+        if (!Ul_constants) {
+            n.insulationThickness = 0; 
+            n.u_value_per_meter = 0; 
+            return; 
+        }
+
+        const Dep_m = n.nom_dim / 1000; 
+        const Ul_krav = (Ul_constants.A * Dep_m) + Ul_constants.B;
+        
+        // --- Trin D: Beregn Nødvendig Tykkelse (mm) ---
+        const exp_val = Math.exp((2 * Math.PI * lambda) / Ul_krav);
+        const tykkelse_m = (Dep_m * (exp_val - 1)) / 2;
+        const tykkelse_mm = tykkelse_m * 1000;
+        
+        // --- Trin E: Gem Værdier (Rund op til nærmeste HANDELSSTØRRELSE) ---
+        // OPDATERET LINJE: Bruger den nye hjælpefunktion i stedet for "rund op til 5mm"
+        n.insulationThickness = findNextStandardThickness(tykkelse_mm);
+
+        // Beregn den *faktiske* U-værdi med den afrundede tykkelse (til 'calculateHeatLoss')
+        const Di_isol_m = Dep_m;
+        const Dy_isol_m = Dep_m + 2 * (n.insulationThickness / 1000);
+        
+        if (Dy_isol_m <= Di_isol_m) {
+             n.u_value_per_meter = 0;
+        } else {
+             // U-værdi pr. meter [W/mK]. 1 / R_insulation
+             const R_insulation = Math.log(Dy_isol_m / Di_isol_m) / (2 * Math.PI * lambda);
+             n.u_value_per_meter = 1 / R_insulation;
         }
     });
+}
+
+// NY HJÆLPEFUNKTION: Returnerer U-værdi formel-konstanter fra DS 452, Tabel 5.1
+function getInsulationClassUl(klasse) {
+    // DS 452, Tabel 5.1: Ul = A * Dep + B
+    switch (klasse) {
+        case 1: return { A: 3.3, B: 0.22 };
+        case 2: return { A: 2.6, B: 0.20 };
+        case 3: return { A: 2.0, B: 0.18 };
+        case 4: return { A: 1.5, B: 0.16 };
+        case 5: return { A: 1.1, B: 0.14 };
+        case 6: return { A: 0.8, B: 0.12 };
+        default: return null; // Klasse 0 eller ugyldig
+    }
+}
+
+// NY HJÆLPEFUNKTION: Finder den næste standard handelstykkelse
+function findNextStandardThickness(calculated_mm) {
+    if (calculated_mm <= 0) return 0;
+    
+    for (const standardSize of STANDARD_INSULATION_THICKNESS) {
+        if (standardSize >= calculated_mm) {
+            return standardSize; // Returner den første standardstørrelse, der er >= den beregnede
+        }
+    }
+    // Hvis den beregnede tykkelse er større end den største i listen (f.eks. 120mm)
+    return STANDARD_INSULATION_THICKNESS[STANDARD_INSULATION_THICKNESS.length - 1]; // Returner max-tykkelsen (100)
 }
 
 // FUNKTION BEREGN
@@ -1576,6 +1643,7 @@ function findMaxPathDp(startNode, config) { //'config' tilføjes for at få adga
     return { max_dp: max_dp, path: critical_path };
 }
 
+// OPDATERET FUNKTION: Bruger den præcist beregnede u_value_per_meter
 function calculateHeatLoss(model, config) {
     model.nodes.forEach(n => {
         if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
@@ -1583,10 +1651,14 @@ function calculateHeatLoss(model, config) {
             if (n.location === 'outside') {
                 T_ambient = config.T_omg_ude;
             } else {
-                T_ambient = config.T_omg_inde; // Både "heated" og "unheated" antages at være indendørs temp.
+                T_ambient = config.T_omg_inde; // "heated" og "unheated" bruger begge T_omg_inde
             }
-            // Brug det unikke, beregnede U-værdi pr. meter
-            n.q_tab = (n.u_value_per_meter || 0) * n.L * (config.T_v - T_ambient);
+            
+            // Brug den unikke, beregnede U-værdi pr. meter (nu beregnet i calculateInsulation)
+            // Sørg for at u_value_per_meter er et gyldigt tal
+            const u_value = (typeof n.u_value_per_meter === 'number' && isFinite(n.u_value_per_meter)) ? n.u_value_per_meter : 0;
+            
+            n.q_tab = u_value * n.L * (config.T_v - T_ambient);
         }
     });
     return model;
@@ -1727,17 +1799,18 @@ function exportProject() {
             circ_end: card.querySelector('.circ-end').value,
             circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
         };
-        card.querySelectorAll('[data-type="ror"]').forEach(el => {
-            strengData.ror.push({
-                id: el.dataset.id,
-                parent: el.querySelector('.parent').value,
-                material: el.querySelector('.material').value,
-                location: el.querySelector('.location').value,
-                dim: parseFloat(el.querySelector('.dim').value),
-                len: parseFloat(el.querySelector('.len').value),
-                fittings: parseFloat(el.querySelector('.fittings').value)
-            });
-        });
+		document.querySelectorAll('#returContainerBody > tr[data-type="retur"]').forEach(el => {
+	        data.retur.push({
+	            id: el.dataset.id,
+	            parent: el.querySelector('.parent').value,
+	            material: el.querySelector('.material').value,
+	            location: el.querySelector('.location').value,
+	            insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto', // <-- NY LINJE
+	            dim: el.querySelector('.dim').value, // Gem som tekst pga. datalist
+	            len: parseFloat(el.querySelector('.len').value),
+	            fittings: parseFloat(el.querySelector('.fittings').value)
+	        });
+	    });
         card.querySelectorAll('[data-type="tapsted"]').forEach(el => {
             strengData.tapsted.push({
                 id: el.dataset.id,
@@ -1855,7 +1928,7 @@ function importProject(file) {
                 const rorContainer = card.querySelector('.ror-container');
                 const tapstedContainer = card.querySelector('.tapsted-container');
                 
-                (streng.ror || []).forEach(r => {
+				(streng.ror || []).forEach(r => {
                     state.tC++;
                     const id = r.id;
                     const tr = document.createElement('tr');
@@ -1866,7 +1939,7 @@ function importProject(file) {
                     tr.innerHTML = `
                         <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
                         <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-                       <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
+                        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
                             <option value="Kobber">Kobber</option>
                             <option value="Rustfri Press 316L">Rustfri Press 316L</option>
                             <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
@@ -1876,6 +1949,7 @@ function importProject(file) {
                             <option value="Geberit Mepla">Geberit Mepla</option>
                         </select></td>
                         <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                        <td><input type="text" class="form-control form-control-sm insulation-class" value="${r.insulationClassSelection || 'Auto'}" list="insulationClassOptions" title="Vælg isoleringsklasse (Auto baseres på placering og DS 452, Tabel 6.4)"></td>
                         <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
                         <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
                         <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
@@ -1923,7 +1997,7 @@ function importProject(file) {
             });
         }
 
-        if (data.retur) {
+if (data.retur) {
             (data.retur || []).forEach(r => {
                 state.rC++;
                 const id = r.id;
@@ -1935,7 +2009,6 @@ function importProject(file) {
                 const dimInput = tr.querySelector('.dim-input');
                 const datalist = tr.querySelector('datalist');
                 dimInput.setAttribute('list', datalistId);
-                datalist.id = datalistId;
                 dimInput.value = r.dim; 
 
                 tr.querySelector('.id-text').textContent = id;
@@ -1946,6 +2019,7 @@ function importProject(file) {
                 materialSelect.onchange = handleMaterialChange;
                 
                 tr.querySelector('.location').value = r.location || 'heated';
+                tr.querySelector('.insulation-class').value = r.insulationClassSelection || 'Auto'; // <-- NY LINJE
                 tr.querySelector('.len').value = r.len;
                 tr.querySelector('.fittings').value = r.fittings;
 
