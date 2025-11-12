@@ -591,7 +591,16 @@ let projektErÆndret = false;
 const gridSize = 10;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // === TRIN 4: GENDANNELSE (Kører FØRST) ===
+    // 1. INITIALISER DIAGRAMMET FØRST (Så det er klar til data)
+    initDiagram();
+
+    // 2. Initialiser Popovers
+    const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
+    [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {
+        trigger: 'hover focus'
+    }));
+
+    // 3. TJEK FOR AUTO-GEM
     let autoSaveData = null;
     try {
         autoSaveData = localStorage.getItem('varmtBrugsvandAutoSave');
@@ -599,70 +608,57 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("Kunne ikke læse fra localStorage:", err);
     }
 
+    let projectLoaded = false;
+
     if (autoSaveData) {
         if (confirm("Vi fandt et auto-gemt projekt. Vil du gendanne det?\n\n[OK] = Gendan\n[Annuller] = Start et nyt projekt (sletter auto-gem)")) {
             try {
                 const data = JSON.parse(autoSaveData);
-                loadProjectData(data); // Indlæs de gemte data
+                loadProjectData(data); // Nu virker dette, fordi diagrammet er klar
+                projectLoaded = true;
                 console.log("Auto-gemt projekt er gendannet.");
             } catch (err) {
                 alert("Fejl: Kunne ikke gendanne auto-gemt projekt. Starter et nyt projekt.");
                 localStorage.removeItem('varmtBrugsvandAutoSave');
-                // Fortsæt til normal initialisering
             }
         } else {
-            // Brugeren valgte "Annuller"
             localStorage.removeItem('varmtBrugsvandAutoSave');
-            console.log("Auto-gem er slettet af brugeren. Starter nyt projekt.");
-            // Fortsæt til normal initialisering
+            console.log("Auto-gem er slettet af brugeren.");
         }
     }
     
-    // === NORMAL INITIALISERING (Kører efter gendannelse eller hvis intet gemt) ===
-    
-    // Initialiser Popovers
-    const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
-    [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {
-        trigger: 'hover focus'
-    }));
-
-    initDiagram();
-
-    // Tjek om der blev indlæst et projekt. Hvis IKKE, opret standard-projekt.
-    if (!autoSaveData || (autoSaveData && !confirm("..."))) {
+    // 4. HVIS INTET PROJEKT BLEV INDLÆST -> OPRET STANDARD PROJEKT
+    if (!projectLoaded) {
         addStreng();
         addRorSektion(document.querySelector('.streng-card .btn-outline-secondary:last-of-type'));
         addTapsted(document.querySelector('.streng-card .btn-outline-secondary:last-of-type'));
         addReturRor();
         
-        // Sæt standard-forbindelser for det nye projekt
+        // Sæt standard-forbindelser
+        updateAllSelects(); // Opdater lister først
+        
         const startSelect = document.querySelector('.circ-start');
         const endSelect = document.querySelector('.circ-end');
-        if(startSelect.options.length > 0) startSelect.value = startSelect.options[0].value;
-        if(endSelect.options.length > 0) endSelect.value = endSelect.options[0].value;
+        if(startSelect && startSelect.options.length > 0) startSelect.value = startSelect.options[0].value;
+        if(endSelect && endSelect.options.length > 0) endSelect.value = endSelect.options[0].value;
+        
+        // Opdater igen for at gemme forbindelserne
+        updateAllSelects();
     }
     
     toggleAutoDim(document.getElementById('autoDimToggle').checked);
-    updateAllSelects();
 
     // === TRIN 3: OPSÆTNING AF AUTO-GEM TRRIGGERS ===
     
     // 1. Generelle lyttere (Event Delegation)
     const accordion = document.getElementById('inputAccordion');
     if (accordion) {
-        // Lyt efter enhver indtastning i et tekstfelt
         accordion.addEventListener('input', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-                setProjektErÆndret();
-            }
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') setProjektErÆndret();
         });
-        // Lyt efter ændring i checkboxes eller selects
         accordion.addEventListener('change', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-                setProjektErÆndret();
-            }
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') setProjektErÆndret();
         });
-        // Lyt efter klik på add/remove knapper inde i accordion
         accordion.addEventListener('click', (e) => {
             if (e.target.tagName === 'BUTTON' && (e.target.textContent.includes('+') || e.target.textContent.includes('×'))) {
                 setProjektErÆndret();
@@ -671,19 +667,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // 2. Interval-Gem (5 minutter)
-    setInterval(checkAndAutoSave, 300000); // 300.000 ms = 5 minutter
+    setInterval(checkAndAutoSave, 300000); 
 
-    // 3. Panik-Gem (ved luk/reload) - Opgraderer den eksisterende F5-sikring
+    // 3. Panik-Gem (ved luk/reload)
     window.addEventListener('beforeunload', (event) => {
         if (projektErÆndret) {
-            // Gem en sidste gang, lige før siden lukker
             console.log("Gemmer ulagrede ændringer før siden lukkes...");
             autoSaveProject();
         }
-        
-        // Returner en advarsel (selvom auto-gem er kørt, for en sikkerheds skyld)
-        event.preventDefault();
-        event.returnValue = ''; 
+        // event.preventDefault(); // Udkommenteret for at undgå irriterende popup hver gang
+        // event.returnValue = ''; 
     });
 });
 
