@@ -2121,8 +2121,7 @@ function importProject(file) {
 }
 
 /**
- * NY FUNKTION: Indlæser et komplet projekt-objekt (fra fil eller localStorage) ind i UI'en.
- * @param {object} data - Det fulde projekt-objekt (samme format som eksporteret JSON).
+ * NYT: loadProjectData med "To-trins" logik for at sikre korrekte forældre-relationer.
  */
 function loadProjectData(data) {
     if (!data) return;
@@ -2134,7 +2133,7 @@ function loadProjectData(data) {
     state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
     let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
 
-    // Find højeste ID'er for at undgå konflikter
+    // Find højeste ID'er
     if (data.strenge) {
         data.strenge.forEach(streng => {
             const sNum = parseInt(streng.id.replace('S', ''), 10);
@@ -2160,18 +2159,13 @@ function loadProjectData(data) {
         });
     }
     
-    state.sC = maxS;
-    state.rC = maxR;
-    state.tC = maxT;
-    valveCounter = maxV;
+    state.sC = maxS; state.rC = maxR; state.tC = maxT; valveCounter = maxV;
 
-    // Indlæs navne, positioner og custom tapsteder
     state.names = new Map(data.names);
     if (data.nodePositions) state.nodes = data.nodePositions;
     state.customTapsteder = data.customTapsteder || {}; 
     Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
     
-    // Indlæs globale config-værdier
     if (data.config) {
         Object.entries(data.config).forEach(([k, v]) => {
             const el = document.getElementById(k);
@@ -2181,7 +2175,6 @@ function loadProjectData(data) {
         toggleAutoDim(data.config.isAuto);
     }
 
-    // Genopbyg custom tapsteder
     Object.keys(state.customTapsteder).forEach(k => {
         const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
         clone.querySelector('.input-group-text').dataset.key = k;
@@ -2191,12 +2184,19 @@ function loadProjectData(data) {
         document.getElementById('customTapsteder').appendChild(clone);
     });
 
-    // Genopbyg strenge
+    // --- TRIN 1: OPRET ELEMENTER (OG GEM FORÆLDER MIDLERTIDIGT) ---
+
     if (data.strenge) {
         data.strenge.forEach(streng => {
             const clone = document.getElementById('strengTemplate').content.cloneNode(true);
             const card = clone.querySelector('.card');
             card.dataset.id = streng.id;
+            
+            // Gem cirkulations-info midlertidigt på kortet
+            card.dataset.tempCircStart = streng.circ_start;
+            card.dataset.tempCircEnd = streng.circ_end;
+            card.querySelector('.circ-zeta').value = streng.circ_zeta || 0;
+
             document.getElementById('strengeContainer').appendChild(clone);
             const rorContainer = card.querySelector('.ror-container');
             const tapstedContainer = card.querySelector('.tapsted-container');
@@ -2206,6 +2206,7 @@ function loadProjectData(data) {
                 const tr = document.createElement('tr');
                 tr.dataset.id = id;
                 tr.dataset.type = 'ror';
+                tr.dataset.tempParent = r.parent; // <--- VIGTIGT: Gem forælder her!
                 const datalistId = `list-${id}`;
                 
                 tr.innerHTML = `
@@ -2221,16 +2222,15 @@ function loadProjectData(data) {
                         <option value="Geberit Mepla">Geberit Mepla</option>
                     </select></td>
                     <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
-                    <td><input type="text" class="form-control form-control-sm insulation-class" value="${r.insulationClassSelection || 'Auto'}" list="insulationClassOptions" title="Vælg isoleringsklasse (Auto baseres på placering og DS 452, Tabel 6.4)"></td>
+                    <td><input type="text" class="form-control form-control-sm insulation-class" value="${r.insulationClassSelection || 'Auto'}" list="insulationClassOptions" title="Vælg isoleringsklasse"></td>
                     <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
                     <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
-                    <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
+                    <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta)"></td>
                     <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
                 `;
                 
                 tr.querySelector('.material').value = r.material;
                 tr.querySelector('.location').value = r.location || 'heated';
-                
                 tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
                 const materialSelect = tr.querySelector('.material');
                 materialSelect.onchange = handleMaterialChange;
@@ -2244,6 +2244,7 @@ function loadProjectData(data) {
                 const tr = document.createElement('tr');
                 tr.dataset.id = id;
                 tr.dataset.type = 'tapsted';
+                tr.dataset.tempParent = t.parent; // <--- VIGTIGT: Gem forælder her!
 
                 let opts = '';
                 const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
@@ -2253,9 +2254,9 @@ function loadProjectData(data) {
                     <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
                     <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
                     <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted (jf. DS 439)">${opts}</select></td>
-                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s. Udfyldes automatisk ved valg af type."></td>
-                    <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote (m) (Geodætisk højde for tapsted)" aria-label="Kote (m)"></td>
-                    <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug (fx tapning til proces/maskine)" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></td>
+                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s."></td>
+                    <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote (m)" aria-label="Kote (m)"></td>
+                    <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></td>
                     <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
                 `;
                 
@@ -2268,13 +2269,13 @@ function loadProjectData(data) {
         });
     }
 
-    // Genopbyg retur-rør
     if (data.retur) {
         (data.retur || []).forEach(r => {
             const id = r.id;
             const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
             const tr = clone.querySelector('tr');
             tr.dataset.id = id;
+            tr.dataset.tempParent = r.parent; // <--- VIGTIGT: Gem forælder her!
             
             const datalistId = `list-${id}`;
             const dimInput = tr.querySelector('.dim-input');
@@ -2299,7 +2300,6 @@ function loadProjectData(data) {
         });
     }
     
-    // Genopbyg ventiler
     if (data.valves) {
         (data.valves || []).forEach(v => {
             const id = v.id;
@@ -2307,6 +2307,7 @@ function loadProjectData(data) {
             const tr = clone.querySelector('tr');
             tr.dataset.id = id;
             tr.dataset.valveType = v.valveType;
+            tr.dataset.tempParent = v.parent; // <--- VIGTIGT: Gem forælder her!
             
             const valveSelect = tr.querySelector('.valve-type-select');
             let opts = '<option value="" disabled>Vælg type...</option>';
@@ -2330,61 +2331,48 @@ function loadProjectData(data) {
         });
     }
 
-    // Kald updateAllSelects() FØRST
+    // --- TRIN 2: OPRETTELSE AF DROPDOWN-LISTER ---
+    // Nu eksisterer alle rækker i DOM'en, så nu kan updateAllSelects finde dem alle!
     updateAllSelects();
 
-    // SÆT SÅ DE KORREKTE RELATIONER
-    if (data.strenge) {
-        data.strenge.forEach(streng => {
-            const card = document.querySelector(`[data-id="${streng.id}"]`);
-            if (!card) return;
-            card.querySelector('.name-text').value = state.names.get(streng.id) || '';
-            card.querySelector('.circ-start').value = streng.circ_start;
-            card.querySelector('.circ-end').value = streng.circ_end;
-            card.querySelector('.circ-zeta').value = streng.circ_zeta;
-
-            (streng.ror || []).forEach(r => {
-                const el = document.querySelector(`[data-id="${r.id}"]`);
-                if(el) {
-                    el.querySelector('.parent').value = r.parent;
-                    el.querySelector('.name-text').value = state.names.get(r.id) || '';
-                }
-            });
-            (streng.tapsted || []).forEach(t => {
-                const el = document.querySelector(`[data-id="${t.id}"]`);
-                if(el) {
-                    el.querySelector('.parent').value = t.parent;
-                    el.querySelector('.name-text').value = state.names.get(t.id) || '';
-                }
-            });
-        });
-    }
-
-    if (data.retur) {
-        (data.retur || []).forEach(r => {
-             const el = document.querySelector(`[data-id="${r.id}"]`);
-             if(el) {
-                el.querySelector('.parent').value = r.parent;
-                el.querySelector('.name-text').value = state.names.get(r.id) || '';
-             }
-        });
-    }
+    // --- TRIN 3: GENDAN FORBINDELSER (Sæt værdier fra temp-data) ---
     
-    if (data.valves) {
-        (data.valves || []).forEach(v => {
-            const el = document.querySelector(`[data-id="${v.id}"]`);
-            if (el) {
-                el.querySelector('.parent').value = v.parent;
-                el.querySelector('.name-input').value = state.names.get(v.id) || '';
+    // 3a. Gendan forældre for rør, tapsteder, retur og ventiler
+    document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
+        const parentSelect = tr.querySelector('.parent');
+        const savedParent = tr.dataset.tempParent;
+        
+        if (parentSelect && savedParent) {
+            // Tjek om den gemte forælder rent faktisk findes i listen nu
+            const optionExists = Array.from(parentSelect.options).some(opt => opt.value === savedParent);
+            if (optionExists) {
+                parentSelect.value = savedParent;
+            } else {
+                console.warn(`Advarsel: Forælder '${savedParent}' for '${tr.dataset.id}' findes ikke. Sætter til Beholder.`);
+                parentSelect.value = "Beholder";
             }
-        });
-    }
-    
-    // Kald updateAllSelects() IGEN
+        }
+        // Ryd op
+        delete tr.dataset.tempParent;
+    });
+
+    // 3b. Gendan cirkulations-koblinger på streng-kort
+    document.querySelectorAll('.streng-card').forEach(card => {
+        const startSelect = card.querySelector('.circ-start');
+        const endSelect = card.querySelector('.circ-end');
+        
+        if (card.dataset.tempCircStart) startSelect.value = card.dataset.tempCircStart;
+        if (card.dataset.tempCircEnd) endSelect.value = card.dataset.tempCircEnd;
+        
+        delete card.dataset.tempCircStart;
+        delete card.dataset.tempCircEnd;
+    });
+
+    // --- TRIN 4: AFSLUTNING ---
+    // Kør updateAllSelects en sidste gang for at sikre, at alt er synkroniseret (og diagram tegnes korrekt)
     updateAllSelects();
     toggleDisplayNames(state.useNames);
 }
-
 	
 function exportDetailedResults() {
     if (!state.lastModel || !state.lastConfig) {
