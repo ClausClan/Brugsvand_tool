@@ -2121,10 +2121,11 @@ function importProject(file) {
 }
 
 /**
- * NYT: loadProjectData med "To-trins" logik for at sikre korrekte forældre-relationer.
+ * NYT: loadProjectData med aggressiv genoprettelse af forbindelser.
  */
 function loadProjectData(data) {
     if (!data) return;
+    console.log("Starter indlæsning af projektdata...", data);
     
     // Nulstil UI
     document.getElementById('strengeContainer').innerHTML = '';
@@ -2192,7 +2193,6 @@ function loadProjectData(data) {
             const card = clone.querySelector('.card');
             card.dataset.id = streng.id;
             
-            // Gem cirkulations-info midlertidigt på kortet
             card.dataset.tempCircStart = streng.circ_start;
             card.dataset.tempCircEnd = streng.circ_end;
             card.querySelector('.circ-zeta').value = streng.circ_zeta || 0;
@@ -2206,12 +2206,12 @@ function loadProjectData(data) {
                 const tr = document.createElement('tr');
                 tr.dataset.id = id;
                 tr.dataset.type = 'ror';
-                tr.dataset.tempParent = r.parent; // <--- VIGTIGT: Gem forælder her!
+                tr.dataset.tempParent = r.parent; 
                 const datalistId = `list-${id}`;
                 
                 tr.innerHTML = `
                     <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
-                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
+                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
                     <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
                         <option value="Kobber">Kobber</option>
                         <option value="Rustfri Press 316L">Rustfri Press 316L</option>
@@ -2221,10 +2221,10 @@ function loadProjectData(data) {
                         <option value="PE100">PE100</option>
                         <option value="Geberit Mepla">Geberit Mepla</option>
                     </select></td>
-                    <td><select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                    <td><select class="form-select form-select-sm location" title="Placering"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
                     <td><input type="text" class="form-control form-control-sm insulation-class" value="${r.insulationClassSelection || 'Auto'}" list="insulationClassOptions" title="Vælg isoleringsklasse"></td>
                     <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-                    <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)" aria-label="Længde (m)"></td>
+                    <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)"></td>
                     <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta)"></td>
                     <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
                 `;
@@ -2244,7 +2244,7 @@ function loadProjectData(data) {
                 const tr = document.createElement('tr');
                 tr.dataset.id = id;
                 tr.dataset.type = 'tapsted';
-                tr.dataset.tempParent = t.parent; // <--- VIGTIGT: Gem forælder her!
+                tr.dataset.tempParent = t.parent; 
 
                 let opts = '';
                 const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf]))};
@@ -2252,9 +2252,9 @@ function loadProjectData(data) {
                 
                 tr.innerHTML = `
                     <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
-                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-                    <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted (jf. DS 439)">${opts}</select></td>
-                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s."></td>
+                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
+                    <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted">${opts}</select></td>
+                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf)"></td>
                     <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote (m)" aria-label="Kote (m)"></td>
                     <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></td>
                     <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
@@ -2275,7 +2275,7 @@ function loadProjectData(data) {
             const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
             const tr = clone.querySelector('tr');
             tr.dataset.id = id;
-            tr.dataset.tempParent = r.parent; // <--- VIGTIGT: Gem forælder her!
+            tr.dataset.tempParent = r.parent; 
             
             const datalistId = `list-${id}`;
             const dimInput = tr.querySelector('.dim-input');
@@ -2307,7 +2307,7 @@ function loadProjectData(data) {
             const tr = clone.querySelector('tr');
             tr.dataset.id = id;
             tr.dataset.valveType = v.valveType;
-            tr.dataset.tempParent = v.parent; // <--- VIGTIGT: Gem forælder her!
+            tr.dataset.tempParent = v.parent; 
             
             const valveSelect = tr.querySelector('.valve-type-select');
             let opts = '<option value="" disabled>Vælg type...</option>';
@@ -2332,31 +2332,33 @@ function loadProjectData(data) {
     }
 
     // --- TRIN 2: OPRETTELSE AF DROPDOWN-LISTER ---
-    // Nu eksisterer alle rækker i DOM'en, så nu kan updateAllSelects finde dem alle!
+    console.log("Opdaterer dropdowns...");
     updateAllSelects();
 
-    // --- TRIN 3: GENDAN FORBINDELSER (Sæt værdier fra temp-data) ---
+    // --- TRIN 3: GENDAN FORBINDELSER (Aggressiv metode) ---
     
-    // 3a. Gendan forældre for rør, tapsteder, retur og ventiler
+    // 3a. Gendan forældre
     document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
         const parentSelect = tr.querySelector('.parent');
         const savedParent = tr.dataset.tempParent;
         
         if (parentSelect && savedParent) {
-            // Tjek om den gemte forælder rent faktisk findes i listen nu
-            const optionExists = Array.from(parentSelect.options).some(opt => opt.value === savedParent);
-            if (optionExists) {
-                parentSelect.value = savedParent;
-            } else {
-                console.warn(`Advarsel: Forælder '${savedParent}' for '${tr.dataset.id}' findes ikke. Sætter til Beholder.`);
+            // Vi sætter værdien direkte. Hvis optionen findes, vælges den.
+            parentSelect.value = savedParent;
+            
+            // Tjek om det lykkedes
+            if (parentSelect.value !== savedParent) {
+                console.warn(`ADVARSEL: Kunne ikke gendanne forælder '${savedParent}' for '${tr.dataset.id}'. Den findes muligvis ikke længere.`);
+                // Fallback til Beholder hvis den ønskede forælder mangler
                 parentSelect.value = "Beholder";
+            } else {
+                // console.log(`Gendannede forælder: ${tr.dataset.id} -> ${savedParent}`);
             }
         }
-        // Ryd op
         delete tr.dataset.tempParent;
     });
 
-    // 3b. Gendan cirkulations-koblinger på streng-kort
+    // 3b. Gendan cirkulations-koblinger
     document.querySelectorAll('.streng-card').forEach(card => {
         const startSelect = card.querySelector('.circ-start');
         const endSelect = card.querySelector('.circ-end');
@@ -2369,9 +2371,9 @@ function loadProjectData(data) {
     });
 
     // --- TRIN 4: AFSLUTNING ---
-    // Kør updateAllSelects en sidste gang for at sikre, at alt er synkroniseret (og diagram tegnes korrekt)
     updateAllSelects();
     toggleDisplayNames(state.useNames);
+    console.log("Projekt indlæst.");
 }
 	
 function exportDetailedResults() {
