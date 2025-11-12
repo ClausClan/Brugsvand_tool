@@ -2199,9 +2199,6 @@ function importProject(file) {
     reader.readAsText(file);
 }
 
-/**
- * NYT: loadProjectData ved fejl reload.
- */
 function loadProjectData(data) {
     if (!data) return;
     console.log("Starter indlæsning...", data);
@@ -2211,11 +2208,10 @@ function loadProjectData(data) {
     document.getElementById('returContainerBody').innerHTML = ''; 
     document.getElementById('customTapsteder').innerHTML = '';
     
-    // Nulstil tællere
     state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
     let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
 
-    // --- TRIN 0: FORBEREDELSE (Find max ID'er og indlæs config) ---
+    // --- TRIN 0: FORBEREDELSE ---
     try {
         if (data.strenge) {
             data.strenge.forEach(streng => {
@@ -2270,15 +2266,14 @@ function loadProjectData(data) {
         console.error("Fejl i Trin 0 (Forberedelse):", e);
     }
 
-    // --- TRIN 1: OPRET ELEMENTER (OG GEM FORÆLDER MIDLERTIDIGT) ---
-    // Vi bruger en lokal hjælpefunktion for at undgå kode-duplikering i denne lange sektion
+    // --- TRIN 1: OPRET ELEMENTER ---
     const setCommonFields = (tr, item) => {
-        if (tr.dataset.tempParent) tr.dataset.tempParent = item.parent || "Beholder"; // Sikker fallback
+        if (tr.dataset.tempParent) tr.dataset.tempParent = item.parent || "Beholder";
         
         const matSelect = tr.querySelector('.material');
         if (matSelect && item.material) {
             matSelect.value = item.material;
-            matSelect.onchange = handleMaterialChange; // Re-attach listener
+            matSelect.onchange = handleMaterialChange; 
         }
         
         const locSelect = tr.querySelector('.location');
@@ -2336,7 +2331,7 @@ function loadProjectData(data) {
                     <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
                     <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
                     <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
-                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
                 `;
                 
                 setCommonFields(tr, r);
@@ -2364,13 +2359,12 @@ function loadProjectData(data) {
                     <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" title="qf"></td>
                     <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote"></td>
                     <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst." ${t.syst ? 'checked' : ''}></td>
-                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
                 `;
                 
                 const tapSelect = tr.querySelector('.tapType');
-                // Sikker måde at sætte select værdi (finder index baseret på tekst hvis nødvendigt)
                 let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === t.tapType);
-                if (foundIdx === -1 && t.qf) { // Fallback: find på værdi
+                if (foundIdx === -1 && t.qf) { 
                      foundIdx = Array.from(tapSelect.options).findIndex(opt => parseFloat(opt.value) === parseFloat(t.qf));
                 }
                 if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
@@ -2400,7 +2394,7 @@ function loadProjectData(data) {
 
             tr.querySelector('.id-text').textContent = id;
             
-            setCommonFields(tr, r); // Genbrug logik
+            setCommonFields(tr, r); 
             
             document.getElementById('returContainerBody').appendChild(clone);
             
@@ -2448,29 +2442,24 @@ function loadProjectData(data) {
         console.error("Fejl i Trin 2 (updateAllSelects):", e);
     }
 
-    // --- TRIN 3: GENDAN FORBINDELSER (Aggressiv metode) ---
+    // --- TRIN 3: GENDAN FORBINDELSER ---
     console.log("Gendanner forbindelser...");
     
-    // 3a. Gendan forældre
     document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
         const parentSelect = tr.querySelector('.parent');
         const savedParent = tr.dataset.tempParent;
         
         if (parentSelect && savedParent) {
-            // Direkte tildeling. Vi tjekker ikke om den findes først, vi bare sætter den.
-            // Hvis værdien ikke findes i option-listen, vil browseren typisk vise den tom eller vælge den første.
             parentSelect.value = savedParent;
             
-            // Fallback-tjek: Hvis værdien blev blank (fordi ID'et ikke findes), sæt til Beholder
-            if (!parentSelect.value && savedParent !== "") {
-                console.warn(`Kunne ikke sætte forælder '${savedParent}' for '${tr.dataset.id}'. Sætter til Beholder.`);
+            if (parentSelect.value !== savedParent) {
+                console.warn(`Kunne ikke gendanne forælder '${savedParent}' for '${tr.dataset.id}'. Sætter til Beholder.`);
                 parentSelect.value = "Beholder";
             }
         }
         delete tr.dataset.tempParent;
     });
 
-    // 3b. Gendan cirkulations-koblinger
     document.querySelectorAll('.streng-card').forEach(card => {
         const startSelect = card.querySelector('.circ-start');
         const endSelect = card.querySelector('.circ-end');
@@ -2482,15 +2471,14 @@ function loadProjectData(data) {
         delete card.dataset.tempCircEnd;
     });
 
-// --- TRIN 4: AFSLUTNING ---
+    // --- TRIN 4: AFSLUTNING ---
     try {
         updateAllSelects();
         toggleDisplayNames(state.useNames);
         
-        // NYT: Vent lidt på at simulationen stabiliserer sig, og zoom så alt ind
         setTimeout(() => {
-            zoomToFit();
-        }, 100); // 100ms forsinkelse for at sikre at noderne har fået koordinater
+            if (typeof zoomToFit === 'function') zoomToFit();
+        }, 100);
         
     } catch (e) {
         console.error("Fejl i Trin 4 (Afslutning):", e);
