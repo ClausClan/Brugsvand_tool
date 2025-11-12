@@ -1976,9 +1976,8 @@ function exportProject() {
 }
 
 /**
- * NY FUNKTION (TRIN 2): Gemmer den nuværende projekt-tilstand til localStorage.
- * Denne funktion er en klon af 'exportProject', men outputter til localStorage
- * i stedet for en fil-download.
+ * OPDATERET FUNKTION: Gemmer den nuværende projekt-tilstand til localStorage.
+ * Denne version matcher nu 100% logikken i exportProject.
  */
 function autoSaveProject() {
     const data = {
@@ -2002,14 +2001,14 @@ function autoSaveProject() {
             circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
         };
 
-        // Indsaml fremløbsrør
+        // Indsaml ror fremløb
         card.querySelectorAll('.ror-container > tr[data-type="ror"]').forEach(el => {
             strengData.ror.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
                 material: el.querySelector('.material').value,
                 location: el.querySelector('.location').value,
-                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto',
+                insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto', // VIGTIGT: Inkluderet nu
                 dim: el.querySelector('.dim').value, 
                 len: parseFloat(el.querySelector('.len').value),
                 fittings: parseFloat(el.querySelector('.fittings').value)
@@ -2039,7 +2038,7 @@ function autoSaveProject() {
             parent: el.querySelector('.parent').value,
             material: el.querySelector('.material').value,
             location: el.querySelector('.location').value,
-            insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto',
+            insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto', // VIGTIGT: Inkluderet nu
             dim: el.querySelector('.dim').value, 
             len: parseFloat(el.querySelector('.len').value),
             fittings: parseFloat(el.querySelector('.fittings').value)
@@ -2055,18 +2054,16 @@ function autoSaveProject() {
         });
     });
 
-    // Gem data til localStorage i stedet for fil
+    // Gem data til localStorage
     try {
         localStorage.setItem('varmtBrugsvandAutoSave', JSON.stringify(data));
-        projektErÆndret = false; // Nulstil flaget EFTER succesfuld gem
-        console.log("Projekt auto-gemt i localStorage."); // Til debugging
+        projektErÆndret = false; 
+        console.log("Projekt auto-gemt i localStorage."); 
     } catch (err) {
         console.error("Fejl ved auto-gem til localStorage:", err);
-        // Viser en fejl, hvis localStorage er fuld eller deaktiveret
-        alert("Fejl: Kunne ikke auto-gemme projekt. Browserens lager er muligvis fuldt.");
     }
 }
-
+	
 /**
  * NY FUNKTION (TRIN 3): Sætter "dirty flag" for at indikere, at der er ændringer.
  */
