@@ -1308,6 +1308,61 @@ function zoomToFit() {
     state.svgElement.transition().duration(750).call(state.zoomBehavior.transform, transform);
 }
 
+// --- DRAG & DROP FUNKTIONER ---
+
+function dragstarted(e, d) {
+    if (!e.active) state.sim.alphaTarget(0.1).restart();
+    // Shift-klik starter "reparenting" (flyt forældre)
+    if (e.sourceEvent.shiftKey) { 
+        state.reparentingNode = d; 
+        d3.select(this).classed('reparenting', true); 
+    }
+}
+
+function dragged(e, d) {
+    // Flyt noden (låst til grid)
+    d.fx = Math.round(e.x / gridSize) * gridSize;
+    d.fy = Math.round(e.y / gridSize) * gridSize;
+}
+
+function dragended(e, d) {
+    if (!e.active) state.sim.alphaTarget(0);
+    
+    // Håndter "reparenting" (hvis man slipper en node oven på en anden med Shift nede)
+    if (state.reparentingNode) {
+        d3.select(this).classed('reparenting', false);
+        
+        const svgNode = state.svgElement.node();
+        const transform = d3.zoomTransform(svgNode);
+        
+        const [px, py] = d3.pointer(e.sourceEvent, svgNode);
+        const x = transform.invertX(px);
+        const y = transform.invertY(py);
+        
+        const targetNode = state.sim.find(x, y, 30);
+        
+        if (targetNode && targetNode.id !== state.reparentingNode.id) {
+            // Find rækken i tabellen for den node, vi flyttede
+            const el = document.querySelector(`tr[data-id="${state.reparentingNode.id}"]`);
+            if (el) {
+                const pSel = el.querySelector('.parent');
+                if (pSel) {
+                    // Tjek om det er en gyldig forælder (simpel validering)
+                    // Vi lader updateAllSelects håndtere den endelige logik, men vi sætter værdien her
+                    pSel.value = targetNode.id; 
+                    updateAllSelects(); 
+                }
+            }
+        }
+        state.reparentingNode = null;
+    }
+    
+    // VIGTIGT for Auto-gem: Fortæl systemet, at noget er ændret (positionen)
+    if (typeof setProjektErÆndret === 'function') {
+        setProjektErÆndret();
+    }
+}
+	
 /**
  * Synkroniserer data fra den færdige beregningsmodel over til
  * det 'state'-objekt, som D3-diagrammet bruger til at tegne.
