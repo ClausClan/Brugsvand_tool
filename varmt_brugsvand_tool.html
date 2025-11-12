@@ -2121,71 +2121,102 @@ function importProject(file) {
 }
 
 /**
- * NYT: loadProjectData med aggressiv genoprettelse af forbindelser.
+ * NYT: loadProjectData ved fejl reload.
  */
 function loadProjectData(data) {
     if (!data) return;
-    console.log("Starter indlæsning af projektdata...", data);
+    console.log("Starter indlæsning...", data);
     
     // Nulstil UI
     document.getElementById('strengeContainer').innerHTML = '';
     document.getElementById('returContainerBody').innerHTML = ''; 
     document.getElementById('customTapsteder').innerHTML = '';
+    
+    // Nulstil tællere
     state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
     let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
 
-    // Find højeste ID'er
-    if (data.strenge) {
-        data.strenge.forEach(streng => {
-            const sNum = parseInt(streng.id.replace('S', ''), 10);
-            if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
-            const components = [...(streng.ror || []), ...(streng.tapsted || [])];
-            components.forEach(comp => {
-                const idParts = comp.id.split(/[RT-]/);
-                const tNum = parseInt(idParts[idParts.length - 1], 10);
-                if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
+    // --- TRIN 0: FORBEREDELSE (Find max ID'er og indlæs config) ---
+    try {
+        if (data.strenge) {
+            data.strenge.forEach(streng => {
+                const sNum = parseInt(streng.id.replace('S', ''), 10);
+                if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
+                const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+                components.forEach(comp => {
+                    const idParts = comp.id.split(/[RT-]/);
+                    const tNum = parseInt(idParts[idParts.length - 1], 10);
+                    if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
+                });
             });
-        });
-    }
-    if (data.retur) {
-        data.retur.forEach(r => {
-            const rNum = parseInt(r.id.replace('Retur', ''), 10);
-            if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
-        });
-    }
-    if (data.valves) { 
-        data.valves.forEach(v => {
-            const vNum = parseInt(v.id.replace('V', ''), 10);
-            if (!isNaN(vNum) && vNum > maxV) maxV = vNum;
-        });
-    }
-    
-    state.sC = maxS; state.rC = maxR; state.tC = maxT; valveCounter = maxV;
+        }
+        if (data.retur) {
+            data.retur.forEach(r => {
+                const rNum = parseInt(r.id.replace('Retur', ''), 10);
+                if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
+            });
+        }
+        if (data.valves) { 
+            data.valves.forEach(v => {
+                const vNum = parseInt(v.id.replace('V', ''), 10);
+                if (!isNaN(vNum) && vNum > maxV) maxV = vNum;
+            });
+        }
+        
+        state.sC = maxS; state.rC = maxR; state.tC = maxT; valveCounter = maxV;
 
-    state.names = new Map(data.names);
-    if (data.nodePositions) state.nodes = data.nodePositions;
-    state.customTapsteder = data.customTapsteder || {}; 
-    Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
-    
-    if (data.config) {
-        Object.entries(data.config).forEach(([k, v]) => {
-            const el = document.getElementById(k);
-            if (el) el.value = v;
-            if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
-        });
-        toggleAutoDim(data.config.isAuto);
-    }
+        state.names = new Map(data.names);
+        if (data.nodePositions) state.nodes = data.nodePositions;
+        state.customTapsteder = data.customTapsteder || {}; 
+        Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf])) : {});
+        
+        if (data.config) {
+            Object.entries(data.config).forEach(([k, v]) => {
+                const el = document.getElementById(k);
+                if (el) el.value = v;
+                if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
+            });
+            toggleAutoDim(data.config.isAuto);
+        }
 
-    Object.keys(state.customTapsteder).forEach(k => {
-        const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
-        clone.querySelector('.input-group-text').dataset.key = k;
-        clone.querySelector('.input-group-text').textContent = k;
-        clone.querySelector('.qf').value = state.customTapsteder[k].qf;
-        clone.querySelector('.is-apartment').checked = state.customTapsteder[k].isApartment;
-        document.getElementById('customTapsteder').appendChild(clone);
-    });
+        Object.keys(state.customTapsteder).forEach(k => {
+            const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
+            clone.querySelector('.input-group-text').dataset.key = k;
+            clone.querySelector('.input-group-text').textContent = k;
+            clone.querySelector('.qf').value = state.customTapsteder[k].qf;
+            clone.querySelector('.is-apartment').checked = state.customTapsteder[k].isApartment;
+            document.getElementById('customTapsteder').appendChild(clone);
+        });
+    } catch (e) {
+        console.error("Fejl i Trin 0 (Forberedelse):", e);
+    }
 
     // --- TRIN 1: OPRET ELEMENTER (OG GEM FORÆLDER MIDLERTIDIGT) ---
+    // Vi bruger en lokal hjælpefunktion for at undgå kode-duplikering i denne lange sektion
+    const setCommonFields = (tr, item) => {
+        if (tr.dataset.tempParent) tr.dataset.tempParent = item.parent || "Beholder"; // Sikker fallback
+        
+        const matSelect = tr.querySelector('.material');
+        if (matSelect && item.material) {
+            matSelect.value = item.material;
+            matSelect.onchange = handleMaterialChange; // Re-attach listener
+        }
+        
+        const locSelect = tr.querySelector('.location');
+        if (locSelect && item.location) locSelect.value = item.location;
+        
+        const isoInput = tr.querySelector('.insulation-class');
+        if (isoInput) isoInput.value = item.insulationClassSelection || 'Auto';
+        
+        const lenInput = tr.querySelector('.len');
+        if (lenInput) lenInput.value = item.len || 10;
+        
+        const fitInput = tr.querySelector('.fittings');
+        if (fitInput) fitInput.value = item.fittings || 0;
+        
+        const nameInput = tr.querySelector('.name-text');
+        if (nameInput) nameInput.onchange = (e) => state.names.set(item.id, e.target.value);
+    };
 
     if (data.strenge) {
         data.strenge.forEach(streng => {
@@ -2210,9 +2241,9 @@ function loadProjectData(data) {
                 const datalistId = `list-${id}`;
                 
                 tr.innerHTML = `
-                    <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
-                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
-                    <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
+                    <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
+                    <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                    <td><select class="form-select form-select-sm material" title="Materiale">
                         <option value="Kobber">Kobber</option>
                         <option value="Rustfri Press 316L">Rustfri Press 316L</option>
                         <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
@@ -2222,21 +2253,18 @@ function loadProjectData(data) {
                         <option value="Geberit Mepla">Geberit Mepla</option>
                     </select></td>
                     <td><select class="form-select form-select-sm location" title="Placering"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
-                    <td><input type="text" class="form-control form-control-sm insulation-class" value="${r.insulationClassSelection || 'Auto'}" list="insulationClassOptions" title="Vælg isoleringsklasse"></td>
-                    <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Nominel diameter (mm)" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-                    <td><input type="number" min="0" class="form-control form-control-sm len" value="${r.len}" title="Længde (m)"></td>
-                    <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${r.fittings}" title="Sum af enkeltmodstande (zeta)"></td>
-                    <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+                    <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol. Klasse"></td>
+                    <td><input type="text" class="form-control form-control-sm dim-input dim" value="${r.dim}" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                    <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
+                    <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
                 `;
                 
-                tr.querySelector('.material').value = r.material;
-                tr.querySelector('.location').value = r.location || 'heated';
-                tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-                const materialSelect = tr.querySelector('.material');
-                materialSelect.onchange = handleMaterialChange;
-                
+                setCommonFields(tr, r);
                 rorContainer.appendChild(tr);
-                updateDimOptions(materialSelect); 
+                
+                const matSelect = tr.querySelector('.material');
+                if (matSelect) updateDimOptions(matSelect); 
             });
             
             (streng.tapsted || []).forEach(t => {
@@ -2251,16 +2279,23 @@ function loadProjectData(data) {
                 Object.keys(allTap).forEach(k => opts += `<option value="${allTap[k]}" data-is-apartment="${state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed')}">${k}</option>`);
                 
                 tr.innerHTML = `
-                    <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span></td>
-                    <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
-                    <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted">${opts}</select></td>
-                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf)"></td>
-                    <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote (m)" aria-label="Kote (m)"></td>
-                    <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug" ${t.syst ? 'checked' : ''}></td>
-                    <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+                    <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                    <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                    <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" title="Type">${opts}</select></td>
+                    <td><input type="number" class="form-control form-control-sm qf" min="0" value="${t.qf}" step="0.01" title="qf"></td>
+                    <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${t.kote || 0}" title="Kote"></td>
+                    <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst." ${t.syst ? 'checked' : ''}></td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
                 `;
                 
-                tr.querySelector('.tapType').selectedIndex = Array.from(tr.querySelector('.tapType').options).findIndex(opt => opt.text === t.tapType);
+                const tapSelect = tr.querySelector('.tapType');
+                // Sikker måde at sætte select værdi (finder index baseret på tekst hvis nødvendigt)
+                let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === t.tapType);
+                if (foundIdx === -1 && t.qf) { // Fallback: find på værdi
+                     foundIdx = Array.from(tapSelect.options).findIndex(opt => parseFloat(opt.value) === parseFloat(t.qf));
+                }
+                if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
+
                 tr.dataset.isApartment = t.isApartment ? 'true' : 'false';
                 tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
                 
@@ -2281,22 +2316,17 @@ function loadProjectData(data) {
             const dimInput = tr.querySelector('.dim-input');
             const datalist = tr.querySelector('datalist');
             dimInput.setAttribute('list', datalistId);
+            datalist.id = datalistId;
             dimInput.value = r.dim; 
 
             tr.querySelector('.id-text').textContent = id;
-            tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
             
-            const materialSelect = tr.querySelector('.material');
-            materialSelect.value = r.material;
-            materialSelect.onchange = handleMaterialChange;
+            setCommonFields(tr, r); // Genbrug logik
             
-            tr.querySelector('.location').value = r.location || 'heated';
-            tr.querySelector('.insulation-class').value = r.insulationClassSelection || 'Auto'; 
-            tr.querySelector('.len').value = r.len;
-            tr.querySelector('.fittings').value = r.fittings;
-
             document.getElementById('returContainerBody').appendChild(clone);
-            updateDimOptions(materialSelect); 
+            
+            const matSelect = tr.querySelector('.material');
+            if (matSelect) updateDimOptions(matSelect); 
         });
     }
     
@@ -2333,9 +2363,14 @@ function loadProjectData(data) {
 
     // --- TRIN 2: OPRETTELSE AF DROPDOWN-LISTER ---
     console.log("Opdaterer dropdowns...");
-    updateAllSelects();
+    try {
+        updateAllSelects();
+    } catch (e) {
+        console.error("Fejl i Trin 2 (updateAllSelects):", e);
+    }
 
     // --- TRIN 3: GENDAN FORBINDELSER (Aggressiv metode) ---
+    console.log("Gendanner forbindelser...");
     
     // 3a. Gendan forældre
     document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
@@ -2343,16 +2378,14 @@ function loadProjectData(data) {
         const savedParent = tr.dataset.tempParent;
         
         if (parentSelect && savedParent) {
-            // Vi sætter værdien direkte. Hvis optionen findes, vælges den.
+            // Direkte tildeling. Vi tjekker ikke om den findes først, vi bare sætter den.
+            // Hvis værdien ikke findes i option-listen, vil browseren typisk vise den tom eller vælge den første.
             parentSelect.value = savedParent;
             
-            // Tjek om det lykkedes
-            if (parentSelect.value !== savedParent) {
-                console.warn(`ADVARSEL: Kunne ikke gendanne forælder '${savedParent}' for '${tr.dataset.id}'. Den findes muligvis ikke længere.`);
-                // Fallback til Beholder hvis den ønskede forælder mangler
+            // Fallback-tjek: Hvis værdien blev blank (fordi ID'et ikke findes), sæt til Beholder
+            if (!parentSelect.value && savedParent !== "") {
+                console.warn(`Kunne ikke sætte forælder '${savedParent}' for '${tr.dataset.id}'. Sætter til Beholder.`);
                 parentSelect.value = "Beholder";
-            } else {
-                // console.log(`Gendannede forælder: ${tr.dataset.id} -> ${savedParent}`);
             }
         }
         delete tr.dataset.tempParent;
@@ -2371,24 +2404,13 @@ function loadProjectData(data) {
     });
 
     // --- TRIN 4: AFSLUTNING ---
-    updateAllSelects();
-    toggleDisplayNames(state.useNames);
-    console.log("Projekt indlæst.");
-}
-	
-function exportDetailedResults() {
-    if (!state.lastModel || !state.lastConfig) {
-        alert('Kør beregning først!');
-        return;
+    try {
+        updateAllSelects();
+        toggleDisplayNames(state.useNames);
+    } catch (e) {
+        console.error("Fejl i Trin 4 (Afslutning):", e);
     }
-    const data = generateDetailedResults(state.lastModel, state.lastConfig);
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `brugsvand_detaljerede_resultater.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    console.log("Projekt indlæst færdigt.");
 }
 
 function generateDetailedResults(model, config) {
