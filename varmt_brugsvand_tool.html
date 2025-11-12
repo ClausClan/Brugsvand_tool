@@ -1253,6 +1253,7 @@ function updateDiagram() {
 
 /**
  * NY FUNKTION: Zoomer og panorerer så hele netværket er synligt.
+ * Rettet til at bruge viewBox-koordinater for korrekt centrering.
  */
 function zoomToFit() {
     if (!state.nodes || state.nodes.length === 0) return;
@@ -1262,80 +1263,49 @@ function zoomToFit() {
     const xExtent = d3.extent(state.nodes, d => d.x);
     const yExtent = d3.extent(state.nodes, d => d.y);
     
-    // Hvis der ingen udstrækning er (f.eks. kun 1 node), brug standardværdier
     if (xExtent[0] === undefined) return;
 
-    const width = state.svgElement.node().clientWidth;
-    const height = state.svgElement.node().clientHeight;
-    const padding = 40;
-
-    // Beregn bredde og højde af netværket
-    const dx = xExtent[1] - xExtent[0];
-    const dy = yExtent[1] - yExtent[0];
+    // RETTELSE: Vi bruger viewBox dimensioner i stedet for clientWidth/Height.
+    // Dette sikrer, at vi regner i det samme koordinatsystem som d3.zoom arbejder i.
+    let width, height;
+    const viewBoxAttr = state.svgElement.attr("viewBox");
     
-    // Find midtpunktet af netværket
+    if (viewBoxAttr) {
+        const vb = viewBoxAttr.split(" ").map(parseFloat);
+        width = vb[2]; // viewBox width
+        height = vb[3]; // viewBox height
+    } else {
+        // Fallback (bør ikke ske med vores initDiagram)
+        width = state.svgElement.node().clientWidth;
+        height = state.svgElement.node().clientHeight;
+    }
+
+    const padding = 50; // Lidt ekstra luft rundt om
+
+    // Beregn bredde og højde af selve netværket
+    const dx = xExtent[1] - xExtent[0] + (padding * 2);
+    const dy = yExtent[1] - yExtent[0] + (padding * 2);
+    
+    // Find midtpunktet af netværket (i graf-koordinater)
     const cx = (xExtent[0] + xExtent[1]) / 2;
     const cy = (yExtent[0] + yExtent[1]) / 2;
 
-    // Beregn skala (hvor meget skal vi zoome ind/ud)
-    // Vi sikrer at skalaen ikke bliver uendelig hvis dx/dy er 0
-    const scale = 0.9 / Math.max(dx / width, dy / height);
+    // Beregn skala (hvor meget skal vi zoome ind/ud for at det passer i boksen)
+    // Vi dividerer ViewBox-størrelse med Netværks-størrelse
+    const scale = Math.min(width / dx, height / dy);
     
     // Begræns zoom (ikke for tæt på, ikke for langt væk)
     const limitedScale = Math.min(2, Math.max(0.1, scale));
 
     // Beregn translationen for at centrere midtpunktet
-    const tx = width / 2 - limitedScale * cx;
-    const ty = height / 2 - limitedScale * cy;
+    // Formel: (Halv skærmbredde) - (Halv netværksbredde * skala)
+    // Eller mere præcist: Vi flytter grafens centrum (cx) til 0, scaler, og flytter derefter til midten af skærmen.
+    const tx = (width / 2) - (cx * limitedScale);
+    const ty = (height / 2) - (cy * limitedScale);
 
     // Udfør zoom med en glidende overgang
     const transform = d3.zoomIdentity.translate(tx, ty).scale(limitedScale);
     state.svgElement.transition().duration(750).call(state.zoomBehavior.transform, transform);
-}
-	
-function dragstarted(e, d) {
-    if (!e.active) state.sim.alphaTarget(0.1).restart();
-    if (e.sourceEvent.shiftKey) { 
-        state.reparentingNode = d; 
-        d3.select(this).classed('reparenting', true); 
-    }
-}
-
-function dragged(e, d) {
-    d.fx = Math.round(e.x / gridSize) * gridSize;
-    d.fy = Math.round(e.y / gridSize) * gridSize;
-}
-
-function dragended(e, d) {
-    if (!e.active) state.sim.alphaTarget(0);
-    if (state.reparentingNode) {
-        d3.select(this).classed('reparenting', false);
-        const svgNode = d3.select('#diagram svg').node();
-        const transform = d3.zoomTransform(svgNode);
-        const [px, py] = d3.pointer(e.sourceEvent, svgNode);
-        const x = transform.invertX(px);
-        const y = transform.invertY(py);
-        const targetNode = state.sim.find(x, y, 30);
-        if (!targetNode || targetNode.id === state.reparentingNode.id) {
-            state.reparentingNode = null;
-            return;
-        }
-        const el = document.querySelector(`[data-id="${state.reparentingNode.id}"]`);
-        if (el) {
-            const pSel = el.querySelector('.parent');
-            if (pSel) {
-                const isTargetValid = (pSel.parentElement.dataset.type === 'retur' && (targetNode.type === 'retur' || targetNode.type === 'beholder')) || 
-                                     (pSel.parentElement.dataset.type !== 'retur' && (targetNode.type === 'ror' || targetNode.type === 'beholder'));
-                if (isTargetValid) { 
-                    pSel.value = targetNode.id; 
-                    updateAllSelects(); 
-                }
-            }
-        }
-        state.reparentingNode = null;
-		// Sæt "dirty flag" når en node er flyttet
-    	setProjektErÆndret();
-    }
 }
 
 /**
