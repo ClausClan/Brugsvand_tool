@@ -673,13 +673,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', (event) => {
         if (projektErÆndret) {
             console.log("Gemmer ulagrede ændringer før siden lukkes...");
-            autoSaveProject();
+            autoSaveProject(); // Vi gemmer stadig for en sikkerheds skyld
+            
+            // GENAKTIVERET: Vis standard browser-advarsel
+            event.preventDefault(); 
+            event.returnValue = ''; 
         }
-        // event.preventDefault(); // Udkommenteret for at undgå irriterende popup hver gang
-        // event.returnValue = ''; 
     });
 });
-
+	
 // --- UI FUNKTIONER ---
 function handleInputChange(e) {
     // Tjekker om ændringen skete i en dropdown for tapstedstyper
