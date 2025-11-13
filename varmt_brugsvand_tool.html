@@ -2597,7 +2597,7 @@ function displayResults(model, config) {
             if (n.type === 'retur' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
             // ================================================================= //
             
-            rørTbody += `<tr>
+			rørTbody += `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
                 <td><b>${getDisplayName(n.id)}</b></td>
                 <td>${n.type}</td>
                 <td>${n.nom_dim} mm</td>
@@ -3412,12 +3412,31 @@ function highlightLoop(loopId) {
         });
 }
 
+/**
+ * NY FUNKTION: Fremhæver en enkelt komponent (rør) i diagrammet.
+ * Kaldes når man holder musen over en række i "Rørdata"-tabellen.
+ */
+function highlightComponent(id) {
+    // Dæmp alle links
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+        .style('opacity', 0.1);
 
+    // Find og fremhæv det specifikke link, hvor target er den valgte komponent
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+        .filter(d => d.target.id === id)
+        .style('stroke', '#ff7f0e') // Samme orange farve som loop-highlight
+        .style('stroke-width', '6px')
+        .style('opacity', 1.0);
+}
+
+	
 function clearHighlight() {
     updateDiagramStyles();
 
 }
 
+
+	
 /**
  * Håndterer venstre-klik på en node. Enten for at redigere, eller for at færdiggøre en forbindelse.
  * @param {object} event - Klik-eventet.
