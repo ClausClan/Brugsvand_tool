@@ -232,19 +232,37 @@
                       <div class="tab-pane fade show active" id="summary" role="tabpanel"><table class="table table-sm"><tbody id="summaryTableBody"></tbody></table></div>
 <div class="tab-pane fade" id="beholder" role="tabpanel">
     <div id="beholderResult" class="mt-3">
-        <div class="mb-4">
+<div class="mb-4">
             <h5>Vælg beregningsmetode</h5>
-            <div class="form-check">
+            
+            <div class="form-check mb-2">
                 <input class="form-check-input" type="radio" name="beholderMetode" id="metodeA" value="A" onchange="toggleBeholderMetode()" checked>
-                <label class="form-check-label" for="metodeA"><b>Metode A: Standardberegning for Etagebyggeri (P-V Kurver)</b><br><small class="text-muted">Anbefales til boligblokke med lejligheder. Kræver at tapsteder af typen "Lejlighed" er tilføjet.</small></label>
+                <label class="form-check-label" for="metodeA">
+                    <b>Metode A: Etageboliger (DS 439)</b>
+                    <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Metode A (P-V Diagram)" data-bs-content="Den officielle metode til etageboliger med mange lejligheder. Beregningen baseres på antallet af 'Normallejligheder' og bruger DS 439 P-V diagrammer til at finde sammenhængen mellem effekt og volumen. Kræver tapsteder af typen 'Lejlighed'.">(?)</a>
+                    <br><small class="text-muted">Standard for boligblokke. Kræver tapsteder defineret som 'Lejlighed'.</small>
+                </label>
             </div>
-            <div class="form-check">
+            <div id="metodeA_warning" class="alert alert-warning d-none mt-1 py-2">
+                <small><b>OBS:</b> Du har valgt Metode A, men der er ingen tapsteder markeret som "Lejlighed" i dit projekt. Tilføj tapsteder af typen "Lejlighed (standard)" for at bruge denne metode.</small>
+            </div>
+
+            <div class="form-check mb-2">
                 <input class="form-check-input" type="radio" name="beholderMetode" id="metodeB" value="B" onchange="toggleBeholderMetode()">
-                <label class="form-check-label" for="metodeB"><b>Metode B: Simpel Beregning (Største Enkeltforbruger)</b><br><small class="text-muted">Anbefales til enfamiliehuse, mindre kontorer, o.lign.</small></label>
+                <label class="form-check-label" for="metodeB">
+                    <b>Metode B: Enfamiliehuse & Mindre Bygninger</b>
+                    <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Metode B (Største Tappested)" data-bs-content="Simpel dimensionering baseret på det største enkelte tappested (f.eks. badekar eller bruser) og en ønsket opvarmningstid. Velegnet til enfamiliehuse, sommerhuse og små erhverv.">(?)</a>
+                    <br><small class="text-muted">Baseret på største enkeltforbruger (f.eks. badekar).</small>
+                </label>
             </div>
-            <div class="form-check">
+
+            <div class="form-check mb-2">
                 <input class="form-check-input" type="radio" name="beholderMetode" id="metodeC" value="C" onchange="toggleBeholderMetode()">
-                <label class="form-check-label" for="metodeC"><b>Metode C: Detaljeret Beregning (Brugerdefineret Tappemønster)</b><br><small class="text-muted">Anbefales til komplekse bygninger som hoteller, sportshaller, industri.</small></label>
+                <label class="form-check-label" for="metodeC">
+                    <b>Metode C: Specialbyggeri (Tappemønster)</b>
+                    <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Metode C (Simulering)" data-bs-content="Avanceret beregning hvor du definerer et specifikt tappemønster over tid (f.eks. 20 brusere kl. 08:00). Bruges til sportshaller, hoteller, campingpladser og industri.">(?)</a>
+                    <br><small class="text-muted">For sportshaller, industri og bygninger med særlige spidsbelastninger.</small>
+                </label>
             </div>
         </div>
         <hr>
@@ -693,18 +711,39 @@ document.addEventListener('DOMContentLoaded', () => {
 function handleInputChange(e) {
     // Tjekker om ændringen skete i en dropdown for tapstedstyper
     if (e.target.classList.contains('tapType')) {
-        const div = e.target.closest('[data-id]');
+        const tr = e.target.closest('tr');
         
         // Opdater qf-inputfeltet med værdien fra den valgte tapstedstype
-        div.querySelector('.qf').value = e.target.value;
-        
-        // Opdater om det er en lejlighed (for beholderberegning)
+        // Vi finder optionen baseret på dens værdi (som er qf)
         const selectedOption = e.target.options[e.target.selectedIndex];
-        div.dataset.isApartment = selectedOption.dataset.isApartment || 'false';
+        const qfInput = tr.querySelector('.qf');
+        
+        if (qfInput && selectedOption.value) {
+            qfInput.value = selectedOption.value;
+        }
+        
+        // Opdater om det er en lejlighed (for beholderberegning og Metode A-advarsel)
+        // Vi læser data-attributten fra optionen (som vi satte i addTapsted/importProject)
+        const isApartment = selectedOption.dataset.isApartment === 'true';
+        tr.dataset.isApartment = isApartment;
+        
+        // Hvis vi er i "Beholder"-fanen og har valgt Metode A, skal vi opdatere advarslen
+        if (document.getElementById('metodeA').checked) {
+            toggleBeholderMetode(); 
+        }
     }
     
     // Opdater resten af UI'en
-    updateAllSelects();
+    // Bemærk: Vi kalder IKKE updateAllSelects() her, da det re-renderer diagrammet, 
+    // hvilket kan være tungt ved simple tastetryk. Vi kalder det kun hvis ID ændres.
+    if (e.target.classList.contains('name-text')) {
+        updateAllSelects();
+    }
+    
+    // Sæt "dirty flag" for auto-gem
+    if (typeof setProjektErÆndret === 'function') {
+        setProjektErÆndret();
+    }
 }
 
 function toggleGlobalOptimizationInputs() {
@@ -3195,9 +3234,33 @@ function generateCirculationSection(model) {
  * Styrer hvilken sektion af inputfelter, der vises, baseret på valg af metode.
  */
 function toggleBeholderMetode() {
+    // Skjul alle inputs
     document.querySelectorAll('.beholder-metode').forEach(div => div.style.display = 'none');
-    const valg = document.querySelector('input[name="beholderMetode"]:checked').value;
-    document.getElementById(`metode${valg}_inputs`).style.display = 'block';
+    
+    // Find den valgte metode
+    const valgElement = document.querySelector('input[name="beholderMetode"]:checked');
+    if (!valgElement) return;
+    const valg = valgElement.value;
+    
+    // Vis de relevante inputs
+    const inputDiv = document.getElementById(`metode${valg}_inputs`);
+    if (inputDiv) inputDiv.style.display = 'block';
+
+    // --- TJEK FOR METODE A ADVARSEL ---
+    const warningDiv = document.getElementById('metodeA_warning');
+    if (valg === 'A' && warningDiv) {
+        // Tæl antallet af tapsteder, der er markeret som "Lejlighed"
+        // Vi kigger direkte i DOM'en (table rows) for at få den aktuelle status
+        const apartmentCount = document.querySelectorAll('.tapsted-container > tr[data-is-apartment="true"]').length;
+        
+        if (apartmentCount === 0) {
+            warningDiv.classList.remove('d-none'); // Vis advarsel
+        } else {
+            warningDiv.classList.add('d-none'); // Skjul advarsel
+        }
+    } else if (warningDiv) {
+        warningDiv.classList.add('d-none'); // Skjul altid hvis ikke Metode A
+    }
 }
 
 /**
