@@ -231,15 +231,32 @@
                     </div>
                 </div>
                 <div class="card-body">
-<div class="d-flex gap-2 mb-3">
-    <button class="btn btn-success w-100" onclick="beregn()">Beregn Hele Systemet</button>
-    <button class="btn btn-primary w-100" onclick="showCalculationReport()">Vis Beregningsrapport</button>
-    <button class="btn btn-secondary w-100" onclick="exportProject()">Eksport Projekt</button>
-    <label class="btn btn-secondary w-100">
-        Import Projekt
-        <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(this.files[0])"> </label>
-    <div class="vr"></div>
-    <button class="btn btn-danger w-100" onclick="resetProject()">Nyt Projekt (Nulstil)</button>
+<div class="d-grid gap-2 mb-3">
+    <button class="btn btn-success btn-lg" onclick="beregn()">
+        ▶ Beregn Hele Systemet
+    </button>
+    
+    <div class="btn-group" role="group" aria-label="Rapportering">
+        <button class="btn btn-primary" onclick="showCalculationReport()" title="Generer en printvenlig rapport">
+            📄 Vis Rapport (HTML)
+        </button>
+        <button class="btn btn-info text-white" onclick="exportDetailedResults()" title="Eksportér alle beregningsdata til Excel/Analyse">
+            📊 Eksport Detaljer (JSON)
+        </button>
+    </div>
+
+    <div class="btn-group btn-group-sm mt-1" role="group" aria-label="Projektstyring">
+        <button class="btn btn-outline-danger" onclick="resetProject()" title="Slet alt og start forfra">
+            🗑️ Nyt Projekt
+        </button>
+        <label class="btn btn-outline-secondary" title="Åbn et tidligere gemt projekt">
+            📂 Import
+            <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(this.files[0])">
+        </label>
+        <button class="btn btn-outline-secondary" onclick="exportProject()" title="Gem projektet som en fil på din computer">
+            💾 Eksport
+        </button>
+    </div>
 </div>
     <button class="btn btn-info w-100" onclick="exportDetailedResults()">Eksport Detaljerede Resultater</button>
 </div>
