@@ -2980,73 +2980,106 @@ function updateLegend() {
 // =================================================================================
 
 function beregnGlobalOptimering(config) {
+    console.group("🚀 GLOBAL OPTIMERING START");
     const model = buildModel(config);
     
-    // NYT: Forbered data og kør analyse
+    // Forbered data og kør analyse
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model);
 
+    // Sæt constraint type
     config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
+    console.log(`Constraint Type: ${config.globalConstraintType}`);
+    console.log(`Grænser: Max dp=${config.max_dp_m} Pa/m, Max v=${config.max_v_f} m/s`);
 
+    // Nulstil alle rør til mindste dimension
+    console.log("Nulstiller alle rør til mindste dimension...");
     model.nodes.forEach(n => {
         if (n.type === 'ror' || n.type === 'retur') {
-            n.nom_dim = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b)[0];
+            const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
+            n.nom_dim = sortedDims[0];
         }
     });
 
     let iterations = 0;
     const maxIterations = 200;
+    let optimized = false;
 
     while (iterations < maxIterations) {
+        // Kør beregning
         calculateQd(model);
         calculatePressureDrop(model.tree, 'dp_tap', 'qd');
         
+        // Analyser resultatet
         const localFailures = findLocalFailures(model, config);
         const globalFailures = findFailingTapPoints(model, config);
-        const pressureDropResult = findMaxPathDp(model.tree, config);
+        
+        // Debug-log for hver 10. iteration eller hvis vi er tæt på slutningen
+        if (iterations === 0 || iterations % 10 === 0 || localFailures.length === 0) {
+            console.log(`Iteration ${iterations}: Lokale fejl=${localFailures.length}, Globale fejl=${globalFailures.length}`);
+        }
 
         if (localFailures.length === 0 && globalFailures.length === 0) {
-            break; // Færdig!
+            console.log("✅ Ingen fejl fundet. Optimering færdig!");
+            optimized = true;
+            break; 
         }
 
         let pipeToUpgradeId;
+        let reason = "";
+
         if (localFailures.length > 0) {
-            // Prioriter at rette lokale fejl (højeste hastighed/tryktab)
-            pipeToUpgradeId = localFailures[0].id;
+            // Prioriter at rette lokale fejl
+            const fail = localFailures[0];
+            pipeToUpgradeId = fail.id;
+            reason = `Lokal fejl (${fail.type}: ${fail.value.toFixed(2)})`;
         } else {
-            // Hvis ingen lokale fejl, ret den værste globale fejl
-            const worstPath = getPathToTapPoint(model, globalFailures[0].id);
+            // Hvis ingen lokale fejl, ret den værste globale fejl (tryk)
+            const worstTap = globalFailures[0];
+            const worstPath = getPathToTapPoint(model, worstTap.id);
             pipeToUpgradeId = findWorstOffendingPipe(model, worstPath);
+            reason = `Global fejl ved ${worstTap.id} (${(worstTap.pressure/1000).toFixed(1)} kPa fri). Opgraderer flaskehals.`;
         }
 
         if (pipeToUpgradeId) {
-            const success = upgradePipeDimension(model.nodes.get(pipeToUpgradeId));
-            if (!success) break;
+            const pipeNode = model.nodes.get(pipeToUpgradeId);
+            const oldDim = pipeNode.nom_dim;
+            const success = upgradePipeDimension(pipeNode);
+            if (success) {
+                // console.log(`Opgraderer ${pipeToUpgradeId}: ${oldDim} -> ${pipeNode.nom_dim} mm. Grund: ${reason}`);
+            } else {
+                console.warn(`Kunne ikke opgradere ${pipeToUpgradeId} (allerede max). Stopper for at undgå uendeligt loop.`);
+                break;
+            }
         } else {
+            console.warn("Kunne ikke finde et rør at opgradere, selvom der er fejl. Stopper.");
             break;
         }
         iterations++;
     }
 
-    // Kør afsluttende beregninger;
-	// Kald findMaxPathDp for at definere 'pressureDropResult'
+    if (!optimized) {
+        console.warn(`⚠️ Optimering stoppede efter ${iterations} iterationer. Løsning muligvis ikke fundet.`);
+    }
+
+    // Kør afsluttende beregninger
     const pressureDropResult = findMaxPathDp(model.tree, config);
-	
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
+    
     for (let i = 0; i < 3; i++) {
         calculateInsulation(model, config);
         calculateHeatLoss(model, config);
         calculateCirculationFlows(model, config);
         calculateCirculationFlowsAggregation(model);
-        dimensionRetur(model, config); // Retur dimensioneres simpelt
+        dimensionRetur(model, config);
     }
     calculateCirculationDP(model);
     calculateBeholder(model);
 
+    console.groupEnd();
     return model;
 }
-
 function findLocalFailures(model, config) {
     const failures = [];
     model.nodes.forEach(n => {
@@ -3472,6 +3505,7 @@ function beregnBeholder() {
                         <li>Overvej en <b>supplerende cirkulationsveksler</b>.</li>
                         <li>Forsøg at <b>reducere den cirkulerede vandmængde</b> (bedre isolering, mindre rør).</li>
                         <li>Tjek om der er tapsteder langt væk fra hovedsystemet, som med fordel kunne forsynes med <b>decentral varmtvandsopvarmning</b>.</li>
+						<li>Tjek brugsvandssystemet med fordel kan deles op i <b>mindre enheder</b></li>
                     </ul>
                 </div>
             `;
