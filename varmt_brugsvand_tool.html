@@ -1673,7 +1673,15 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    calculateQd(model);
+    // NYT: Kør topologi-analyse før dimensionering
+    calculateQd(model); // Skal køres først for at etablere flow, men vi har brug for stierne til retur-analyse
+    // For at analysere retur korrekt, skal vi kende loops. buildModel laver loops, men path beregnes først i calculateCirculationFlows?
+    // Nej, getPath bruges i calculateCirculationFlows. Vi kalder den her manuelt for at sikre paths er klar til analysen.
+    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    
+    analyzeSystemTopology(model);
+
+    if (config.isAuto) dimensionFremløb(model, config);
     if (config.isAuto) dimensionFremløb(model, config);
     
     calculatePressureDrop(model.tree, 'dp_tap', 'qd');
@@ -1695,6 +1703,100 @@ function beregnStandard(config) {
     calculateBeholder(model);
     
     return model;
+}
+
+
+	/**
+ * NY FUNKTION (Fase 2): Analyserer systemets topologi og tildeler kategorier.
+ * - Koblingsledning: Forsyner præcis 1 tapsted.
+ * - Hovedledning (Fremløb): Forsyner en anden streng (sektion).
+ * - Fordelingsledning (Fremløb): Forsyner >1 tapsted i samme streng.
+ * - Hovedledning (Retur): Bærer flow fra flere strenge.
+ */
+function analyzeSystemTopology(model) {
+    // Helper: Find streng-ID fra node-ID (f.eks. "S1-R1" -> "S1")
+    const getStringId = (nodeId) => {
+        if (!nodeId || nodeId === 'Beholder') return 'Beholder';
+        return nodeId.split('-')[0]; 
+    };
+
+    // Rekursiv analyse af fremløb
+    const analyzeNode = (nodeId) => {
+        const node = model.nodes.get(nodeId);
+        if (!node) return { tapCount: 0, feedsOtherString: false };
+
+        if (node.type === 'tapsted') {
+            return { tapCount: 1, feedsOtherString: false };
+        }
+
+        let totalTaps = 0;
+        let feedsOther = false;
+        const myString = getStringId(node.id);
+
+        node.children.forEach(child => {
+            const childResult = analyzeNode(child.id);
+            totalTaps += childResult.tapCount;
+            
+            // Tjek om barnet hører til en anden streng
+            const childString = getStringId(child.id);
+            if (childString !== myString && child.type !== 'tapsted' && child.id !== 'Beholder') {
+                feedsOther = true;
+            }
+            // Hvis barnet føder en anden streng, gør jeg det også
+            if (childResult.feedsOtherString) {
+                feedsOther = true;
+            }
+        });
+
+        // Tildel kategori
+        if (node.type === 'ror') {
+            if (feedsOther) {
+                node.category = 'main'; // Hovedledning (Mørkerød)
+            } else if (totalTaps === 1) {
+                node.category = 'connection'; // Koblingsledning (Lysrød)
+            } else {
+                node.category = 'distribution'; // Fordelingsledning (Rød)
+            }
+        }
+        
+        return { tapCount: totalTaps, feedsOtherString: feedsOther };
+    };
+
+    // Start analysen fra Beholderen
+    const beholder = model.nodes.get('Beholder');
+    if (beholder) {
+        beholder.children.forEach(child => analyzeNode(child.id));
+    }
+
+    // Analyser Retur-netværk
+    // Kortlæg hvilke loops hvert retur-rør er en del af
+    const returnPipeLoops = new Map(); // Map<PipeID, Set<LoopID>>
+
+    model.loops.forEach(loop => {
+        if (!loop.path) return;
+        loop.path.forEach(nodeId => {
+            const node = model.nodes.get(nodeId);
+            if (node && node.type === 'retur') {
+                if (!returnPipeLoops.has(nodeId)) {
+                    returnPipeLoops.set(nodeId, new Set());
+                }
+                returnPipeLoops.get(nodeId).add(loop.id);
+            }
+        });
+    });
+
+    // Tildel kategori til retur-rør
+    model.nodes.forEach(n => {
+        if (n.type === 'retur') {
+            const loops = returnPipeLoops.get(n.id);
+            // Hvis røret indgår i mere end ét unikt loop -> Hovedledning
+            if (loops && loops.size > 1) {
+                n.category = 'main_return'; // Hovedretur (Mørkeblå)
+            } else {
+                n.category = 'return'; // Alm. retur (Blå)
+            }
+        }
+    });
 }
 
 
@@ -2687,12 +2789,38 @@ function updateDiagramStyles() {
     }
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
-    links.style('stroke', null).style('opacity', null);
+    
+    // Nulstil styles
+    links.style('stroke', null).style('opacity', null).style('stroke-dasharray', null);
+
     if (showCritical) {
         highlightCriticalPath();
     } else if (visMode !== 'none') {
         applyColorGradient(visMode);
+    } else {
+        // NYT: Standardvisning baseret på Kategori (Model B+)
+        links.style('stroke', d => {
+            const n = model.nodes.get(d.target.id);
+            if (!n) return '#ccc';
+            
+            switch (n.category) {
+                case 'main': return '#8b0000'; // Mørkerød (Hoved)
+                case 'distribution': return '#dc3545'; // Rød (Fordeling)
+                case 'connection': return '#f08080'; // Lysrød (Kobling)
+                case 'main_return': return '#00008b'; // Mørkeblå (Hovedretur)
+                case 'return': return '#0d6efd'; // Blå (Retur)
+                default: return '#ccc';
+            }
+        })
+        .style('stroke-dasharray', d => {
+            const n = model.nodes.get(d.target.id);
+            // Stiplet linje for alle retur-typer
+            if (n && (n.category === 'return' || n.category === 'main_return')) return '4, 4';
+            return null;
+        })
+        // Tykkelsen styres allerede af diameteren, men vi kan evt. tweake den her hvis ønsket
     }
+	
     updateLegend();
 
     const showDim = document.getElementById('visDim').checked;
@@ -2833,6 +2961,11 @@ function updateLegend() {
 
 function beregnGlobalOptimering(config) {
     const model = buildModel(config);
+    
+    // NYT: Forbered data og kør analyse
+    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    analyzeSystemTopology(model);
+
     config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
 
     model.nodes.forEach(n => {
