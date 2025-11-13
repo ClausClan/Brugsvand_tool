@@ -30,9 +30,13 @@
             overflow-y: auto;
         }
 .highlighted-row {
-    background-color: #fffbe6 !important;
-    border-radius: 5px;
-    transition: background-color 0.5s ease;
+    background-color: #ffeb3b !important; /* Kraftig gul */
+    color: #000 !important; /* Sort tekst for kontrast */
+    outline: 3px solid #ffc107; /* Tydelig orange/guld kant */
+    font-weight: bold;
+    transition: all 0.5s ease;
+    z-index: 100; /* Sikrer at den ligger 'ovenpå' hvis der er skygger */
+    position: relative; /* Nødvendig for at z-index og outline virker optimalt */
 }
         #diagram, #diagram svg {
             width: 100%;
