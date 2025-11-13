@@ -415,7 +415,7 @@
             </div>
         </div> </div> </div> 
 	//------------------------START HJELP MODAL---------------------
-	<div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+<div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-light">
@@ -424,98 +424,134 @@
             </div>
             <div class="modal-body">
                 
-                <h6 class="border-bottom pb-2">1. Farvekoder i Diagrammet (Topologi)</h6>
-                <p class="small text-muted">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav (Model B+).</p>
+                <h6 class="border-bottom pb-2 text-primary">1. Farvekoder i Diagrammet (Topologi)</h6>
+                <p class="small text-muted mb-3">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav.</p>
                 
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
-                        <strong>Fremløb</strong>
+                        <strong class="small text-uppercase text-muted">Fremløb</strong>
                         <ul class="list-group list-group-flush small">
-                            <li class="list-group-item d-flex align-items-center">
+                            <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #8b0000;"></span>
-                                <div>
-                                    <b>Hovedledning</b> (Mørkerød)<br>
-                                    <span class="text-muted">Forsyner flere strenge/sektioner.</span>
-                                </div>
+                                <div><b>Hovedledning</b> (Mørkerød)<br><span class="text-muted">Forsyner flere strenge/sektioner.</span></div>
                             </li>
-                            <li class="list-group-item d-flex align-items-center">
+                            <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #dc3545;"></span>
-                                <div>
-                                    <b>Fordelingsledning</b> (Rød)<br>
-                                    <span class="text-muted">Forsyner >1 tapsted i samme streng.</span>
-                                </div>
+                                <div><b>Fordelingsledning</b> (Rød)<br><span class="text-muted">Forsyner >1 tapsted i samme streng.</span></div>
                             </li>
-                            <li class="list-group-item d-flex align-items-center">
+                            <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #f08080;"></span>
-                                <div>
-                                    <b>Koblingsledning</b> (Lysrød)<br>
-                                    <span class="text-muted">Forsyner kun 1 tapsted. (Kan være Kl. 0).</span>
-                                </div>
+                                <div><b>Koblingsledning</b> (Lysrød)<br><span class="text-muted">Forsyner kun 1 tapsted. (Kan være Kl. 0).</span></div>
                             </li>
                         </ul>
                     </div>
                     <div class="col-md-6">
-                        <strong>Retur (Cirkulation)</strong>
+                        <strong class="small text-uppercase text-muted">Retur (Cirkulation)</strong>
                         <ul class="list-group list-group-flush small">
-                            <li class="list-group-item d-flex align-items-center">
+                            <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-line" style="border-color: #00008b;"></span>
-                                <div>
-                                    <b>Hovedreturledning</b> (Mørkeblå)<br>
-                                    <span class="text-muted">Samler retur fra flere strenge.</span>
-                                </div>
+                                <div><b>Hovedreturledning</b> (Mørkeblå)<br><span class="text-muted">Samler retur fra flere strenge.</span></div>
                             </li>
-                            <li class="list-group-item d-flex align-items-center">
+                            <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-line" style="border-color: #0d6efd;"></span>
-                                <div>
-                                    <b>Returledning</b> (Blå)<br>
-                                    <span class="text-muted">Retur fra én streng/kreds.</span>
-                                </div>
+                                <div><b>Returledning</b> (Blå)<br><span class="text-muted">Retur fra én streng/kreds.</span></div>
                             </li>
                         </ul>
                     </div>
                 </div>
 
-                <h6 class="border-bottom pb-2">2. Beregningsgrundlag</h6>
+                <h6 class="border-bottom pb-2 text-primary">2. Beregningsgrundlag & Design Mode</h6>
                 <div class="accordion accordion-flush" id="helpAccordion">
+                    
                     <div class="accordion-item">
                         <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#helpDS439">
-                                💧 Vandinstallationer (DS 439:2024)
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpDesignMode">
+                                🛠️ Design Mode (Auto vs. Manuel)
                             </button>
                         </h2>
-                        <div id="helpDS439" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small">
+                        <div id="helpDesignMode" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
                                 <ul>
-                                    <li><b>Spidslast (qd):</b> Beregnes efter formel (1) for tilfældigt benyttede tapsteder.</li>
-                                    <li><b>Tryktab:</b> Colebrook-White formlen for rørfriktion + Zeta-værdier for fittings.</li>
-                                    <li><b>Cirkulation:</b> Dimensioneres efter varmetab for at sikre min. 50°C (eller valgt dT).</li>
-                                    <li><b>Beholder:</b> Metode A (P-V diagram) for etageboliger, Metode B/C for andre.</li>
+                                    <li><b>Design Mode Aktiv (Til):</b> Programmet beregner automatisk den optimale rørdimension for hvert rør baseret på det valgte <i>dimensioneringsprincip</i> (se pkt. 3).</li>
+                                    <li><b>Design Mode Inaktiv (Fra):</b> Du indtaster selv dimensionerne manuelt. Programmet beregner stadig tryktab og hastighed, så du kan kontrollere dit eget design.</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
+
                     <div class="accordion-item">
                         <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#helpDS452">
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpIsol">
                                 🔥 Isolering (DS 452)
                             </button>
                         </h2>
-                        <div id="helpDS452" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small">
+                        <div id="helpIsol" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
+                                <p>Isoleringstykkelsen beregnes dynamisk for at overholde varmetabskravene i <b>DS 452, Tabel 5.1</b>.</p>
                                 <ul>
-                                    <li><b>Dynamisk tykkelse:</b> Beregnes ud fra krav til U-værdi i Tabel 5.1 og 6.4.</li>
-                                    <li><b>Klasse 4:</b> Standard for rør i opvarmede rum.</li>
-                                    <li><b>Klasse 6:</b> Standard for rør udendørs eller i jord.</li>
-                                    <li><b>Klasse 0:</b> Tilladt for korte koblingsledninger i samme rum som tapsted.</li>
+                                    <li><b>Auto-valg:</b> Systemet vælger automatisk klasse baseret på rørtype og placering (jf. DS 452, Tabel 6.4):
+                                        <ul>
+                                            <li>Indendørs (Heated): <b>Klasse 4</b></li>
+                                            <li>Udendørs/Uopvarmet: <b>Klasse 6</b></li>
+                                        </ul>
+                                    </li>
+                                    <li><b>Manuelt valg:</b> Du kan overstyre Auto-valget. F.eks. kan korte koblingsledninger i samme rum som tapstedet manuelt sættes til <b>Klasse 0</b> (ingen isolering) jf. normen.</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpQd">
+                                💧 Spidslast (qd)
+                            </button>
+                        </h2>
+                        <div id="helpQd" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
+                                <p>Beregningen følger <b>DS 439:2024</b>. Den totale spidslast ($q_d$) består af to dele:</p>
+                                <ul>
+                                    <li><b>Tilfældigt brug:</b> Beregnes via formlen: <code>qd = 0.15 + 0.011*(Σqf - 0.15) + 0.089*√(Σqf - 0.15)</code></li>
+                                    <li><b>Systematisk brug:</b> Lægges direkte til (markeres med flueben i <i>"Syst."</i>). Bruges til f.eks. procesvand eller haner med forventet samtidig brug.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
-                <div class="alert alert-info mt-3 small mb-0">
-                    <strong>💡 Tip: Auto-gem</strong><br>
-                    Programmet gemmer automatisk dit arbejde hvert 5. minut og hvis du lukker fanen. Brug "Nyt Projekt"-knappen for at starte helt forfra.
+                <h6 class="border-bottom pb-2 mt-4 text-primary">3. Optimeringsprincipper</h6>
+                <p class="small text-muted mb-2">Når "Design Mode" er aktiv, vælger systemet dimensioner ud fra et af følgende principper:</p>
+                <ul class="list-group list-group-flush small border rounded">
+                    <li class="list-group-item">
+                        <b>Kombineret (Standard):</b> Finder det mindste rør, der overholder BÅDE maks. hastighed ($v$) og maks. tryktab pr. meter (${\Delta}p/m$).
+                    </li>
+                    <li class="list-group-item">
+                        <b>Kun Tryktab:</b> Finder det mindste rør, der overholder maks. ${\Delta}p/m$. Ignorerer hastighed.
+                    </li>
+                    <li class="list-group-item">
+                        <b>Kun Hastighed:</b> Finder det mindste rør, der overholder maks. hastighed ($v$). Ignorerer tryktab.
+                    </li>
+                    <li class="list-group-item">
+                        <b>Mindste tryktab (m. min. hastighed):</b> Vælger det rør, der giver det lavest mulige tryktab, men som stadig overholder kravet til minimumshastighed (for at sikre selvrensning/turbulens).
+                    </li>
+                    <li class="list-group-item bg-light">
+                        <b>🚀 Global optimering:</b> En avanceret iterativ proces. Systemet starter med mindste rørdimension overalt. Derefter identificerer og opgraderer det kun de specifikke "flaskehalse" i hovedrørene, der er nødvendige for at sikre minimumstrykket ved det fjerneste tapsted. Dette giver typisk den mest økonomiske installation med mindst muligt materialeforbrug.
+                    </li>
+                </ul>
+
+                <div class="alert alert-warning mt-4 mb-0">
+                    <div class="d-flex align-items-start">
+                        <span class="me-2 fs-4">💾</span>
+                        <div>
+                            <strong>VIGTIGT OM AT GEMME DIT ARBEJDE</strong><br>
+                            Programmet har en indbygget <b>lokal sikkerhedskopi</b> (Auto-gem), der gemmer dit arbejde i din browsers hukommelse hvert 5. minut for at beskytte mod nedbrud.
+                            <br><br>
+                            ⚠️ <b>Dette er IKKE en permanent lagring!</b> Hvis du rydder din browserhistorik eller skifter computer, forsvinder dataene.
+                            <br>
+                            For at gemme dit projekt permanent, skal du bruge knappen <b>"Eksport Projekt"</b>. Dette downloader en fil til din computer, som du altid kan indlæse igen.
+                        </div>
+                    </div>
                 </div>
 
             </div>
