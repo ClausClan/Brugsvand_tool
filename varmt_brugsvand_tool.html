@@ -3486,46 +3486,70 @@ function upgradePipeDimension(pipeNode) {
 // =================================================================================
 
 /**
- * Kaldes når "Vis Beregningsrapport" knappen klikkes.
+ * VIS RAPPORT (Styrer logikken for snapshots og åbner vinduet)
  */
 function showCalculationReport() {
     if (!state.lastModel || !state.lastConfig) {
         alert('Du skal først køre en beregning for at kunne generere en rapport.');
         return;
     }
-    const reportHTML = generateReportHTML(state.lastModel, state.lastConfig);
+
+    // Hjælpefunktion til at hente SVG som en streng
+    const getSVG = () => {
+        const svgElement = document.querySelector("#diagram svg");
+        if (!svgElement) return "";
+        
+        // Klon elementet for ikke at ødelægge det levende diagram
+        const clone = svgElement.cloneNode(true);
+        
+        // Sæt faste dimensioner til rapporten, så det skalerer korrekt
+        clone.setAttribute("width", "100%");
+        clone.removeAttribute("height"); 
+        clone.style.maxHeight = "600px"; // Begræns højden i rapporten
+        clone.style.display = "block";
+        clone.style.margin = "0 auto";
+        
+        return new XMLSerializer().serializeToString(clone);
+    };
+
+    // 1. GEM NUVÆRENDE TILSTAND
+    const chkKritisk = document.getElementById('visKritisk');
+    const wasCriticalChecked = chkKritisk.checked;
+
+    // 2. SNAPSHOT 1: STANDARD VISNING (Topologi/Farver)
+    // Tving "Vis kritisk" fra, så vi ser farvekoderne (Hoved/Fordeling/Kobling)
+    chkKritisk.checked = false;
+    updateDiagramStyles(); 
+    const svgStandard = getSVG();
+
+    // 3. SNAPSHOT 2: KRITISK STRENG
+    // Tving "Vis kritisk" til
+    chkKritisk.checked = true;
+    updateDiagramStyles();
+    const svgCritical = getSVG();
+
+    // 4. GENDAN OPRINDELIG TILSTAND (Så brugerens skærm ikke ændrer sig)
+    chkKritisk.checked = wasCriticalChecked;
+    updateDiagramStyles();
+
+    // 5. GENERER RAPPORT MED BEGGE BILLEDER
+    const reportHTML = generateReportHTML(state.lastModel, state.lastConfig, svgStandard, svgCritical);
+    
     const reportWindow = window.open('', '_blank');
     reportWindow.document.open();
     reportWindow.document.write(reportHTML);
     reportWindow.document.close();
 }
-
+	
 /**
- * Formaterer et komponentnavn til rapporten, f.eks. "Mit Rør (S1-R1)".
- * @param {object} node - Node-objektet fra modellen.
- * @returns {string} Det formaterede navn.
+ * GENERER RAPPORT HTML (Nu med diagram-screenshots)
  */
-function getReportName(node) {
-    if (!node) return '';
-    if (node.name) {
-        return `${node.name} (${node.id})`;
-    }
-    return node.id;
-}
-
-/**
- * GENERER RAPPORT (HTML) - OPDATERET VERSION (Fase 3)
- * Inkluderer Stykliste og Detaljeret Kritisk Streng.
- */
-function generateReportHTML(model, config) {
+function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Critical) {
     const reportDate = new Date().toLocaleDateString('da-DK', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    // --- HJÆLPEFUNKTIONER TIL RAPPORTEN ---
-
-    // 1. Generer Stykliste (BOM)
+    // --- HJÆLPER: Generer Stykliste ---
     const generateBOM = () => {
-        const bom = {}; // Struktur: { "Materiale": { "Dim": Længde } }
-        
+        const bom = {}; 
         model.nodes.forEach(n => {
             if ((n.type === 'ror' || n.type === 'retur') && n.material && n.nom_dim) {
                 if (!bom[n.material]) bom[n.material] = {};
@@ -3534,56 +3558,43 @@ function generateReportHTML(model, config) {
             }
         });
 
+        if (Object.keys(bom).length === 0) return '<p><i>Ingen rør fundet.</i></p>';
+
         let html = '<table class="bom-table">';
         html += '<thead><tr><th>Materiale</th><th>Dimension</th><th>Total Længde [m]</th></tr></thead><tbody>';
-        
-        if (Object.keys(bom).length === 0) return '<p><i>Ingen rør fundet i projektet.</i></p>';
-
         Object.keys(bom).sort().forEach(mat => {
             Object.keys(bom[mat]).sort((a,b) => parseFloat(a) - parseFloat(b)).forEach(dim => {
-                html += `<tr>
-                    <td>${mat}</td>
-                    <td>${dim} mm</td>
-                    <td><b>${bom[mat][dim].toFixed(1)}</b></td>
-                </tr>`;
+                html += `<tr><td>${mat}</td><td>${dim} mm</td><td><b>${bom[mat][dim].toFixed(1)}</b></td></tr>`;
             });
         });
         html += '</tbody></table>';
         return html;
     };
 
-    // 2. Generer Kritisk Streng Tabel
+    // --- HJÆLPER: Generer Kritisk Streng Tabel ---
     const generateCriticalPathTable = () => {
         if (!model.criticalPath || model.criticalPath.size === 0) return '<p><i>Ingen kritisk vej fundet.</i></p>';
 
-        // Rekonstruer stien ved at finde tapstedet i criticalPath og gå baglæns
         let endNode = null;
-        // Find det tapsted, der er med i criticalPath-sættet
         for (const nodeId of model.criticalPath) {
             const n = model.nodes.get(nodeId);
-            if (n && n.type === 'tapsted') {
-                endNode = n;
-                break; 
-            }
+            if (n && n.type === 'tapsted') { endNode = n; break; }
         }
-
-        if (!endNode) return '<p><i>Kunne ikke identificere slutpunktet for den kritiske vej.</i></p>';
+        if (!endNode) return '<p><i>Kunne ikke identificere slutpunkt.</i></p>';
 
         const path = [];
         let current = endNode;
         while (current && current.id !== 'Beholder') {
-            path.unshift(current); // Tilføj til starten
+            path.unshift(current);
             current = model.nodes.get(current.parentId);
         }
-        // Tilføj Beholderen (starten) hvis nødvendig, men den har ingen data
         
         let html = '<table class="critical-path-table">';
         html += '<thead><tr><th>Komponent</th><th>Dim.</th><th>Længde</th><th>Flow [l/s]</th><th>Hast. [m/s]</th><th>Δp Friktion [Pa]</th><th>Δp Geo. [Pa]</th><th>Δp Total [Pa]</th></tr></thead><tbody>';
         
         let sumDpFriction = 0;
-        let sumDpGeo = 0;
         const RHO = 985, G = 9.82;
-        let currentHeight = config.forsyningens_kote || 0;
+        const totalGeoDp = (endNode.kote - config.forsyningens_kote) * RHO * G;
 
         path.forEach(n => {
             if (n.type === 'ror') {
@@ -3592,11 +3603,6 @@ function generateReportHTML(model, config) {
                 const v = (flow / 1000) / (Math.PI * (d_i / 2) ** 2);
                 const dp = n.dp_tap || 0;
                 sumDpFriction += dp;
-                
-                // Geodætisk tab for dette segment er 0 (vi regner kun geo ved tapstedet eller pr. segment hvis vi havde koter på noder)
-                // For at gøre det simpelt i tabellen: Vi viser kun geo-tabet i den samlede opsummering eller ved tapstedet.
-                // Men vent, vi kan beregne det, hvis vi antog rør havde koter. Det har de ikke.
-                // Vi sætter 0 her, og tager det fulde løft til sidst.
                 
                 html += `<tr>
                     <td>${n.name || n.id}</td>
@@ -3609,9 +3615,6 @@ function generateReportHTML(model, config) {
                     <td>${dp.toFixed(0)}</td>
                 </tr>`;
             } else if (n.type === 'tapsted') {
-                const totalGeoDp = (n.kote - config.forsyningens_kote) * RHO * G;
-                sumDpGeo = totalGeoDp;
-                
                 html += `<tr class="tap-row">
                     <td><b>${n.name || n.id}</b> (Tapsted)</td>
                     <td>-</td>
@@ -3628,14 +3631,14 @@ function generateReportHTML(model, config) {
         html += `<tr class="total-row">
             <td colspan="5"><b>TOTAL (Kritisk Streng)</b></td>
             <td><b>${sumDpFriction.toFixed(0)}</b></td>
-            <td><b>${sumDpGeo.toFixed(0)}</b></td>
-            <td><b>${(sumDpFriction + sumDpGeo).toFixed(0)}</b></td>
+            <td><b>${totalGeoDp.toFixed(0)}</b></td>
+            <td><b>${(sumDpFriction + totalGeoDp).toFixed(0)}</b></td>
         </tr>`;
         html += '</tbody></table>';
         return html;
     };
 
-    // --- SAML RAPPORTEN ---
+    // --- REPORT HTML ---
     return `
         <!DOCTYPE html>
         <html lang="da">
@@ -3659,13 +3662,14 @@ function generateReportHTML(model, config) {
                 .critical-path-table .tap-row { background-color: #e8f5e9; }
                 .critical-path-table .total-row { background-color: #2c3e50; color: white; }
                 .total-row td { border-color: #2c3e50; }
+                .diagram-container { border: 1px solid #ccc; padding: 10px; border-radius: 5px; background: #fff; margin-bottom: 20px; page-break-inside: avoid; }
                 .no-print { margin-bottom: 20px; padding: 10px; background: #f8f9fa; border: 1px solid #ddd; text-align: right; }
-                @media print { .no-print { display: none; } body { padding: 0; } }
+                @media print { .no-print { display: none; } body { padding: 0; } .diagram-container { border: none; } }
             </style>
         </head>
         <body>
             <div class="no-print">
-                <button onclick="window.print()" style="padding: 8px 16px; cursor: pointer; font-size: 1em;">🖨️ Udskriv / Gem som PDF</button>
+                <button onclick="window.print()" style="padding: 8px 16px; cursor: pointer; font-size: 1em; font-weight: bold; background-color: #0d6efd; color: white; border: none; border-radius: 4px;">🖨️ Udskriv / Gem som PDF</button>
             </div>
 
             <h1>Dimensioneringsrapport: Varmt Brugsvand</h1>
@@ -3694,14 +3698,25 @@ function generateReportHTML(model, config) {
                 </div>
             </div>
 
-            <h2>1. Stykliste (Rør)</h2>
+            <h2>1. Systemdiagram (Topologi)</h2>
+            <p>Overblik over systemets opbygning og kategorisering af rørtyper.</p>
+            <div class="diagram-container">
+                ${diagramSVG_Standard || '<p><i>Diagram kunne ikke hentes.</i></p>'}
+            </div>
+
+            <h2>2. Stykliste (Rør)</h2>
             ${generateBOM()}
 
-            <h2>2. Kritisk Streng Analyse</h2>
+            <h2>3. Kritisk Streng Analyse</h2>
+            <p>Visuel markering af den dimensionerende (mest kritiske) rute gennem systemet.</p>
+            <div class="diagram-container">
+                ${diagramSVG_Critical || '<p><i>Kunne ikke vise kritisk streng.</i></p>'}
+            </div>
+            
             <p>Detaljeret tryktabsberegning for vejen til det dimensionerende tapsted.</p>
             ${generateCriticalPathTable()}
 
-            <h2>3. Cirkulations Strenge</h2>
+            <h2>4. Cirkulations Strenge</h2>
             <table>
                 <thead><tr><th>Streng ID</th><th>Ventil</th><th>Indstilling/Type</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th></tr></thead>
                 <tbody>
@@ -3720,183 +3735,6 @@ function generateReportHTML(model, config) {
             </div>
         </body>
         </html>
-    `;
-}
-
-/**
- * Genererer HTML for sektionen med systemforudsætninger.
- */
-function generateInputsSection(config) {
-    return `
-        <h2>1. Systemforudsætninger</h2>
-        <h3>1.1 Globale Inputs og Designkriterier</h3>
-        <table>
-            <tr><th>Parameter</th><th>Værdi</th><th>Enhed</th></tr>
-            <tr><td class="parameter">Forsyningstryk (p<sub>ln</sub>)</td><td>${config.pln.toLocaleString('da-DK')}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Minimumstryk ved tapsted</td><td>${config.min_tap_tryk.toLocaleString('da-DK')}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Fremløbstemperatur (T<sub>v</sub>)</td><td>${config.T_v}</td><td class="unit">°C</td></tr>
-            <tr><td class="parameter">Omgivelsestemperatur, Indendørs</td><td>${config.T_omg_inde}</td><td class="unit">°C</td></tr>
-            <tr><td class="parameter">Omgivelsestemperatur, Udendørs</td><td>${config.T_omg_ude}</td><td class="unit">°C</td></tr>
-            <tr><td class="parameter">Ønsket ΔT for cirkulation</td><td>${config.dT}</td><td class="unit">K</td></tr>
-            ${config.isAuto ? `
-            <tr><td class="parameter">Designkriterie: Max Δp pr. meter</td><td>${config.max_dp_m}</td><td class="unit">Pa/m</td></tr>
-            <tr><td class="parameter">Designkriterie: Max hastighed (fremløb)</td><td>${config.max_v_f}</td><td class="unit">m/s</td></tr>
-            <tr><td class="parameter">Designkriterie: Max hastighed (cirkulation)</td><td>${config.max_v_c}</td><td class="unit">m/s</td></tr>
-            ` : ''}
-        </table>
-    `;
-}
-
-/**
- * Genererer HTML for sektionen med komponentlister.
- */
-function generateComponentsSection(model) {
-    let pipeRows = '';
-    let tapRows = '';
-    model.nodes.forEach(n => {
-        const parentDisplay = n.parentId === 'Beholder' ? 'Beholder' : getReportName(model.nodes.get(n.parentId));
-        if (n.type === 'ror' || n.type === 'retur') {
-            pipeRows += `<tr>
-                <td>${getReportName(n)}</td>
-                <td>${n.type}</td>
-                <td>${parentDisplay}</td>
-                <td>${n.L}</td>
-                <td>${n.zeta_sum}</td>
-                <td>${n.material}</td>
-                <td>${n.location === 'outside' ? 'Udendørs' : 'Indendørs'}</td>
-            </tr>`;
-        } else if (n.type === 'tapsted') {
-            tapRows += `<tr>
-                <td>${getReportName(n)}</td>
-                <td>${parentDisplay}</td>
-                <td>${n.qf}</td>
-                <td>${n.isSyst ? 'Ja' : 'Nej'}</td>
-            </tr>`;
-        }
-    });
-
-    return `
-        <h3>1.2 Komponentliste</h3>
-        <h4>Rør-komponenter</h4>
-        <table>
-            <tr><th>Navn (ID)</th><th>Type</th><th>Forælder</th><th>Længde [m]</th><th>Zeta (Σζ)</th><th>Materiale</th><th>Placering</th></tr>
-            ${pipeRows}
-        </table>
-        <h4>Tapsteder</h4>
-        <table>
-            <tr><th>Navn (ID)</th><th>Forælder</th><th>Normflow (q<sub>f</sub>) [l/s]</th><th>Systematisk brug</th></tr>
-            ${tapRows}
-        </table>
-    `;
-}
-
-/**
- * Genererer HTML for sektionen om spidslast og tryktab.
- * OPDATERET til at inkludere config for geodætisk beregning.
- */
-function generateTappingLoadSection(model, config) { // OPDATERET SIGNATUR
-    let rows = '';
-    model.nodes.forEach(n => {
-        if (n.type === 'ror') {
-            const d_i = ID[n.material][n.nom_dim];
-            const v = (n.qd / 1000) / (Math.PI * (d_i / 2000) ** 2);
-            rows += `<tr>
-                <td>${getReportName(n)}</td>
-                <td>${n.qd.toFixed(3)}</td>
-                <td>${n.material} ${n.nom_dim}</td>
-                <td>${v.toFixed(2)}</td>
-                <td>${(n.dp_tap || 0).toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td>
-            </tr>`;
-        }
-    });
-
-    // NYT: Beregn specificering af tryktab for den kritiske streng til rapporten
-    let dp_friction = model.max_dp_tapning;
-    let dp_geo = 0;
-    if (model.criticalPath && model.criticalPath.size > 0) {
-        const criticalPathArray = Array.from(model.criticalPath);
-        const endTapstedId = criticalPathArray[criticalPathArray.length - 1];
-        const endTapstedNode = model.nodes.get(endTapstedId);
-
-        if (endTapstedNode && endTapstedNode.type === 'tapsted') {
-            const h = (endTapstedNode.kote || 0) - (config.forsyningens_kote || 0);
-            dp_geo = RHO * G * h;
-            dp_friction = model.max_dp_tapning - dp_geo;
-        }
-    }
-
-    const resttryk = config.pln - model.max_dp_tapning;
-    const kravOpfyldt = resttryk >= config.min_tap_tryk;
-
-    // OPDATERET: HTML-sektion for konklusionen
-    return `
-        <h2>2. Resultater: Spidslast og Tryktab (Fremløb)</h2>
-        <p>Nedenstående tabel opsummerer de primære beregningsresultater for hvert enkelt rørsegment i fremløbet under spidslast.</p>
-        <h3>2.1 Opsummerende Resultattabel</h3>
-        <table>
-            <tr><th>Navn (ID)</th><th>Dim. Vandstrøm (q<sub>d</sub>) [l/s]</th><th>Valgt Dimension</th><th>Hastighed (v) [m/s]</th><th>Tryktab (Δp) [Pa]</th></tr>
-            ${rows}
-        </table>
-        <h3>2.2 Konklusion for Spidslast</h3>
-        <table>
-            <tr><td class="parameter">Tryktab (Friktion) i kritisk streng</td><td>${dp_friction.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Tryktab (Løftehøjde) i kritisk streng</td><td>${dp_geo.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter"><b>Samlet tryktab i kritisk streng</b></td><td><b>${model.max_dp_tapning.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</b></td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Resttryk ved fjerneste tapsted</td><td>${resttryk.toLocaleString('da-DK', { maximumFractionDigits: 0 })}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Overholder minimumskrav (${config.min_tap_tryk.toLocaleString('da-DK')} Pa)?</td><td class="${kravOpfyldt ? 'ok' : 'fail'}">${kravOpfyldt ? 'JA' : 'NEJ'}</td><td class="unit">-</td></tr>
-        </table>
-    `;
-}
-
-/**
- * Genererer HTML for sektionen om cirkulation.
- */
-function generateCirculationSection(model) {
-    if (model.loops.length === 0) return '<h2>3. Resultater: Cirkulation</h2><p>Der er ikke defineret nogen cirkulationsstrenge i systemet.</p>';
-
-    let loopRows = '';
-    model.loops.forEach(l => {
-        const loopDisplayName = l.name ? `${l.name} (${l.id})` : l.id;
-        
-        const pathNames = l.path
-            .map(nodeId => model.nodes.get(nodeId))
-            .filter(node => node && (node.type === 'ror' || node.type === 'retur' || node.type === 'valve'))
-            .map(node => getReportName(node))
-            .join('<br>');
-
-        loopRows += `<tr>
-            <td>${loopDisplayName}</td>
-            <td>${pathNames}</td>
-            <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
-            <td>${(l.q_tab_tot || 0).toFixed(1)}</td>
-            <td>${((l.circ_flow || 0) * 3600).toFixed(1)}</td>
-            <td>${(l.dp_circ_total || 0).toFixed(0)}</td> 
-            <td>${Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)}</td>
-        </tr>`;
-    });
-    
-    const total_circ_flow_lh = model.loops.reduce((s,l) => s + (l.circ_flow || 0), 0) * 3600;
-
-    return `
-        <h2>3. Resultater: Cirkulation</h2>
-        <h3>3.1 Resultattabel pr. Cirkulationsstreng</h3>
-        <table>
-            <tr>
-                <th>Streng Navn (ID)</th>
-                <th>Komponenter i Streng</th>
-                <th>Valgt Ventil</th>
-                <th>Varmetab [W]</th>
-                <th>Flow [l/h]</th>
-                <th>Streng-tryktab [Pa]</th>
-                <th>Ventil-tryktab [Pa]</th>
-            </tr>
-            ${loopRows}
-        </table>
-        <h3>3.2 Konklusion og Pumpespecifikation</h3>
-        <table>
-            <tr><td class="parameter">Dimensionerende pumpetryk (løftehøjde)</td><td>${model.max_dp_circ.toFixed(0)}</td><td class="unit">Pa</td></tr>
-            <tr><td class="parameter">Samlet pumpeflow</td><td>${total_circ_flow_lh.toFixed(1)}</td><td class="unit">l/h</td></tr>
-        </table>
     `;
 }
 
