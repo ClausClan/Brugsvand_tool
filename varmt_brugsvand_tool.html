@@ -2755,17 +2755,37 @@ function displayResults(model, config) {
     
     const cirkTable = document.getElementById('cirkResultTable');
     cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Δp [Pa]</th></tr>`;
-    let cirkTbody = '';
+	let cirkTbody = '';
+    let totalCircFlowLH = 0; // Variabel til sum
+
     model.loops.forEach(l => {
+        const flowLH = (l.circ_flow || 0) * 3600;
+        totalCircFlowLH += flowLH; // Læg til sum
+
         cirkTbody += `<tr data-loop-id="${l.id}" onmouseenter="highlightLoop('${l.id}')" onmouseleave="clearHighlight()">
                       <td><b>${getDisplayName(l.id)}</b></td>
                       <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
                       <td>${(l.q_tab_tot || 0).toFixed(1)}</td>
-                      <td>${((l.circ_flow || 0) * 3600).toFixed(1)}</td>
+                      <td>${flowLH.toFixed(1)}</td>
                       <td>${(l.dp_circ_total || 0).toFixed(0)}</td>
                       <td>${Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)}</td>
                     </tr>`;
     });
+
+    // NYT: Tilføj Sum-linje og OBS
+    const totalCircFlowM3H = totalCircFlowLH / 1000;
+    cirkTbody += `
+        <tr class="table-secondary" style="border-top: 2px solid #dee2e6;">
+            <td colspan="3" class="text-end"><b>Samlet Cirkulation:</b></td>
+            <td><b>${totalCircFlowLH.toFixed(1)} l/h</b><br><small>(${totalCircFlowM3H.toFixed(3)} m³/h)</small></td>
+            <td colspan="2"></td>
+        </tr>
+        <tr>
+            <td colspan="6" class="text-muted small">
+                <em>OBS: Husk at sammenholde beholdervolumen med cirkulationsflow. (Se Beholder-fanen)</em>
+            </td>
+        </tr>`;
+
     cirkTable.querySelector('tbody').innerHTML = cirkTbody;
 }
 
@@ -3418,7 +3438,7 @@ function addTappemonsterRow() {
 function beregnBeholder() {
     const valg = document.querySelector('input[name="beholderMetode"]:checked').value;
     let resultat = { volumen: 0, beskrivelse: '' };
-    const config = getGlobalConfig(); // Få T_v for energi-beregning
+    const config = getGlobalConfig(); 
 
     try {
         if (valg === 'A') {
@@ -3432,6 +3452,32 @@ function beregnBeholder() {
         alert(`Der opstod en fejl under beregningen: ${e.message}`);
         return;
     }
+
+    // --- NYT: TJEK CIRKULATIONSFLOW VS VOLUMEN ---
+    // Vi henter det samlede cirkulationsflow fra den senest beregnede model
+    if (state.lastModel && state.lastModel.loops) {
+        const totalCircFlowLH = state.lastModel.loops.reduce((sum, l) => sum + (l.circ_flow || 0), 0) * 3600;
+        
+        // Tjek: Er Flow (l/h) > Volumen (L)? (Hvilket svarer til m3/h > m3)
+        // Vi bruger en lille margen (fx > 100%) for at udløse advarslen
+        if (totalCircFlowLH > resultat.volumen && resultat.volumen > 0) {
+            resultat.beskrivelse += `
+                <div class="alert alert-warning mt-3">
+                    <h6>⚠️ Advarsel: Beholder muligvis for lille til cirkulationen</h6>
+                    <p class="mb-1">Det beregnede cirkulationsflow er <b>${totalCircFlowLH.toFixed(0)} l/h</b>, hvilket er større end beholdervolumenet på <b>${resultat.volumen.toFixed(0)} L</b>.</p>
+                    <p class="mb-1">Dette medfører risiko for at ødelægge temperaturlagdelingen i beholderen og dermed problemer med at opretholde temperaturen.</p>
+                    <hr>
+                    <strong>Anbefalede tiltag:</strong>
+                    <ul class="mb-0 ps-3">
+                        <li>Overvej en <b>supplerende cirkulationsveksler</b>.</li>
+                        <li>Forsøg at <b>reducere den cirkulerede vandmængde</b> (bedre isolering, mindre rør).</li>
+                        <li>Tjek om der er tapsteder langt væk fra hovedsystemet, som med fordel kunne forsynes med <b>decentral varmtvandsopvarmning</b>.</li>
+                    </ul>
+                </div>
+            `;
+        }
+    }
+    // --- SLUT PÅ NYT ---
 
     // Vis resultatet
     document.getElementById('beholderResultatVolumen').textContent = `${resultat.volumen.toFixed(0)} L`;
