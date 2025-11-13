@@ -90,9 +90,40 @@
 </head>
 <body>
 <div class="container-fluid main-container p-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div style="width: 40px;"></div> <h1 class="h4 m-0 text-center">Varmt brugsvand dimensionering v0.15 - DS 439:2024 + DS 452</h1>
-        <button class="btn btn-outline-info rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; font-weight: bold;" data-bs-toggle="modal" data-bs-target="#helpModal" title="Hjælp & Info">
+    <input type="file" id="hiddenImportInput" accept=".json" style="display: none;" onchange="importProject(this.files[0])">
+
+    <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+        
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary border-0 p-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Projektmenu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-list" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                </svg>
+            </button>
+            <ul class="dropdown-menu shadow">
+                <li><h6 class="dropdown-header">Projekt</h6></li>
+                <li>
+                    <a class="dropdown-item text-danger" href="#" onclick="resetProject()">
+                        🗑️ Nyt Projekt (Nulstil)
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="#" onclick="document.getElementById('hiddenImportInput').click()">
+                        📂 Import Projekt...
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item" href="#" onclick="exportProject()">
+                        💾 Eksport Projekt
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <h1 class="h5 m-0 text-center user-select-none">Varmt brugsvand dimensionering v0.15<br><small class="text-muted fw-normal">DS 439:2024 + DS 452</small></h1>
+
+        <button class="btn btn-outline-info rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px; font-weight: bold;" data-bs-toggle="modal" data-bs-target="#helpModal" title="Hjælp & Info">
             ?
         </button>
     </div>
@@ -222,44 +253,44 @@
                     </div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5><span class="badge bg-success me-2">2</span>Resultater</h5>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="toggleNames" role="switch" onchange="toggleDisplayNames(this.checked)">
-                        <label class="form-check-label" for="toggleNames">Vis Navne</label>
+<div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <h5 class="m-0"><span class="badge bg-success me-2">2</span>Resultater</h5>
+                    
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="form-check form-switch mb-0" title="Vis komponent-navne i diagram og lister">
+                            <input class="form-check-input" type="checkbox" id="toggleNames" role="switch" onchange="toggleDisplayNames(this.checked)">
+                            <label class="form-check-label small" for="toggleNames">Vis Navne</label>
+                        </div>
+
+                        <div class="dropdown">
+                            <button class="btn btn-link text-dark p-0 text-decoration-none border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Rapporter & Data">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-three-dots-vertical" viewBox="0 0 16 16">
+                                    <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
+                                </svg>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end shadow">
+                                <li><h6 class="dropdown-header">Eksport & Print</h6></li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="showCalculationReport()">
+                                        📄 Vis Rapport (HTML/Print)
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="exportDetailedResults()">
+                                        📊 Eksport Detaljer (JSON)
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div class="card-body">
-<div class="d-grid gap-2 mb-3">
-    <button class="btn btn-success btn-lg" onclick="beregn()">
-        ▶ Beregn Hele Systemet
-    </button>
-    
-    <div class="btn-group" role="group" aria-label="Rapportering">
-        <button class="btn btn-primary" onclick="showCalculationReport()" title="Generer en printvenlig rapport">
-            📄 Vis Rapport (HTML)
-        </button>
-        <button class="btn btn-info text-white" onclick="exportDetailedResults()" title="Eksportér alle beregningsdata til Excel/Analyse">
-            📊 Eksport Detaljer (JSON)
+<div class="d-grid mb-3">
+        <button class="btn btn-success py-2 shadow-sm fw-bold" onclick="beregn()">
+            ▶ Beregn Hele Systemet
         </button>
     </div>
-
-    <div class="btn-group btn-group-sm mt-1" role="group" aria-label="Projektstyring">
-        <button class="btn btn-outline-danger" onclick="resetProject()" title="Slet alt og start forfra">
-            🗑️ Nyt Projekt
-        </button>
-        <label class="btn btn-outline-secondary" title="Åbn et tidligere gemt projekt">
-            📂 Import
-            <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importProject(this.files[0])">
-        </label>
-        <button class="btn btn-outline-secondary" onclick="exportProject()" title="Gem projektet som en fil på din computer">
-            💾 Eksport
-        </button>
-    </div>
-</div>
-    <button class="btn btn-info w-100" onclick="exportDetailedResults()">Eksport Detaljerede Resultater</button>
-</div>
                     <div id="advarsler" class="mb-3"></div>
 <ul class="nav nav-tabs" role="tablist">
   <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#summary" type="button">Opsummering</button></li>
