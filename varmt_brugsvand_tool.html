@@ -501,19 +501,30 @@
                         </div>
                     </div>
 
-                    <div class="accordion-item">
+<div class="accordion-item">
                         <h2 class="accordion-header">
                             <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpQd">
-                                💧 Spidslast (qd)
+                                💧 Spidslast (qd) og Systematisk brug
                             </button>
                         </h2>
                         <div id="helpQd" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
                             <div class="accordion-body small bg-light">
-                                <p>Beregningen følger <b>DS 439:2024</b>. Den totale spidslast ($q_d$) består af to dele:</p>
+                                <p>Beregningen følger <b>DS 439:2024, afsnit 6.3.4.2</b>. Den totale spidslast ($q_d$) består af to dele:</p>
                                 <ul>
-                                    <li><b>Tilfældigt brug:</b> Beregnes via formlen: <code>qd = 0.15 + 0.011*(Σqf - 0.15) + 0.089*√(Σqf - 0.15)</code></li>
-                                    <li><b>Systematisk brug:</b> Lægges direkte til (markeres med flueben i <i>"Syst."</i>). Bruges til f.eks. procesvand eller haner med forventet samtidig brug.</li>
+                                    <li><b>Tilfældigt brug ($q_{tilf}$):</b> Beregnes ud fra summen af normvandstrømme ($\Sigma q_f$) ved hjælp af formel (1):<br>
+                                    <div class="my-2 p-2 bg-white border rounded text-center" style="font-family: 'Times New Roman', serif; font-style: italic;">
+                                        q<sub>d</sub> = 2 · 0,075 + 0,011 · (Σq<sub>f</sub> - 2 · 0,075) + 3,1 · <span style="white-space: nowrap;">&radic;<span style="text-decoration:overline;">&nbsp;0,075 · 0,011&nbsp;</span></span> · <span style="white-space: nowrap;">&radic;<span style="text-decoration:overline;">&nbsp;Σq<sub>f</sub> - 2 · 0,075&nbsp;</span></span>
+                                    </div>
+                                    <div class="text-muted mb-2" style="font-size: 0.9em;">
+                                        (Programmet anvender standardens approksimation: <code>q<sub>d</sub> ≈ 0,15 + 0,011·(Σq<sub>f</sub> - 0,15) + 0,089·&radic;(Σq<sub>f</sub> - 0,15)</code>)
+                                    </div>
+                                    </li>
+                                    <li><b>Systematisk brug ($q_{syst}$):</b> Lægges direkte til resultatet (lineært).<br>
+                                    <code>Total q<sub>d</sub> = q<sub>d</sub>(tilfældig) + Σq<sub>f</sub>(systematisk)</code></li>
                                 </ul>
+                                <div class="alert alert-warning p-2 mb-0">
+                                    <strong>Tip:</strong> Du kan markere et tapsted som <b>"Systematisk"</b> ved at sætte flueben i feltet <i>"Syst."</i> i tabellen. Dette er nyttigt til f.eks. procesvand, industri eller udendørs haner, der forventes brugt samtidig med den øvrige spidslast.
+                                </div>
                             </div>
                         </div>
                     </div>
