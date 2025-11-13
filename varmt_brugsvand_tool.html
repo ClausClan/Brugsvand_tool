@@ -2859,29 +2859,114 @@ function loadProjectData(data) {
     console.log("Projekt indlæst færdigt.");
 }
 
+/**
+ * OPDATERET FUNKTION: Genererer detaljerede resultater baseret på den færdigberegnede model.
+ * Udfører IKKE nye beregninger, men dumper state.lastModel med pænere formatering.
+ */
 function generateDetailedResults(model, config) {
-    const results = {
-        section1_config: config,
-        section2_nodes: Array.from(model.nodes.values()).map(n => ({...n, displayName: n.name || n.id})),
-        section3_loops: model.loops.map(l => ({...l, displayName: l.name || l.id})),
-        section4_qd_calculations: calculateQd({...model}),
-        section5_dimension_fremlob: config.isAuto ? dimensionFremløb({...model}, config) : 'Manual dimensionering',
-        section6_pressure_drop_tap: calculatePressureDrop({...model.tree}, 'dp_tap', 'qd'),
-        section7_max_dp_tapning: model.max_dp_tapning,
-        section8_heat_loss: calculateHeatLoss({...model}, config),
-        section9_circulation_flows: calculateCirculationFlows({...model}, config),
-        section10_circ_aggregation: calculateCirculationFlowsAggregation({...model}),
-        section11_dimension_retur: config.isAuto ? dimensionRetur({...model}, config) : 'Manual dimensionering',
-        section12_circ_dp: calculateCirculationDP({...model}),
-        section13_beholder: calculateBeholder({...model}),
-        section14_summary: {
-            resttryk: config.pln - model.max_dp_tapning,
-            total_q_tab: model.loops.reduce((s,l) => s + l.q_tab_tot, 0),
-            total_circ_flow_lh: model.loops.reduce((s,l) => s + l.circ_flow, 0) * 3600,
-            max_dp_circ: model.max_dp_circ
-        }
+    // Hjælper til at oversætte kategorier
+    const translateCategory = (cat) => {
+        const map = {
+            'main': 'Hovedledning (Fremløb)',
+            'distribution': 'Fordelingsledning (Fremløb)',
+            'connection': 'Koblingsledning (Fremløb)',
+            'main_return': 'Hovedledning (Retur)',
+            'return': 'Returledning'
+        };
+        return map[cat] || 'Ukendt';
     };
-    return results;
+
+    // 1. Konverter Nodes (Map) til et læsbart Array
+    const nodesExport = Array.from(model.nodes.values()).map(n => {
+        // Basisdata
+        const nodeData = {
+            ID: n.id,
+            Navn: n.name || '',
+            Type: n.type,
+            Forælder: n.parentId || 'Ingen'
+        };
+
+        // Data for Rør (Fremløb og Retur)
+        if (n.type === 'ror' || n.type === 'retur') {
+            Object.assign(nodeData, {
+                Materiale: n.material,
+                Dimension: n.nom_dim + ' mm',
+                Længde: n.L + ' m',
+                Placering: n.location === 'outside' ? 'Udendørs' : (n.location === 'unheated' ? 'Uopvarmet' : 'Opvarmet'),
+                Kategori: translateCategory(n.category),
+                
+                // Flow & Hastighed
+                Flow_ls: n.type === 'ror' ? (n.qd || 0).toFixed(4) : (n.circ_flow || 0).toFixed(4),
+                Hastighed_ms: calcVelocity(n, model).toFixed(2), // Bruger lille hjælper (se nedenfor) eller manuel beregning
+                
+                // Tryktab
+                Zeta_sum: n.zeta_sum,
+                Tryktab_Total_Pa: (n.type === 'ror' ? n.dp_tap : n.dp_circ || 0).toFixed(0),
+                Tryktab_pr_m_Pa: ((n.type === 'ror' ? n.dp_tap : n.dp_circ || 0) / (n.L || 1)).toFixed(1),
+                
+                // Isolering & Varme
+                Isolering_Klasse: n.insulationClass ? `Kl. ${n.insulationClass}` : 'Auto',
+                Isolering_Tykkelse: (n.insulationThickness || 0) + ' mm',
+                U_værdi_W_mK: (n.u_value_per_meter || 0).toFixed(3),
+                Varmetab_W: (n.q_tab || 0).toFixed(1)
+            });
+        }
+
+        // Data for Tapsteder
+        if (n.type === 'tapsted') {
+            Object.assign(nodeData, {
+                Normflow_qf: n.qf,
+                Systematisk: n.isSyst ? 'Ja' : 'Nej',
+                Lejlighed: n.isApartment ? 'Ja' : 'Nej',
+                Kote: n.kote
+            });
+        }
+        
+        // Data for Ventiler
+        if (n.type === 'valve') {
+            Object.assign(nodeData, {
+                Ventil_Type: n.valveType || 'Ukendt'
+            });
+        }
+
+        return nodeData;
+    });
+
+    // 2. Cirkulations-loops
+    const loopsExport = model.loops.map(l => ({
+        Streng_ID: l.id,
+        Start_Node: l.startNodeId,
+        Slut_Node: l.endNodeId,
+        Ventil_Type: l.selectedValve ? l.selectedValve.freseNr : 'Ingen/Manuel',
+        Total_Varmetab_W: (l.q_tab_tot || 0).toFixed(1),
+        Cirkulationsflow_lh: ((l.circ_flow || 0) * 3600).toFixed(1),
+        Tryktab_Streng_Pa: (l.dp_circ_total || 0).toFixed(0),
+        Tryktab_Ventil_Pa: Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)
+    }));
+
+    // 3. Saml det hele
+    return {
+        Projekt_Info: {
+            Dato: new Date().toLocaleString(),
+            Konfiguration: config
+        },
+        Resultat_Sammendrag: {
+            Max_Tryktab_Tapning_Pa: model.max_dp_tapning,
+            Max_Tryktab_Cirkulation_Pa: model.max_dp_circ,
+            Resttryk_Kritisk_Tapsted_Pa: config.pln - model.max_dp_tapning
+        },
+        Komponent_Liste: nodesExport,
+        Cirkulations_Strenge: loopsExport
+    };
+}
+
+// Lille hjælper til at beregne hastighed til eksporten (da vi ikke gemmer den direkte på noden)
+function calcVelocity(n, model) {
+    if (!n.nom_dim) return 0;
+    const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+    const d_i = ID[n.material][n.nom_dim] / 1000;
+    const area = Math.PI * (d_i / 2) ** 2;
+    return n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
 }
 
 // --- DISPLAY ---
