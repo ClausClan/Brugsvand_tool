@@ -2860,8 +2860,30 @@ function loadProjectData(data) {
 }
 
 /**
- * OPDATERET FUNKTION: Genererer detaljerede resultater baseret på den færdigberegnede model.
- * Udfører IKKE nye beregninger, men dumper state.lastModel med pænere formatering.
+ * FUNKTION: Udløses af knappen "Eksport Detaljer (JSON)".
+ * Starter genereringen og downloader filen.
+ */
+function exportDetailedResults() {
+    if (!state.lastModel || !state.lastConfig) {
+        alert('Du skal først køre en beregning for at kunne eksportere resultater.');
+        return;
+    }
+    
+    // Kald generator-funktionen (som vi lavede i forrige trin)
+    const data = generateDetailedResults(state.lastModel, state.lastConfig);
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brugsvand_detaljerede_resultater.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * (HVIS DU MANGLER DENNE): Genererer datastrukturen.
+ * (Indsæt kun hvis du ikke allerede har den fra forrige trin)
  */
 function generateDetailedResults(model, config) {
     // Hjælper til at oversætte kategorier
@@ -2876,9 +2898,8 @@ function generateDetailedResults(model, config) {
         return map[cat] || 'Ukendt';
     };
 
-    // 1. Konverter Nodes (Map) til et læsbart Array
+    // 1. Konverter Nodes til Array
     const nodesExport = Array.from(model.nodes.values()).map(n => {
-        // Basisdata
         const nodeData = {
             ID: n.id,
             Navn: n.name || '',
@@ -2886,7 +2907,6 @@ function generateDetailedResults(model, config) {
             Forælder: n.parentId || 'Ingen'
         };
 
-        // Data for Rør (Fremløb og Retur)
         if (n.type === 'ror' || n.type === 'retur') {
             Object.assign(nodeData, {
                 Materiale: n.material,
@@ -2894,17 +2914,11 @@ function generateDetailedResults(model, config) {
                 Længde: n.L + ' m',
                 Placering: n.location === 'outside' ? 'Udendørs' : (n.location === 'unheated' ? 'Uopvarmet' : 'Opvarmet'),
                 Kategori: translateCategory(n.category),
-                
-                // Flow & Hastighed
                 Flow_ls: n.type === 'ror' ? (n.qd || 0).toFixed(4) : (n.circ_flow || 0).toFixed(4),
-                Hastighed_ms: calcVelocity(n, model).toFixed(2), // Bruger lille hjælper (se nedenfor) eller manuel beregning
-                
-                // Tryktab
+                Hastighed_ms: calcVelocity(n, model).toFixed(2),
                 Zeta_sum: n.zeta_sum,
                 Tryktab_Total_Pa: (n.type === 'ror' ? n.dp_tap : n.dp_circ || 0).toFixed(0),
                 Tryktab_pr_m_Pa: ((n.type === 'ror' ? n.dp_tap : n.dp_circ || 0) / (n.L || 1)).toFixed(1),
-                
-                // Isolering & Varme
                 Isolering_Klasse: n.insulationClass ? `Kl. ${n.insulationClass}` : 'Auto',
                 Isolering_Tykkelse: (n.insulationThickness || 0) + ' mm',
                 U_værdi_W_mK: (n.u_value_per_meter || 0).toFixed(3),
@@ -2912,7 +2926,6 @@ function generateDetailedResults(model, config) {
             });
         }
 
-        // Data for Tapsteder
         if (n.type === 'tapsted') {
             Object.assign(nodeData, {
                 Normflow_qf: n.qf,
@@ -2922,7 +2935,6 @@ function generateDetailedResults(model, config) {
             });
         }
         
-        // Data for Ventiler
         if (n.type === 'valve') {
             Object.assign(nodeData, {
                 Ventil_Type: n.valveType || 'Ukendt'
@@ -2944,7 +2956,6 @@ function generateDetailedResults(model, config) {
         Tryktab_Ventil_Pa: Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)
     }));
 
-    // 3. Saml det hele
     return {
         Projekt_Info: {
             Dato: new Date().toLocaleString(),
@@ -2960,7 +2971,7 @@ function generateDetailedResults(model, config) {
     };
 }
 
-// Lille hjælper til at beregne hastighed til eksporten (da vi ikke gemmer den direkte på noden)
+// Lille hjælper til hastighedsberegning
 function calcVelocity(n, model) {
     if (!n.nom_dim) return 0;
     const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
