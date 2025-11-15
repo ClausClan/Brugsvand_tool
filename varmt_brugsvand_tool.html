@@ -1117,6 +1117,122 @@ function addReturRor() {
     updateAllSelects();
 }
 
+/**
+ * NY FUNKTION (Fase 4): Opdeler et eksisterende rør i flere segmenter.
+ * Indsætter nye rør før det valgte rør for at bevare nedstrøms-strukturen.
+ */
+function splitPipe(targetId, segments) {
+    const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
+    if (!targetRow) return;
+
+    // 1. Hent data fra det eksisterende rør
+    const originalLen = parseFloat(targetRow.querySelector('.len').value) || 0;
+    const newLen = originalLen / segments;
+    const currentParentId = targetRow.querySelector('.parent').value;
+    
+    // Hent værdier til kopiering
+    const material = targetRow.querySelector('.material').value;
+    const location = targetRow.querySelector('.location').value;
+    const dim = targetRow.querySelector('.dim').value;
+    const insulation = targetRow.querySelector('.insulation-class').value;
+    const fittings = 0; // Vi sætter zeta til 0 på de nye mellemstykker (brugeren må selv tilføje evt. muffer)
+
+    const sId = targetId.split('-')[0]; // Find streng ID (f.eks. "S1")
+    let lastParentId = currentParentId;
+
+    // 2. Opret N-1 nye rør FØR det oprindelige rør
+    for (let i = 1; i < segments; i++) {
+        state.tC++; // Ny global tæller
+        const newId = `${sId}-R${state.tC}`;
+        const datalistId = `list-${newId}`;
+        
+        const tr = document.createElement('tr');
+        tr.dataset.id = newId;
+        tr.dataset.type = 'ror';
+        
+        // Byg HTML (samme struktur som addRorSektion)
+        tr.innerHTML = `
+            <td>
+                <span class="input-group input-group-sm">
+                    <span class="input-group-text id-text">${newId}</span>
+                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn">
+                </span>
+            </td>
+            <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
+            <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
+                <option value="Kobber">Kobber</option>
+                <option value="Rustfri Press 316L">Rustfri Press 316L</option>
+                <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+                <option value="Pex">Pex</option>
+                <option value="Alupex">Alupex</option>
+                <option value="PE100">PE100</option>
+                <option value="Geberit Mepla">Geberit Mepla</option>
+            </select></td>
+            <td>
+                <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
+                    <option value="heated">Opvarmet rum</option>
+                    <option value="unheated">Uopvarmet rum</option>
+                    <option value="outside">Udendørs</option>
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions" title="Vælg isoleringsklasse"></td>
+            <td>
+                <input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" title="Nominel diameter (mm)" list="${datalistId}">
+                <datalist id="${datalistId}"></datalist>
+            </td>
+            <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}" title="Længde (m)"></td>
+            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${fittings}" title="Sum af enkeltmodstande (zeta)"></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+        `;
+
+        // Sæt værdier
+        tr.querySelector('.material').value = material;
+        tr.querySelector('.location').value = location;
+        
+        // Event listeners
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
+        const matSelect = tr.querySelector('.material');
+        matSelect.onchange = handleMaterialChange;
+        
+        // Indsæt i DOM (FØR targetRow)
+        targetRow.parentNode.insertBefore(tr, targetRow);
+        
+        // Initialiser datalist
+        updateDimOptions(matSelect);
+
+        // "Hack" for at sætte forælderen før updateAllSelects kører (så kæden hænger sammen med det samme)
+        // Vi gemmer den ønskede forælder i et midlertidigt data-attribut, som vi kan bruge hvis nødvendigt,
+        // men her sætter vi den direkte i dropdownen manuelt først
+        const pSel = tr.querySelector('.parent');
+        // Tilføj midlertidig option så værdien kan sættes
+        const tempOpt = document.createElement('option');
+        tempOpt.value = lastParentId;
+        tempOpt.text = lastParentId;
+        pSel.add(tempOpt);
+        pSel.value = lastParentId;
+
+        // Opdater lastParentId til denne nye node, så næste segment (eller det oprindelige rør) hægtes på her
+        lastParentId = newId;
+    }
+
+    // 3. Opdater det oprindelige rør (det sidste i kæden)
+    targetRow.querySelector('.len').value = newLen.toFixed(2);
+    
+    // Opdater forælder på det oprindelige rør til at pege på det sidste nye segment
+    const targetPSel = targetRow.querySelector('.parent');
+    const tempOptTarget = document.createElement('option');
+    tempOptTarget.value = lastParentId;
+    tempOptTarget.text = lastParentId;
+    targetPSel.add(tempOptTarget);
+    targetPSel.value = lastParentId;
+
+    // 4. Kør fuld opdatering
+    updateAllSelects();
+    
+    // Sæt dirty flag
+    setProjektErÆndret();
+}
+
 function addRorSektion(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
@@ -4235,6 +4351,19 @@ function handleNodeRightClick(event, d) {
     }
     // Menu: Tilføj fremløbskomponenter
     if (nodeType === 'ror') {
+        // NYT: Opdel rør funktion
+        createMenuItem('Opdel rør...', () => {
+            const segments = prompt("Antal segmenter rørstrekket skal opdeles i (f.eks. 2 for at halvere):", "2");
+            if (segments) {
+                const count = parseInt(segments, 10);
+                if (!isNaN(count) && count > 1) {
+                    splitPipe(d.id, count);
+                } else {
+                    alert("Ugyldigt antal. Indtast et heltal større end 1.");
+                }
+            }
+        });
+        
         createMenuItem('Tilføj rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
