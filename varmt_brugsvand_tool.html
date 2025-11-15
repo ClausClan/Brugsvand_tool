@@ -882,7 +882,7 @@ const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
 const RHO=985, C=4184, MU=0.0005, G=9.82;
-const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map() };
+const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null };
 
 // Global "Dirty Flag" til auto-gem
 let projektErÆndret = false;
@@ -1259,6 +1259,200 @@ function splitPipe(targetId, segments) {
     updateAllSelects();
     setProjektErÆndret();
 }
+
+/**
+ * NY FUNKTION (Fase 4): Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
+ */
+function copyBranch(rootId) {
+    // Hjælper til at skrabe data fra en række
+    const scrapNode = (id) => {
+        const row = document.querySelector(`tr[data-id="${id}"]`);
+        if (!row) return null;
+        
+        const type = row.dataset.type;
+        const data = { type: type, children: [] };
+        
+        // Gem navn
+        const nameInput = row.querySelector('.name-text');
+        if (nameInput) data.name = nameInput.value;
+
+        if (type === 'ror') {
+            data.material = row.querySelector('.material').value;
+            data.location = row.querySelector('.location').value;
+            data.insulation = row.querySelector('.insulation-class').value;
+            data.dim = row.querySelector('.dim').value;
+            data.len = row.querySelector('.len').value;
+            data.fittings = row.querySelector('.fittings').value;
+        } else if (type === 'tapsted') {
+            const tapSelect = row.querySelector('.tapType');
+            data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
+            data.qf = row.querySelector('.qf').value;
+            data.kote = row.querySelector('.kote').value;
+            data.syst = row.querySelector('.syst').checked;
+            data.isApartment = row.dataset.isApartment;
+        }
+
+        // Find børn (rekursivt)
+        // Vi leder efter rækker, hvis .parent select har værdien 'id'
+        document.querySelectorAll('.parent').forEach(select => {
+            if (select.value === id) {
+                const childRow = select.closest('tr');
+                if (childRow) {
+                    const childData = scrapNode(childRow.dataset.id);
+                    if (childData) data.children.push(childData);
+                }
+            }
+        });
+
+        return data;
+    };
+
+    const tree = scrapNode(rootId);
+    if (tree) {
+        state.clipboard = tree;
+        // Visuel feedback
+        const btn = document.querySelector(`tr[data-id="${rootId}"] button`);
+        const origText = btn.innerHTML;
+        // Lille visuelt hack: blink knappen
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-outline-danger');
+        setTimeout(() => {
+             btn.classList.remove('btn-success');
+             btn.classList.add('btn-outline-danger');
+        }, 500);
+        console.log("Kopieret til udklipsholder:", tree);
+    }
+}
+
+/**
+ * NY FUNKTION (Fase 4): Indsætter kopieret gren på den valgte destination.
+ */
+function pasteBranch(targetParentId) {
+    if (!state.clipboard) {
+        alert("Intet at indsætte. Kopier en streng først.");
+        return;
+    }
+
+    let targetStringId, rorContainer, tapstedContainer;
+
+    // SCENARIE A: Indsæt på Beholder -> Opret ny streng
+    if (targetParentId === 'Beholder') {
+        addStreng(); // Opret ny streng
+        // Find den nye streng (den sidste i listen)
+        const newCard = document.querySelector('.streng-card:last-child');
+        targetStringId = newCard.dataset.id;
+        rorContainer = newCard.querySelector('.ror-container');
+        tapstedContainer = newCard.querySelector('.tapsted-container');
+    } 
+    // SCENARIE B: Indsæt på eksisterende rør -> Brug samme streng
+    else {
+        targetStringId = targetParentId.split('-')[0];
+        const card = document.querySelector(`.streng-card[data-id="${targetStringId}"]`);
+        if (!card) return;
+        rorContainer = card.querySelector('.ror-container');
+        tapstedContainer = card.querySelector('.tapsted-container');
+    }
+
+    // Rekursiv funktion til at bygge DOM elementer
+    const buildNode = (nodeData, parentId) => {
+        state.tC++;
+        const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
+        const datalistId = `list-${newId}`;
+        
+        const tr = document.createElement('tr');
+        tr.dataset.id = newId;
+        tr.dataset.type = nodeData.type;
+
+        if (nodeData.type === 'ror') {
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm material" title="Materiale">
+                    <option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+                    <option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>
+                </select></td>
+                <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
+                <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            
+            // Sæt værdier
+            tr.querySelector('.material').value = nodeData.material;
+            tr.querySelector('.location').value = nodeData.location;
+            tr.querySelector('.insulation-class').value = nodeData.insulation;
+            tr.querySelector('.len').value = nodeData.len;
+            tr.querySelector('.fittings').value = nodeData.fittings;
+            
+            // Håndter dim (kræver datalist update først)
+            const matSelect = tr.querySelector('.material');
+            matSelect.onchange = handleMaterialChange;
+            updateDimOptions(matSelect);
+            tr.querySelector('.dim').value = nodeData.dim;
+
+            rorContainer.appendChild(tr);
+
+        } else if (nodeData.type === 'tapsted') {
+             // Byg options
+            let opts = ''; 
+            Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
+            Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
+
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" title="Type">${opts}</select></td>
+                <td><input type="number" class="form-control form-control-sm qf" min="0" step="0.01" title="qf"></td>
+                <td><input type="number" class="form-control form-control-sm kote allow-negative" title="Kote"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst."></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            
+            // Find korrekt select option baseret på tekstnavn
+            const tapSelect = tr.querySelector('.tapType');
+            let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
+            if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
+            
+            tr.querySelector('.qf').value = nodeData.qf;
+            tr.querySelector('.kote').value = nodeData.kote;
+            tr.querySelector('.syst').checked = nodeData.syst;
+            tr.dataset.isApartment = nodeData.isApartment;
+
+            tapstedContainer.appendChild(tr);
+        }
+
+        // Navn
+        if (nodeData.name) {
+            state.names.set(newId, nodeData.name);
+            tr.querySelector('.name-text').value = nodeData.name;
+        }
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
+
+        // Sæt forælder MANUELT (før updateAllSelects)
+        // Vi bruger en midlertidig option for at tvinge værdien ind
+        const pSel = tr.querySelector('.parent');
+        const tempOpt = document.createElement('option');
+        tempOpt.value = parentId;
+        tempOpt.text = parentId; // Midlertidig tekst
+        pSel.add(tempOpt);
+        pSel.value = parentId;
+
+        // Rekursion for børn
+        if (nodeData.children) {
+            nodeData.children.forEach(child => buildNode(child, newId));
+        }
+    };
+
+    // Start bygningen
+    buildNode(state.clipboard, targetParentId);
+
+    // Opdater alt
+    updateAllSelects();
+    setProjektErÆndret();
+}
+
 
 function addRorSektion(btn) {
     state.tC++;
@@ -4378,6 +4572,19 @@ function handleNodeRightClick(event, d) {
     }
     // Menu: Tilføj fremløbskomponenter
     if (nodeType === 'ror') {
+        createMenuItem('Kopier streng herfra', () => {
+            copyBranch(d.id);
+        });
+        if (state.clipboard) {
+            createMenuItem('Indsæt streng her', () => {
+                pasteBranch(d.id);
+            });
+        }
+        if (menu.hasChildNodes()) {
+            menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+        }
+
+
         // NYT: Opdel rør funktion
         createMenuItem('Opdel rør...', () => {
             const segments = prompt("Antal segmenter rørstrekket skal opdeles i (f.eks. 2 for at halvere):", "2");
@@ -4429,6 +4636,7 @@ function handleNodeRightClick(event, d) {
     // Menu: Tilføj ny streng
     if (nodeType === 'beholder' || nodeType === 'ror') {
         createMenuItem('Tilføj ny streng herfra', () => {
+            // (eksisterende kode)
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
@@ -4439,6 +4647,13 @@ function handleNodeRightClick(event, d) {
                 }
             }
         });
+
+        // NYT: Indsæt på beholder/rør
+        if (state.clipboard) {
+             createMenuItem('Indsæt kopieret streng her', () => {
+                pasteBranch(d.id);
+            });
+        }
     }
     // Menu: Tilføj retur-komponenter
     if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
