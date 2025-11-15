@@ -1261,18 +1261,36 @@ function splitPipe(targetId, segments) {
 }
 
 /**
- * NY FUNKTION (Fase 4): Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
+ * Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
+ * Kopierer gren med RELATIVE KOORDINATER.
+ * Rettet: Kopierer kun fremløbs-komponenter (ror/tapsted), ignorerer retur-tilslutninger.
  */
 function copyBranch(rootId) {
-    // Hjælper til at skrabe data fra en række
+    // 1. Find rod-nodens position (Referencepunktet)
+    const rootNode = state.nodes.find(n => n.id === rootId);
+    const rootX = rootNode ? rootNode.x : 0;
+    const rootY = rootNode ? rootNode.y : 0;
+
     const scrapNode = (id) => {
         const row = document.querySelector(`tr[data-id="${id}"]`);
         if (!row) return null;
         
+        // Tjek type - vi vil kun kopiere fremløbsdele
         const type = row.dataset.type;
-        const data = { type: type, children: [] };
+        if (type !== 'ror' && type !== 'tapsted') return null;
+
+        // Find denne nodes position og beregn afstand til roden
+        const node = state.nodes.find(n => n.id === id);
+        const relX = node ? node.x - rootX : 0;
+        const relY = node ? node.y - rootY : 0;
+
+        const data = { 
+            type: type, 
+            children: [],
+            relX: relX, 
+            relY: relY
+        };
         
-        // Gem navn
         const nameInput = row.querySelector('.name-text');
         if (nameInput) data.name = nameInput.value;
 
@@ -1293,13 +1311,17 @@ function copyBranch(rootId) {
         }
 
         // Find børn (rekursivt)
-        // Vi leder efter rækker, hvis .parent select har værdien 'id'
         document.querySelectorAll('.parent').forEach(select => {
             if (select.value === id) {
                 const childRow = select.closest('tr');
                 if (childRow) {
-                    const childData = scrapNode(childRow.dataset.id);
-                    if (childData) data.children.push(childData);
+                    // RETTELSE: Vi tjekker typen FØR vi kalder rekursivt
+                    // Dette forhindrer at vi prøver at kopiere retur-rør med over i strengen
+                    const childType = childRow.dataset.type;
+                    if (childType === 'ror' || childType === 'tapsted') {
+                        const childData = scrapNode(childRow.dataset.id);
+                        if (childData) data.children.push(childData);
+                    }
                 }
             }
         });
@@ -1310,22 +1332,24 @@ function copyBranch(rootId) {
     const tree = scrapNode(rootId);
     if (tree) {
         state.clipboard = tree;
+        
         // Visuel feedback
         const btn = document.querySelector(`tr[data-id="${rootId}"] button`);
-        const origText = btn.innerHTML;
-        // Lille visuelt hack: blink knappen
-        btn.classList.add('btn-success');
-        btn.classList.remove('btn-outline-danger');
-        setTimeout(() => {
-             btn.classList.remove('btn-success');
-             btn.classList.add('btn-outline-danger');
-        }, 500);
+        if (btn) {
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-outline-danger');
+            setTimeout(() => {
+                 btn.classList.remove('btn-success');
+                 btn.classList.add('btn-outline-danger');
+            }, 500);
+        }
         console.log("Kopieret til udklipsholder:", tree);
     }
 }
 
 /**
- * NY FUNKTION (Fase 4): Indsætter kopieret gren på den valgte destination.
+ * Indsætter kopieret gren på den valgte destination.
+ * Indsætter gren med FASTE KOORDINATER.
  */
 function pasteBranch(targetParentId) {
     if (!state.clipboard) {
@@ -1333,19 +1357,25 @@ function pasteBranch(targetParentId) {
         return;
     }
 
+    // 1. Find destinations-punktet (hvor skal grenen starte?)
+    const targetNode = state.nodes.find(n => n.id === targetParentId);
+    const baseX = targetNode ? targetNode.x : 0;
+    const baseY = targetNode ? targetNode.y : 0;
+    
+    // Definer et offset, så den nye gren ikke ligger præcis oven i forælderen
+    // Vi flytter den lidt ned og til højre
+    const offsetX = 60; 
+    const offsetY = 60;
+
     let targetStringId, rorContainer, tapstedContainer;
 
-    // SCENARIE A: Indsæt på Beholder -> Opret ny streng
     if (targetParentId === 'Beholder') {
-        addStreng(); // Opret ny streng
-        // Find den nye streng (den sidste i listen)
+        addStreng(); 
         const newCard = document.querySelector('.streng-card:last-child');
         targetStringId = newCard.dataset.id;
         rorContainer = newCard.querySelector('.ror-container');
         tapstedContainer = newCard.querySelector('.tapsted-container');
-    } 
-    // SCENARIE B: Indsæt på eksisterende rør -> Brug samme streng
-    else {
+    } else {
         targetStringId = targetParentId.split('-')[0];
         const card = document.querySelector(`.streng-card[data-id="${targetStringId}"]`);
         if (!card) return;
@@ -1353,12 +1383,25 @@ function pasteBranch(targetParentId) {
         tapstedContainer = card.querySelector('.tapsted-container');
     }
 
-    // Rekursiv funktion til at bygge DOM elementer
     const buildNode = (nodeData, parentId) => {
         state.tC++;
         const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
         const datalistId = `list-${newId}`;
         
+        // --- BEREGN OG GEM KOORDINATER ---
+        // Ny Position = Forældrens Position + Offset + Relativ Position i originalen
+        const newFx = baseX + offsetX + (nodeData.relX || 0);
+        const newFy = baseY + offsetY + (nodeData.relY || 0);
+        
+        // Vi skubber noden direkte ind i state med 'fixed' (låste) koordinater
+        // buildNetworkAndRender vil genbruge disse positionsdata
+        state.nodes.push({
+            id: newId,
+            fx: newFx,
+            fy: newFy
+        });
+        // ----------------------------------
+
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = nodeData.type;
@@ -1379,14 +1422,12 @@ function pasteBranch(targetParentId) {
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
             `;
             
-            // Sæt værdier
             tr.querySelector('.material').value = nodeData.material;
             tr.querySelector('.location').value = nodeData.location;
             tr.querySelector('.insulation-class').value = nodeData.insulation;
             tr.querySelector('.len').value = nodeData.len;
             tr.querySelector('.fittings').value = nodeData.fittings;
             
-            // Håndter dim (kræver datalist update først)
             const matSelect = tr.querySelector('.material');
             matSelect.onchange = handleMaterialChange;
             updateDimOptions(matSelect);
@@ -1395,7 +1436,6 @@ function pasteBranch(targetParentId) {
             rorContainer.appendChild(tr);
 
         } else if (nodeData.type === 'tapsted') {
-             // Byg options
             let opts = ''; 
             Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
             Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
@@ -1410,7 +1450,6 @@ function pasteBranch(targetParentId) {
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
             `;
             
-            // Find korrekt select option baseret på tekstnavn
             const tapSelect = tr.querySelector('.tapType');
             let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
             if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
@@ -1423,32 +1462,26 @@ function pasteBranch(targetParentId) {
             tapstedContainer.appendChild(tr);
         }
 
-        // Navn
         if (nodeData.name) {
             state.names.set(newId, nodeData.name);
             tr.querySelector('.name-text').value = nodeData.name;
         }
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
 
-        // Sæt forælder MANUELT (før updateAllSelects)
-        // Vi bruger en midlertidig option for at tvinge værdien ind
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
         tempOpt.value = parentId;
-        tempOpt.text = parentId; // Midlertidig tekst
+        tempOpt.text = parentId;
         pSel.add(tempOpt);
         pSel.value = parentId;
 
-        // Rekursion for børn
         if (nodeData.children) {
             nodeData.children.forEach(child => buildNode(child, newId));
         }
     };
 
-    // Start bygningen
     buildNode(state.clipboard, targetParentId);
 
-    // Opdater alt
     updateAllSelects();
     setProjektErÆndret();
 }
