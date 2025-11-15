@@ -1118,39 +1118,78 @@ function addReturRor() {
 }
 
 /**
- * NY FUNKTION (Fase 4): Opdeler et eksisterende rør i flere segmenter.
+ * Opdeler et eksisterende rør i flere segmenter.
  * Indsætter nye rør før det valgte rør for at bevare nedstrøms-strukturen.
+ * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
  */
 function splitPipe(targetId, segments) {
     const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
     if (!targetRow) return;
 
+    // --- TRIN A: BEREGN KOORDINATER ---
+    const currentParentId = targetRow.querySelector('.parent').value;
+    
+    // Find start- og slut-noder i den nuværende simulation
+    const startNode = state.nodes.find(n => n.id === currentParentId);
+    const endNode = state.nodes.find(n => n.id === targetId);
+    
+    let startX = 0, startY = 0, endX = 0, endY = 0;
+    let useCoords = false;
+
+    // Vi bruger .x/.y (aktuel position) frem for .fx/.fy, så vi fanger noderne,
+    // hvor de rent faktisk befinder sig på skærmen lige nu.
+    if (startNode && endNode) {
+        startX = startNode.x; 
+        startY = startNode.y;
+        endX = endNode.x;
+        endY = endNode.y;
+        useCoords = true;
+    }
+    // ----------------------------------
+
     // 1. Hent data fra det eksisterende rør
     const originalLen = parseFloat(targetRow.querySelector('.len').value) || 0;
     const newLen = originalLen / segments;
-    const currentParentId = targetRow.querySelector('.parent').value;
     
     // Hent værdier til kopiering
     const material = targetRow.querySelector('.material').value;
     const location = targetRow.querySelector('.location').value;
     const dim = targetRow.querySelector('.dim').value;
     const insulation = targetRow.querySelector('.insulation-class').value;
-    const fittings = 0; // Vi sætter zeta til 0 på de nye mellemstykker (brugeren må selv tilføje evt. muffer)
+    const fittings = 0; 
 
-    const sId = targetId.split('-')[0]; // Find streng ID (f.eks. "S1")
+    const sId = targetId.split('-')[0]; 
     let lastParentId = currentParentId;
 
     // 2. Opret N-1 nye rør FØR det oprindelige rør
     for (let i = 1; i < segments; i++) {
-        state.tC++; // Ny global tæller
+        state.tC++; 
         const newId = `${sId}-R${state.tC}`;
         const datalistId = `list-${newId}`;
         
+        // --- TRIN B: INDSÆT MIDLERTIDIG NODE MED KOORDINATER ---
+        if (useCoords) {
+            // Beregn position (Lineær interpolation)
+            const ratio = i / segments;
+            const newX = startX + (endX - startX) * ratio;
+            const newY = startY + (endY - startY) * ratio;
+            
+            // Vi skubber en "placeholder" node ind i state.nodes.
+            // Når updateAllSelects() -> buildNetworkAndRender() kører lige om lidt,
+            // vil den se denne node i 'oldNodes' og genbruge dens fx/fy koordinater
+            // til den rigtige node, den opretter.
+            state.nodes.push({
+                id: newId,
+                fx: newX, // Sæt som 'fixed' så den bliver stående her
+                fy: newY
+            });
+        }
+        // -------------------------------------------------------
+
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = 'ror';
         
-        // Byg HTML (samme struktur som addRorSektion)
         tr.innerHTML = `
             <td>
                 <span class="input-group input-group-sm">
@@ -1169,7 +1208,7 @@ function splitPipe(targetId, segments) {
                 <option value="Geberit Mepla">Geberit Mepla</option>
             </select></td>
             <td>
-                <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
+                <select class="form-select form-select-sm location" title="Placering">
                     <option value="heated">Opvarmet rum</option>
                     <option value="unheated">Uopvarmet rum</option>
                     <option value="outside">Udendørs</option>
@@ -1181,44 +1220,34 @@ function splitPipe(targetId, segments) {
                 <datalist id="${datalistId}"></datalist>
             </td>
             <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}" title="Længde (m)"></td>
-            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${fittings}" title="Sum af enkeltmodstande (zeta)"></td>
+            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${fittings}" title="Zeta"></td>
             <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
         `;
 
-        // Sæt værdier
         tr.querySelector('.material').value = material;
         tr.querySelector('.location').value = location;
         
-        // Event listeners
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
         const matSelect = tr.querySelector('.material');
         matSelect.onchange = handleMaterialChange;
         
-        // Indsæt i DOM (FØR targetRow)
         targetRow.parentNode.insertBefore(tr, targetRow);
         
-        // Initialiser datalist
         updateDimOptions(matSelect);
 
-        // "Hack" for at sætte forælderen før updateAllSelects kører (så kæden hænger sammen med det samme)
-        // Vi gemmer den ønskede forælder i et midlertidigt data-attribut, som vi kan bruge hvis nødvendigt,
-        // men her sætter vi den direkte i dropdownen manuelt først
         const pSel = tr.querySelector('.parent');
-        // Tilføj midlertidig option så værdien kan sættes
         const tempOpt = document.createElement('option');
         tempOpt.value = lastParentId;
         tempOpt.text = lastParentId;
         pSel.add(tempOpt);
         pSel.value = lastParentId;
 
-        // Opdater lastParentId til denne nye node, så næste segment (eller det oprindelige rør) hægtes på her
         lastParentId = newId;
     }
 
-    // 3. Opdater det oprindelige rør (det sidste i kæden)
+    // 3. Opdater det oprindelige rør
     targetRow.querySelector('.len').value = newLen.toFixed(2);
     
-    // Opdater forælder på det oprindelige rør til at pege på det sidste nye segment
     const targetPSel = targetRow.querySelector('.parent');
     const tempOptTarget = document.createElement('option');
     tempOptTarget.value = lastParentId;
@@ -1228,8 +1257,6 @@ function splitPipe(targetId, segments) {
 
     // 4. Kør fuld opdatering
     updateAllSelects();
-    
-    // Sæt dirty flag
     setProjektErÆndret();
 }
 
