@@ -102,36 +102,37 @@
             </button>
             <ul class="dropdown-menu shadow">
                 <li><h6 class="dropdown-header">Projekt</h6></li>
-                <li>
-                    <a class="dropdown-item text-danger" href="#" onclick="resetProject()">
-                        🗑️ Nyt Projekt (Nulstil)
-                    </a>
-                </li>
+                <li><a class="dropdown-item text-danger" href="#" onclick="resetProject()">🗑️ Nyt Projekt (Nulstil)</a></li>
                 <li><hr class="dropdown-divider"></li>
-                <li>
-                    <a class="dropdown-item" href="#" onclick="document.getElementById('hiddenImportInput').click()">
-                        📂 Import Projekt...
-                    </a>
-                </li>
-                <li>
-                    <a class="dropdown-item" href="#" onclick="exportProject()">
-                        💾 Eksport Projekt
-                    </a>
-                </li>
+                <li><a class="dropdown-item" href="#" onclick="document.getElementById('hiddenImportInput').click()">📂 Import Projekt...</a></li>
+                <li><a class="dropdown-item" href="#" onclick="exportProject()">💾 Eksport Projekt</a></li>
             </ul>
         </div>
 
-        <h1 class="h5 m-0 text-center user-select-none">Varmt brugsvand dimensionering v0.15<br><small class="text-muted fw-normal">DS 439:2024 + DS 452</small></h1>
+        <div class="text-center">
+            <h1 class="h5 m-0 user-select-none">Varmt brugsvand dimensionering v0.15</h1>
+            <small class="text-muted fw-normal">DS 439:2024 + DS 452</small>
+            <div style="font-size: 0.75rem; margin-top: -2px;">
+                <a href="https://www.niras.dk" target="_blank" class="text-decoration-none text-secondary">© NIRAS</a>
+            </div>
+        </div>
 
-<button class="btn btn-outline-info rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px; font-weight: bold;" data-bs-toggle="modal" data-bs-target="#helpModal" title="Hjælp & Info">
+        <button class="btn btn-outline-info rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px; font-weight: bold;" data-bs-toggle="modal" data-bs-target="#helpModal" title="Hjælp & Info">
             ?
         </button>
     </div>
     
-    <div class="row main-row"> <div class="col-lg-6 scrollable-column">
+    <div class="row main-row">
+        <div class="col-lg-6 scrollable-column">
             <div class="card mb-4">
                 <div class="card-header"><h5><span class="badge bg-primary me-2">1</span>Input Data</h5></div>
                 <div class="card-body">
+                    
+                    <div class="mb-3">
+                        <label for="projectName" class="form-label fw-bold">Projekt Navn</label>
+                        <input type="text" class="form-control" id="projectName" placeholder="Indtast projektnavn (f.eks. Adresse eller Sagsnr.)" oninput="setProjektErÆndret()">
+                    </div>
+
                     <div class="accordion" id="inputAccordion">
                         <div class="accordion-item">
                             <h2 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#collapseGenerelt" aria-expanded="true">Generelle Systemdata</button></h2>
@@ -469,8 +470,14 @@
             </div>
             <div class="modal-body">
                 
+                <div class="text-center mb-4 pb-3 border-bottom">
+                    <h5 class="mb-1">Varmt Brugsvand Dimensioneringsværktøj</h5>
+                    <p class="text-muted mb-1">Version 0.15</p>
+                    <p class="small text-muted mb-0">© Copyright 2025 NIRAS. Alle rettigheder forbeholdes.</p>
+                </div>
+
                 <h6 class="border-bottom pb-2 text-primary">1. Farvekoder i Diagrammet (Topologi)</h6>
-                <p class="small text-muted mb-3">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav.</p>
+                <p class="small text-muted mb-3">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav (Model B+).</p>
                 
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
@@ -505,7 +512,7 @@
                     </div>
                 </div>
 
-                <h6 class="border-bottom pb-2 text-primary">2. Beregningsgrundlag & Design Mode</h6>
+                <h6 class="border-bottom pb-2 text-primary">2. Beregningsgrundlag & Formler</h6>
                 <div class="accordion accordion-flush" id="helpAccordion">
                     
                     <div class="accordion-item">
@@ -519,28 +526,6 @@
                                 <ul>
                                     <li><b>Design Mode Aktiv (Til):</b> Programmet beregner automatisk den optimale rørdimension for hvert rør baseret på det valgte <i>dimensioneringsprincip</i> (se pkt. 3).</li>
                                     <li><b>Design Mode Inaktiv (Fra):</b> Du indtaster selv dimensionerne manuelt. Programmet beregner stadig tryktab og hastighed, så du kan kontrollere dit eget design.</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpIsol">
-                                🔥 Isolering (DS 452)
-                            </button>
-                        </h2>
-                        <div id="helpIsol" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
-                                <p>Isoleringstykkelsen beregnes dynamisk for at overholde varmetabskravene i <b>DS 452, Tabel 5.1</b>.</p>
-                                <ul>
-                                    <li><b>Auto-valg:</b> Systemet vælger automatisk klasse baseret på rørtype og placering (jf. DS 452, Tabel 6.4):
-                                        <ul>
-                                            <li>Indendørs (Heated): <b>Klasse 4</b></li>
-                                            <li>Udendørs/Uopvarmet: <b>Klasse 6</b></li>
-                                        </ul>
-                                    </li>
-                                    <li><b>Manuelt valg:</b> Du kan overstyre Auto-valget. F.eks. kan korte koblingsledninger i samme rum som tapstedet manuelt sættes til <b>Klasse 0</b> (ingen isolering) jf. normen.</li>
                                 </ul>
                             </div>
                         </div>
@@ -570,6 +555,65 @@
                                 <div class="alert alert-warning p-2 mb-0">
                                     <strong>Tip:</strong> Du kan markere et tapsted som <b>"Systematisk"</b> ved at sætte flueben i feltet <i>"Syst."</i> i tabellen. Dette er nyttigt til f.eks. procesvand, industri eller udendørs haner, der forventes brugt samtidig med den øvrige spidslast.
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpPressure">
+                                📉 Tryktab & Geodæti
+                            </button>
+                        </h2>
+                        <div id="helpPressure" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
+                                <ul>
+                                    <li><b>Rørfriktion:</b> Beregnes med <i>Darcy-Weisbach</i> ligningen. Friktionsfaktoren ($\lambda$) findes iterativt via <i>Colebrook-White</i> formlen (for turbulent strømning).</li>
+                                    <li><b>Enkeltmodstande:</b> Summen af Zeta-værdier ($\zeta$) for fittings og ventiler indregnes som: $\Delta p = \zeta \cdot \frac{1}{2} \rho v^2$.</li>
+                                    <li><b>Geodætisk tryktab (Løftehøjde):</b> Beregnes som forskellen mellem <i>Forsyningens kote</i> og tapstedets <i>Kote</i>. <br><code>Δp_geo = ρ · g · Δh</code>. (Husk at angive koter korrekt i meter).</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpIsol">
+                                🔥 Isolering (DS 452)
+                            </button>
+                        </h2>
+                        <div id="helpIsol" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
+                                <p>Isoleringstykkelsen beregnes dynamisk for at overholde varmetabskravene i <b>DS 452, Tabel 5.1</b>.</p>
+                                <ul>
+                                    <li><b>Auto-Klasse (Standard):</b> Systemet vælger automatisk klasse baseret på rørtype og placering (jf. Tabel 6.4):
+                                        <ul>
+                                            <li>Indendørs (Heated): <b>Klasse 4</b></li>
+                                            <li>Udendørs/Uopvarmet: <b>Klasse 6</b></li>
+                                            <li>Koblingsledning: Som udgangspunkt Klasse 4.</li>
+                                        </ul>
+                                    </li>
+                                    <li><b>Manuelt valg:</b> Du kan overstyre Auto-valget pr. rør. Vigtigt: Koblingsledninger i samme rum som tapstedet kan manuelt sættes til <b>Klasse 0</b> (ingen isolering) jf. normen.</li>
+                                    <li><b>Beregning:</b> Den nødvendige tykkelse findes ud fra kravet til U-værdi og den valgte lambda-værdi ($\lambda$), og rundes op til nærmeste handelsstørrelse (10, 20, 30... mm).</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCirc">
+                                🔄 Cirkulation & Flow
+                            </button>
+                        </h2>
+                        <div id="helpCirc" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body small bg-light">
+                                <p>Det nødvendige cirkulationsflow beregnes for at kompensere for varmetabet i fremløbs- og returledninger.</p>
+                                <ul>
+                                    <li><b>Formel:</b> <code>q_circ = Q_tab / (ρ · cp · ΔT)</code></li>
+                                    <li><b>ΔT:</b> Det ønskede temperaturfald (typisk 5°C) fra veksler til fjerneste punkt.</li>
+                                    <li><b>Indregulering:</b> Systemet beregner tryktabet i hver kreds, inklusive den valgte strengreguleringsventil (hvis valgt), for at sikre korrekt flowfordeling.</li>
+                                </ul>
                             </div>
                         </div>
                     </div>
@@ -605,14 +649,16 @@
                             <br><br>
                             ⚠️ <b>Dette er IKKE en permanent lagring!</b> Hvis du rydder din browserhistorik eller skifter computer, forsvinder dataene.
                             <br>
-                            For at gemme dit projekt permanent, skal du bruge knappen <b>"Eksport Projekt"</b>. Dette downloader en fil til din computer, som du altid kan indlæse igen.
+                            For at gemme dit projekt permanent, skal du bruge knappen <b>"Eksport Projekt"</b> i menuen øverst til venstre. Dette downloader en fil til din computer, som du altid kan indlæse igen.
                         </div>
                     </div>
                 </div>
 
             </div>
-            <div class="modal-footer bg-light">
-                <small class="text-muted me-auto">v0.15_dev</small>
+            <div class="modal-footer bg-light justify-content-between">
+                <a href="mailto:support@niras.dk?subject=Feedback%20Varmt%20Brugsvand%20Tool%20v0.15" class="btn btn-outline-secondary btn-sm">
+                    ✉️ Send Feedback
+                </a>
                 <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Luk</button>
             </div>
         </div>
@@ -1687,6 +1733,7 @@ function validateInputs(config) {
 
 function getGlobalConfig() {
     return {
+        projectName: document.getElementById('projectName')?.value || '',
         pln: parseFloat(document.getElementById('pln')?.value) || 0,
         min_tap_tryk: parseFloat(document.getElementById('min_tap_tryk')?.value) || 0,
         T_v: parseFloat(document.getElementById('T_v')?.value) || 55,
@@ -2417,12 +2464,17 @@ function exportProject() {
         });
     });
 
+    // Generer filnavn baseret på projektnavn og tid
+    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
+    const dateStr = new Date().toISOString().slice(0,16).replace(/[:T]/g, '-'); // Format: YYYY-MM-DD_HH-mm
+    const filename = `${projName}_${dateStr}.json`;
+
     // Opret og download filen
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `brugsvand_projekt.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -2872,11 +2924,15 @@ function exportDetailedResults() {
     // Kald generator-funktionen (som vi lavede i forrige trin)
     const data = generateDetailedResults(state.lastModel, state.lastConfig);
     
+    const projName = state.lastConfig.projectName ? state.lastConfig.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand';
+    const dateStr = new Date().toISOString().slice(0,16).replace(/[:T]/g, '-');
+    const filename = `${projName}_Detaljer_${dateStr}.json`;
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `brugsvand_detaljerede_resultater.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -3546,6 +3602,7 @@ function showCalculationReport() {
  */
 function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Critical) {
     const reportDate = new Date().toLocaleDateString('da-DK', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const projTitle = config.projectName || 'Ikke navngivet projekt';
 
     // --- HJÆLPER: Generer Stykliste ---
     const generateBOM = () => {
@@ -3673,6 +3730,7 @@ function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Criti
             </div>
 
             <h1>Dimensioneringsrapport: Varmt Brugsvand</h1>
+            <h2 style="border:none; background:none; padding:0; margin-top:0; color:#555;">Projekt: ${projTitle}</h2>
             <p><strong>Dato:</strong> ${reportDate}</p>
 
             <div class="info-grid">
