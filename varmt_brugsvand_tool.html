@@ -1278,29 +1278,36 @@ function copyBranch(rootId) {
     const parentId = rootRow.querySelector('.parent').value;
     const parentNode = state.nodes.find(n => n.id === parentId);
     
-    let parentOffsetX = 60; // Default
+    let parentOffsetX = 60; 
     let parentOffsetY = 60;
     
-    if (parentNode) {
-        // Beregn den nøjagtige afstand fra forælder til denne node
-        parentOffsetX = rootNode.x - parentNode.x;
-        parentOffsetY = rootNode.y - parentNode.y;
-    }
+    // Brug fx/fy (faste koordinater) hvis de findes, ellers x/y (simulerede)
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
     
-    const rootX = rootNode.x;
-    const rootY = rootNode.y;
+    const rX = getX(rootNode);
+    const rY = getY(rootNode);
+    
+    if (parentNode) {
+        const pX = getX(parentNode);
+        const pY = getY(parentNode);
+        parentOffsetX = rX - pX;
+        parentOffsetY = rY - pY;
+    }
 
     const scrapNode = (id) => {
         const row = document.querySelector(`tr[data-id="${id}"]`);
         if (!row) return null;
         
         const type = row.dataset.type;
-        // Vi kopierer kun fremløbs-komponenter
         if (type !== 'ror' && type !== 'tapsted') return null;
 
         const node = state.nodes.find(n => n.id === id);
-        const relX = node ? node.x - rootX : 0;
-        const relY = node ? node.y - rootY : 0;
+        // Beregn relativ position i forhold til roden af kopien
+        const nX = getX(node);
+        const nY = getY(node);
+        const relX = nX - rX;
+        const relY = nY - rY;
 
         const data = { 
             type: type, 
@@ -1348,22 +1355,25 @@ function copyBranch(rootId) {
     if (tree) {
         tree.parentOffsetX = parentOffsetX;
         tree.parentOffsetY = parentOffsetY;
-        
         state.clipboard = tree;
+        console.log("Kopieret til udklipsholder:", tree);
         
         // Visuel feedback
-        const btn = document.querySelector(`tr[data-id="${rootId}"] button`);
+        const btn = rootRow.querySelector('button[aria-label="Fjern element"]');
         if (btn) {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = "✓";
             btn.classList.add('btn-success');
             btn.classList.remove('btn-outline-danger');
             setTimeout(() => {
+                 btn.innerHTML = originalText;
                  btn.classList.remove('btn-success');
                  btn.classList.add('btn-outline-danger');
             }, 500);
         }
-        console.log("Kopieret:", tree);
     }
 }
+
 /**
  * Indsætter kopieret gren på den valgte destination.
  * Indsætter gren med SAMME AFSTAND til ny forælder.
@@ -1378,10 +1388,13 @@ function pasteBranch(targetParentId) {
 
     // 1. Find position for den NYE forælder
     const targetNode = state.nodes.find(n => n.id === targetParentId);
-    const baseX = targetNode ? targetNode.x : 0;
-    const baseY = targetNode ? targetNode.y : 0;
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
 
-    // 2. Brug den gemte vektor for at placere roden korrekt ift. forælderen
+    const baseX = targetNode ? getX(targetNode) : 0;
+    const baseY = targetNode ? getY(targetNode) : 0;
+
+    // 2. Brug den gemte vektor
     const vecX = state.clipboard.parentOffsetX || 60;
     const vecY = state.clipboard.parentOffsetY || 60;
     
@@ -1390,21 +1403,24 @@ function pasteBranch(targetParentId) {
 
     // 3. OPRET ALTID EN NY STRENG (Sektion)
     addStreng(); 
+    
+    // Find den nye streng (den sidste i containeren)
     const newCard = document.querySelector('.streng-card:last-child');
-    const targetStringId = newCard.dataset.id; // F.eks. "S2"
+    const targetStringId = newCard.dataset.id; 
     const rorContainer = newCard.querySelector('.ror-container');
     const tapstedContainer = newCard.querySelector('.tapsted-container');
     
-    // Vi sletter det default rør/tapsted, som addStreng opretter, så strengen er tom
-    newCard.querySelectorAll('tr').forEach(tr => removeElement(tr.querySelector('button')));
+    // RYD OP: Slet de standard-rør, addStreng opretter
+    const defaultDeleteBtns = newCard.querySelectorAll('button[aria-label="Fjern element"]');
+    defaultDeleteBtns.forEach(btn => removeElement(btn));
 
-    // Rekursiv bygger
+    // 4. Rekursiv bygger
     const buildNode = (nodeData, parentId) => {
         state.tC++;
         const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
         const datalistId = `list-${newId}`;
         
-        // --- POSITIONERING ---
+        // Positionering
         const newFx = newRootX + (nodeData.relX || 0);
         const newFy = newRootY + (nodeData.relY || 0);
         
@@ -1480,7 +1496,7 @@ function pasteBranch(targetParentId) {
         }
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
 
-        // Tving forælder-værdien ind med en midlertidig option
+        // Sæt forælder (midlertidig option for at tvinge værdi)
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
         tempOpt.value = parentId;
@@ -1496,12 +1512,8 @@ function pasteBranch(targetParentId) {
     // Start byggeriet
     buildNode(state.clipboard, targetParentId);
 
-    // Opdater alt
     updateAllSelects();
     setProjektErÆndret();
-    
-    // Zoom evt. ud så man kan se det nye
-    if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
 
 
