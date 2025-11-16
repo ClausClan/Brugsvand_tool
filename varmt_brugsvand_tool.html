@@ -5145,6 +5145,7 @@ function handleNodeRightClick(event, d) {
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
  * Låser noderne fast til musen og snapper til GRID.
+ * Bruger "Delta-Snap" for at bevare figurens form og sikre tydeligt grid-snap.
  */
 function startMoveBranch(rootId) {
     // 1. Identificer alle noder i grenen
@@ -5166,62 +5167,82 @@ function startMoveBranch(rootId) {
     if (branchNodes.length === 0) return;
 
     // 2. Find musens start-position i diagram-koordinater
-    // Vi bruger rod-noden som ankerpunkt
+    const svgNode = d3.select('#diagram svg').node();
+    // Hvis vi ikke har et event (kaldt fra menu), bruger vi rod-nodens position som "musens startpunkt"
     const rootNode = state.nodes.find(n => n.id === rootId);
+    const startX = (rootNode.fx !== undefined && rootNode.fx !== null) ? rootNode.fx : rootNode.x;
+    const startY = (rootNode.fy !== undefined && rootNode.fy !== null) ? rootNode.fy : rootNode.y;
     
-    // 3. Gem start-data og offsets
+    // 3. Gem start-data (Oprindelige positioner)
     state.movingBranch = {
         nodes: branchNodes,
-        offsets: branchNodes.map(n => ({
+        startMouseX: startX,
+        startMouseY: startY,
+        // Gem den oprindelige faste position for hver node
+        initialPositions: branchNodes.map(n => ({
             id: n.id,
-            // Brug fx/fy hvis de findes (låste), ellers x/y
-            dx: ((n.fx ?? n.x) - (rootNode.fx ?? rootNode.x)),
-            dy: ((n.fy ?? n.y) - (rootNode.fy ?? rootNode.y))
+            fx: (n.fx !== undefined && n.fx !== null) ? n.fx : n.x,
+            fy: (n.fy !== undefined && n.fy !== null) ? n.fy : n.y
         }))
     };
 
-    // Visuel feedback
+    // Visuel feedback (Rød markering)
     d3.selectAll('.node').filter(d => branchNodes.some(bn => bn.id === d.id))
         .select('circle, rect')
         .style('stroke', '#ff0000')
-        .style('stroke-width', '2px');
+        .style('stroke-width', '3px');
 
-    // 4. Tilføj event listeners
+    // 4. Tilføj event listeners til HELE SVG'en
     const svg = d3.select('#diagram svg');
     
     svg.on('mousemove.branchMove', function(event) {
+        // Konverter musens pixel-koordinater til diagram-koordinater
         const transform = d3.zoomTransform(this);
         const [mx, my] = d3.pointer(event);
-        const x = transform.invertX(mx);
-        const y = transform.invertY(my);
+        const currentX = transform.invertX(mx);
+        const currentY = transform.invertY(my);
         
-        state.movingBranch.nodes.forEach((node, i) => {
-            const offset = state.movingBranch.offsets[i];
-            
-            // Beregn rå position (mus + offset)
-            const rawX = x + offset.dx;
-            const rawY = y + offset.dy;
+        // Beregn bevægelsen (Delta)
+        const dx = currentX - state.movingBranch.startMouseX;
+        const dy = currentY - state.movingBranch.startMouseY;
 
-            // RETTELSE: Snap to Grid
-            // Vi bruger den globale 'gridSize' (som er 10)
-            node.fx = Math.round(rawX / gridSize) * gridSize;
-            node.fy = Math.round(rawY / gridSize) * gridSize;
+        // SNAP DELTA TIL GRID (Global gridSize = 10)
+        const snappedDx = Math.round(dx / gridSize) * gridSize;
+        const snappedDy = Math.round(dy / gridSize) * gridSize;
+        
+        // Opdater positioner
+        state.movingBranch.nodes.forEach((node, i) => {
+            const initial = state.movingBranch.initialPositions[i];
+            
+            // Ny position = Oprindelig + Snappet Flytning
+            node.fx = initial.fx + snappedDx;
+            node.fy = initial.fy + snappedDy;
+            
+            // TVING VISUEL OPDATERING STRAKS (Fjerner "elastik"-effekt)
+            node.x = node.fx;
+            node.y = node.fy;
         });
         
-        state.sim.alpha(0.1).restart();
+        // Opdater diagrammet (links følger med)
+        state.sim.alpha(1).restart();
+        state.sim.tick(); // Tvinger D3 til at opdatere links med det samme
     });
 
+    // Klik for at slippe
     svg.on('click.branchMove', function() {
         stopMoveBranch();
     });
     
+    // Højreklik for at annullere
     svg.on('contextmenu.branchMove', function(event) {
         event.preventDefault();
         stopMoveBranch();
     });
     
+    // Skift markør
     document.body.style.cursor = 'grabbing';
 }
+
 
 /**
  * Stopper flytningen og gemmer positionerne.
