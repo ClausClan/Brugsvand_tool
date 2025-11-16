@@ -5144,17 +5144,16 @@ function handleNodeRightClick(event, d) {
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
- * Låser noderne fast til musen.
+ * Låser noderne fast til musen og snapper til GRID.
  */
 function startMoveBranch(rootId) {
-    // 1. Identificer alle noder i grenen (samme logik som copyBranch)
+    // 1. Identificer alle noder i grenen
     const branchNodes = [];
     
     const collectNodes = (id) => {
         const node = state.nodes.find(n => n.id === id);
         if (node) branchNodes.push(node);
         
-        // Find børn via DOM for at få den aktuelle struktur
         document.querySelectorAll('.parent').forEach(select => {
             if (select.value === id) {
                 const childId = select.closest('tr').dataset.id;
@@ -5164,69 +5163,63 @@ function startMoveBranch(rootId) {
     };
     
     collectNodes(rootId);
-    
     if (branchNodes.length === 0) return;
 
     // 2. Find musens start-position i diagram-koordinater
-    const svgNode = d3.select('#diagram svg').node();
-    const transform = d3.zoomTransform(svgNode);
-    
-    // Vi skal bruge d3.pointer til at få koordinater relativt til SVG'en
-    // Men da funktionen kaldes fra en menu, har vi ikke eventet her direkte.
-    // Vi "snyder" lidt og bruger den aktuelle position af rod-noden som anker.
+    // Vi bruger rod-noden som ankerpunkt
     const rootNode = state.nodes.find(n => n.id === rootId);
     
-    // 3. Gem start-data
+    // 3. Gem start-data og offsets
     state.movingBranch = {
         nodes: branchNodes,
-        // Gem offset for hver node relativt til rod-noden
         offsets: branchNodes.map(n => ({
             id: n.id,
-            dx: (n.fx || n.x) - (rootNode.fx || rootNode.x),
-            dy: (n.fy || n.y) - (rootNode.fy || rootNode.y)
+            // Brug fx/fy hvis de findes (låste), ellers x/y
+            dx: ((n.fx ?? n.x) - (rootNode.fx ?? rootNode.x)),
+            dy: ((n.fy ?? n.y) - (rootNode.fy ?? rootNode.y))
         }))
     };
 
-    // Visuel feedback: Gør noderne lidt gennemsigtige eller marker dem
+    // Visuel feedback
     d3.selectAll('.node').filter(d => branchNodes.some(bn => bn.id === d.id))
         .select('circle, rect')
         .style('stroke', '#ff0000')
         .style('stroke-width', '2px');
 
-    // 4. Tilføj event listeners til HELE SVG'en
+    // 4. Tilføj event listeners
     const svg = d3.select('#diagram svg');
     
     svg.on('mousemove.branchMove', function(event) {
-        // Konverter musens pixel-koordinater til diagram-koordinater
         const transform = d3.zoomTransform(this);
         const [mx, my] = d3.pointer(event);
         const x = transform.invertX(mx);
         const y = transform.invertY(my);
         
-        // Flyt alle noder
         state.movingBranch.nodes.forEach((node, i) => {
             const offset = state.movingBranch.offsets[i];
-            // Flyt noden til: Musens position + dens relative offset
-            node.fx = x + offset.dx;
-            node.fy = y + offset.dy;
+            
+            // Beregn rå position (mus + offset)
+            const rawX = x + offset.dx;
+            const rawY = y + offset.dy;
+
+            // RETTELSE: Snap to Grid
+            // Vi bruger den globale 'gridSize' (som er 10)
+            node.fx = Math.round(rawX / gridSize) * gridSize;
+            node.fy = Math.round(rawY / gridSize) * gridSize;
         });
         
-        // Genstart simulationen let for at opdatere linjerne (links)
         state.sim.alpha(0.1).restart();
     });
 
-    // Klik for at slippe
     svg.on('click.branchMove', function() {
         stopMoveBranch();
     });
     
-    // Højreklik for at annullere (valgfrit, men god UX)
     svg.on('contextmenu.branchMove', function(event) {
         event.preventDefault();
         stopMoveBranch();
     });
     
-    // Skift markør
     document.body.style.cursor = 'grabbing';
 }
 
