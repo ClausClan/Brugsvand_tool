@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
     <meta charset="UTF-8">
-    <title>Varmt brugsvand dimensionering v0.15_dev - DS 439:2024 + Rør isolering DS452 </title>
+    <title>Varmt brugsvand dimensionering v0.16_development - DS 439:2024 + Rør isolering DS452 </title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -47,8 +47,10 @@
         .card-header h5 { margin-bottom: 0; }
         .accordion-button:not(.collapsed) { background-color: #eef7ff; }
         .streng-card { border-left: 4px solid #dc3545; }
+        /* Standard: Varmt Fremløb (Rød, Solid) */
         .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
-        .link-retur { stroke: #0d6efd; stroke-width: 1.5px; stroke-dasharray: 4, 4; }
+        /* Standard: Varm Cirkulation (Rød, Stiplet) */
+        .link-retur { stroke: #dc3545; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
         .node circle { stroke: #333; stroke-width: 0.5px; cursor: move; }
         .node.reparenting circle { stroke: #ffc107; stroke-width: 3px; }
         .dim-input:disabled { background-color: #e9ecef; }
@@ -140,15 +142,15 @@
             </button>
             <ul class="dropdown-menu shadow">
                 <li><h6 class="dropdown-header">Projekt</h6></li>
-                <li><a class="dropdown-item text-danger" href="#" onclick="resetProject()">🗑️ Nyt Projekt (Nulstil)</a></li>
-                <li><hr class="dropdown-divider"></li>
+<li><a class="dropdown-item text-danger" href="#" onclick="resetProject()">🗑️ Nyt Projekt (Nulstil)</a></li>
+                <li><a class="dropdown-item" href="#" onclick="renumberAndSortProject()">✨ Omdøb & Sorter (Clean Up)</a></li> <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="#" onclick="document.getElementById('hiddenImportInput').click()">📂 Import Projekt...</a></li>
                 <li><a class="dropdown-item" href="#" onclick="exportProject()">💾 Eksport Projekt</a></li>
             </ul>
         </div>
 
         <div class="text-center">
-            <h1 class="h5 m-0 user-select-none">Varmt brugsvand dimensionering v0.15
+            <h1 class="h5 m-0 user-select-none">Varmt brugsvand dimensionering Version 0.16 Development
             <small class="text-muted fw-normal">DS 439:2024 + DS 452</small></h1>
             <div style="font-size: 0.75rem; margin-top: -2px;">
                 <a href="https://www.niras.dk" target="_blank" class="text-decoration-none text-secondary">© NIRAS</a>
@@ -510,41 +512,43 @@
                 
                 <div class="text-center mb-4 pb-3 border-bottom">
                     <h5 class="mb-1">Varmt Brugsvand Dimensioneringsværktøj</h5>
-                    <p class="text-muted mb-1">Version 0.15</p>
+                    <p class="text-muted mb-1">Version 0.16 Development</p>
                     <p class="small text-muted mb-0">© Copyright 2025 NIRAS. Alle rettigheder forbeholdes.</p>
                 </div>
 
-                <h6 class="border-bottom pb-2 text-primary">1. Farvekoder i Diagrammet (Topologi)</h6>
-                <p class="small text-muted mb-3">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav (Model B+).</p>
+                <h6 class="border-bottom pb-2 text-primary">1. Signaturforklaring (Model B)</h6>
+                <p class="small text-muted mb-3">Farver indikerer temperatur (Varmt/Koldt). Stregtype indikerer funktion (Forsyning/Cirkulation).</p>
                 
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
-                        <strong class="small text-uppercase text-muted">Fremløb</strong>
+                        <strong class="small text-uppercase text-danger">Varmt Brugsvand (Rød)</strong>
                         <ul class="list-group list-group-flush small">
                             <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #8b0000;"></span>
-                                <div><b>Hovedledning</b> (Mørkerød)<br><span class="text-muted">Forsyner flere strenge/sektioner.</span></div>
+                                <div><b>Hovedledning</b> (Solid)<br><span class="text-muted">Forsyner flere strenge.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #dc3545;"></span>
-                                <div><b>Fordelingsledning</b> (Rød)<br><span class="text-muted">Forsyner >1 tapsted i samme streng.</span></div>
+                                <div><b>Fordelingsledning</b> (Solid)<br><span class="text-muted">Forsyner >1 tapsted.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-box" style="background-color: #f08080;"></span>
-                                <div><b>Koblingsledning</b> (Lysrød)<br><span class="text-muted">Forsyner kun 1 tapsted. (Kan være Kl. 0).</span></div>
+                                <span class="legend-line" style="border-color: #dc3545; border-style: dashed;"></span>
+                                <div><b>Cirkulation</b> (Stiplet)<br><span class="text-muted">Returløb til beholder.</span></div>
                             </li>
                         </ul>
                     </div>
+
                     <div class="col-md-6">
-                        <strong class="small text-uppercase text-muted">Retur (Cirkulation)</strong>
-                        <ul class="list-group list-group-flush small">
+                        <strong class="small text-uppercase text-primary">Koldt Brugsvand (Blå)</strong>
+                        <div class="alert alert-light border p-2 mb-2"><small><i>Kommer i næste version (Fase 5)</i></small></div>
+                        <ul class="list-group list-group-flush small opacity-50">
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #00008b;"></span>
-                                <div><b>Hovedreturledning</b> (Mørkeblå)<br><span class="text-muted">Samler retur fra flere strenge.</span></div>
+                                <span class="legend-box" style="background-color: #0d6efd;"></span>
+                                <div><b>Forsyning</b> (Solid)<br><span class="text-muted">Koldtvandsforsyning.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #0d6efd;"></span>
-                                <div><b>Returledning</b> (Blå)<br><span class="text-muted">Retur fra én streng/kreds.</span></div>
+                                <span class="legend-line" style="border-color: #0d6efd; border-style: dotted;"></span>
+                                <div><b>Kold Cirkulation</b> (Prikket)<br><span class="text-muted">Sikring af lave temperaturer.</span></div>
                             </li>
                         </ul>
                     </div>
@@ -920,7 +924,7 @@ const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
 const RHO=985, C=4184, MU=0.0005, G=9.82;
-const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null };
+const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null, movingBranch: null };
 
 // Global "Dirty Flag" til auto-gem
 let projektErÆndret = false;
@@ -2050,7 +2054,9 @@ function updateDiagram() {
         } else {
             group.append("circle")
                 .attr("r", d => d.type === 'beholder' ? 10 : 5)
-                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#0d6efd' : '#343a40');
+                // ÆNDRET: Retur-noder er nu Mørkerøde (#a71d2a) i stedet for Blå (#0d6efd)
+                // Vi reserverer blå til Koldt Vand i fremtiden.
+                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#a71d2a' : '#343a40');
         }
     });
     
@@ -2461,15 +2467,15 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // NYT: Kør topologi-analyse før dimensionering
-    calculateQd(model); // Skal køres først for at etablere flow, men vi har brug for stierne til retur-analyse
-    // For at analysere retur korrekt, skal vi kende loops. buildModel laver loops, men path beregnes først i calculateCirculationFlows?
-    // Nej, getPath bruges i calculateCirculationFlows. Vi kalder den her manuelt for at sikre paths er klar til analysen.
-    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    // Beregn flow først
+    calculateQd(model);
     
-    analyzeSystemTopology(model);
+    // NYT: Kør topologi-analyse FØR dimensionering
+    // Vi skal sikre at stier (paths) er beregnet for at analysen kan finde retur-loops
+    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    analyzeSystemTopology(model); 
+    // ----------------------------------------------------------------
 
-    if (config.isAuto) dimensionFremløb(model, config);
     if (config.isAuto) dimensionFremløb(model, config);
     
     calculatePressureDrop(model.tree, 'dp_tap', 'qd');
@@ -2485,7 +2491,7 @@ function beregnStandard(config) {
         if (config.isAuto) dimensionRetur(model, config);
     }
 
-    if (!validateCirculationLoops(model, advarslerDiv)) return null; // Validering
+    if (!validateCirculationLoops(model, advarslerDiv)) return null;
     
     calculateCirculationDP(model);
     calculateBeholder(model);
@@ -2999,6 +3005,235 @@ function exportProject() {
     a.click();
     URL.revokeObjectURL(url);
 }
+
+/**
+ * NY FUNKTION (Fase 4): Omdøber alle komponenter logisk og sorterer tabellerne.
+ * 1. Gemmer nuværende tilstand.
+ * 2. Analyserer flow-strukturen.
+ * 3. Tildeler nye ID'er (S1-R1, S1-R2...) i flow-rækkefølge.
+ * 4. Genindlæser projektet.
+ */
+function renumberAndSortProject() {
+    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle komponenter nye, logiske numre (f.eks. S1-R1, S1-R2).\n2. Sortere tabellerne efter flow-retning.\n3. Bevare alle data og forbindelser.")) {
+        return;
+    }
+
+    // 1. Gem nuværende tilstand for at få fat i data-objektet
+    autoSaveProject(); 
+    const rawData = localStorage.getItem('varmtBrugsvandAutoSave');
+    if (!rawData) return;
+    
+    const data = JSON.parse(rawData);
+    const idMap = new Map(); // Map<GammeltID, NytID>
+    
+    // Gem 'Beholder' som sig selv (den skifter aldrig navn)
+    idMap.set('Beholder', 'Beholder');
+
+    // --- A. OMDØB STRENGE & FREMLØB ---
+    if (data.strenge) {
+        // Sorter strenge efter deres nuværende ID-nummer (S1, S2...) for at bevare overordnet rækkefølge
+        data.strenge.sort((a, b) => {
+            const numA = parseInt(a.id.replace('S', '')) || 0;
+            const numB = parseInt(b.id.replace('S', '')) || 0;
+            return numA - numB;
+        });
+
+        data.strenge.forEach((streng, index) => {
+            const newStringId = `S${index + 1}`;
+            
+            // Hvis streng-ID ændres (f.eks. S5 -> S2), skal vi huske det (men strenge har ikke forældre på samme måde)
+            // Vi opdaterer selve objektet
+            const oldStringId = streng.id;
+            streng.id = newStringId;
+
+            // Saml alle komponenter i strengen
+            const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+            
+            // 1. Byg afhængigheds-graf for strengen (Parent -> Children)
+            const adjacency = new Map();
+            const nodesInString = new Set(components.map(c => c.id));
+            
+            components.forEach(c => {
+                const p = c.parent;
+                if (!adjacency.has(p)) adjacency.set(p, []);
+                adjacency.get(p).push(c);
+            });
+
+            // 2. Find "Roots" (Komponenter i denne streng, hvis forælder IKKE er i denne streng)
+            // De får vand fra Beholder eller en anden streng.
+            const roots = components.filter(c => !nodesInString.has(c.parent));
+            
+            // Sorter rødder, så rør kommer før tapsteder (hvis de sidder samme sted)
+            roots.sort((a, b) => (a.id.includes('R') ? -1 : 1));
+
+            // 3. Traverser (Depth-First) for at skabe den nye rækkefølge
+            const sortedComponents = [];
+            const traverse = (node) => {
+                sortedComponents.push(node);
+                const children = adjacency.get(node.id) || [];
+                
+                // Sorter børn: Rør før Tapsteder, ellers alfabetisk
+                children.sort((a, b) => {
+                     // Prioriter rør over tapsteder for at følge flowet
+                     const typeA = a.hasOwnProperty('material') ? 0 : 1; // 0=Rør, 1=Tapsted
+                     const typeB = b.hasOwnProperty('material') ? 0 : 1;
+                     return typeA - typeB;
+                });
+
+                children.forEach(child => {
+                    // Kun følg børn, der er en del af denne streng
+                    if (nodesInString.has(child.id)) {
+                        traverse(child);
+                    }
+                });
+            };
+
+            roots.forEach(root => traverse(root));
+
+            // Tilføj evt. "forældreløse" komponenter til sidst (fejlsikring)
+            components.forEach(c => {
+                if (!sortedComponents.includes(c)) sortedComponents.push(c);
+            });
+
+            // 4. Tildel nye ID'er
+            let rCount = 0;
+            let tCount = 0;
+            
+            sortedComponents.forEach(c => {
+                const oldId = c.id;
+                let newId;
+                
+                // Tjek om det er rør eller tapsted
+                if (c.hasOwnProperty('material')) { // Det er et rør
+                    rCount++;
+                    newId = `${newStringId}-R${rCount}`;
+                } else { // Det er et tapsted
+                    tCount++;
+                    newId = `${newStringId}-T${tCount}`;
+                }
+                
+                idMap.set(oldId, newId);
+                c.id = newId;
+            });
+
+            // 5. Opdel tilbage i ror/tapsted arrays (nu sorteret!)
+            streng.ror = sortedComponents.filter(c => c.hasOwnProperty('material'));
+            streng.tapsted = sortedComponents.filter(c => !c.hasOwnProperty('material'));
+        });
+    }
+
+    // --- B. OMDØB RETUR & VENTILER ---
+    if (data.retur || data.valves) {
+        const returComps = [...(data.retur || []), ...(data.valves || [])];
+        
+        // 1. Byg graf
+        const adjacency = new Map();
+        const nodesInRetur = new Set(returComps.map(c => c.id));
+        
+        returComps.forEach(c => {
+            const p = c.parent;
+            if (!adjacency.has(p)) adjacency.set(p, []);
+            adjacency.get(p).push(c);
+        });
+
+        // 2. Find rødder (Forælder er ikke i retur-nettet -> dvs. kommer fra fremløb eller er start-noder)
+        const roots = returComps.filter(c => !nodesInRetur.has(c.parent));
+
+        // 3. Traverser
+        const sortedRetur = [];
+        const traverse = (node) => {
+            sortedRetur.push(node);
+            const children = adjacency.get(node.id) || [];
+            children.forEach(child => {
+                if (nodesInRetur.has(child.id)) traverse(child);
+            });
+        };
+        roots.forEach(root => traverse(root));
+        
+        // Fejlsikring (Orphans)
+        returComps.forEach(c => {
+            if (!sortedRetur.includes(c)) sortedRetur.push(c);
+        });
+
+        // 4. Tildel nye ID'er
+        let returCount = 0;
+        let valveCount = 0;
+        
+        sortedRetur.forEach(c => {
+            const oldId = c.id;
+            let newId;
+            
+            if (c.hasOwnProperty('valveType')) { // Ventil
+                valveCount++;
+                newId = `V${valveCount}`;
+            } else { // Retur-rør
+                returCount++;
+                newId = `Retur${returCount}`;
+            }
+            idMap.set(oldId, newId);
+            c.id = newId;
+        });
+
+        // 5. Gem tilbage sorteret
+        data.retur = sortedRetur.filter(c => !c.hasOwnProperty('valveType'));
+        data.valves = sortedRetur.filter(c => c.hasOwnProperty('valveType'));
+    }
+
+    // --- C. OPDATER REFERENCER (Parent, Circ-start/end, Names) ---
+    
+    // Helper: Opdater et ID hvis det findes i mappet
+    const updateId = (id) => idMap.has(id) ? idMap.get(id) : id;
+
+    // 1. Opdater forældre i alle lister
+    const updateParents = (list) => {
+        if (!list) return;
+        list.forEach(item => {
+            item.parent = updateId(item.parent);
+        });
+    };
+    
+    if (data.strenge) {
+        data.strenge.forEach(s => {
+            updateParents(s.ror);
+            updateParents(s.tapsted);
+            // Opdater cirkulations-koblinger på strengen
+            s.circ_start = updateId(s.circ_start);
+            s.circ_end = updateId(s.circ_end);
+        });
+    }
+    updateParents(data.retur);
+    updateParents(data.valves);
+
+    // 2. Opdater navne-listen (state.names)
+    const newNames = [];
+    if (data.names) {
+        data.names.forEach(([oldId, name]) => {
+            if (idMap.has(oldId)) {
+                newNames.push([idMap.get(oldId), name]);
+            }
+        });
+    }
+    data.names = newNames;
+    
+    // 3. Opdater node-positioner (til diagrammet)
+    if (data.nodePositions) {
+        data.nodePositions.forEach(pos => {
+            if (idMap.has(pos.id)) {
+                pos.id = idMap.get(pos.id);
+            }
+        });
+    }
+    
+    // 4. Opdater Flow-kort (circFlows - hvis gemt, ellers ligegyldigt da det beregnes igen)
+
+    // --- D. GENINDLÆS PROJEKT ---
+    console.log("Omdøbning færdig. ID-Map:", idMap);
+    loadProjectData(data);
+    
+    // Gem den nye, rene tilstand
+    autoSaveProject();
+}
+
 
 /**
  * OPDATERET FUNKTION: Gemmer den nuværende projekt-tilstand til localStorage.
@@ -3706,6 +3941,8 @@ function updateDiagramStyles() {
     const model = state.lastModel;
 
     const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur");
+    
+    // Juster tykkelse baseret på dimension
     const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror' || n.type === 'retur') && n.nom_dim);
     if (pipeNodes.length > 0) {
         const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
@@ -3716,10 +3953,11 @@ function updateDiagramStyles() {
             return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '1.5px';
         });
     }
+
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
     
-    // Nulstil styles
+    // Nulstil først (dette gør dem blå/røde efter CSS standard)
     links.style('stroke', null).style('opacity', null).style('stroke-dasharray', null);
 
     if (showCritical) {
@@ -3727,31 +3965,53 @@ function updateDiagramStyles() {
     } else if (visMode !== 'none') {
         applyColorGradient(visMode);
     } else {
-        // NYT: Standardvisning baseret på Kategori (Model B+)
+        // --- HER ER DEN VIGTIGE MODEL B LOGIK ---
+        // Dette overskriver CSS-farverne med vores Topologi-farver
         links.style('stroke', d => {
             const n = model.nodes.get(d.target.id);
             if (!n) return '#ccc';
             
+            // Hvis kategorien mangler (f.eks. hvis analyse ikke er kørt), falder vi tilbage til CSS (null)
+            if (!n.category) return null;
+
             switch (n.category) {
-                case 'main': return '#8b0000'; // Mørkerød (Hoved)
-                case 'distribution': return '#dc3545'; // Rød (Fordeling)
-                case 'connection': return '#f08080'; // Lysrød (Kobling)
-                case 'main_return': return '#00008b'; // Mørkeblå (Hovedretur)
-                case 'return': return '#0d6efd'; // Blå (Retur)
+                // VARMT VAND (RØD)
+                case 'main': return '#8b0000';          // Mørkerød
+                case 'distribution': return '#dc3545';  // Rød
+                case 'connection': return '#f08080';    // Lysrød
+                
+                // VARM CIRKULATION (RØD)
+                case 'main_return': return '#8b0000';   // Mørkerød
+                case 'return': return '#dc3545';        // Rød
+                
+                // KOLDT VAND (BLÅ - Forberedt)
+                case 'cold_main': return '#00008b';         
+                case 'cold_distribution': return '#0d6efd'; 
+                case 'cold_connection': return '#89cff0';   
+                case 'cold_return': return '#0d6efd';       
+
                 default: return '#ccc';
             }
         })
         .style('stroke-dasharray', d => {
             const n = model.nodes.get(d.target.id);
-            // Stiplet linje for alle retur-typer
-            if (n && (n.category === 'return' || n.category === 'main_return')) return '4, 4';
-            return null;
-        })
-        // Tykkelsen styres allerede af diameteren, men vi kan evt. tweake den her hvis ønsket
+            if (!n) return null;
+
+            // Stiplet linje for alle retur-typer (Varm og Kold)
+            if (['main_return', 'return', 'cold_return'].includes(n.category)) {
+                if (n.category === 'cold_return') {
+                    return '2, 4'; // Kold: Finprikket
+                } else {
+                    return '6, 4'; // Varm: Stiplet
+                }
+            }
+            return null; // Solid
+        });
     }
-	
+    
     updateLegend();
 
+    // Opdater labels (tekst på rør)
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
@@ -3763,14 +4023,12 @@ function updateDiagramStyles() {
         if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";        
 
         const parts = [];
-        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows ? (model.circFlows.get(n.id) || 0) : 0);
 
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
         if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
-
         if (showVel) {
-            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
@@ -3784,7 +4042,6 @@ function updateDiagramStyles() {
         return parts.join(' | ');
     });
 }
-
 
 function applyColorGradient(mode) {
     const model = state.lastModel;
@@ -4698,7 +4955,7 @@ function handleNodeClick(event, d) {
  * @param {object} event - Højreklik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
  * Indeholder undermenuer og logik for alle komponenttyper.
- * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel).
+ * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel)
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -4735,7 +4992,7 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
-    // --- 1. FORBINDELSER (Fælles) ---
+    // --- 1. FORBINDELSER & FLYTNING (Fælles) ---
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
@@ -4749,7 +5006,16 @@ function handleNodeRightClick(event, d) {
         }));
     }
     
+    // Flyt gren (Fælles for rør/retur/ventil, men ikke beholder)
+    if (nodeType !== 'beholder' && nodeType !== 'tapsted') {
+        menu.appendChild(createMenuItem('Flyt gren herfra', () => {
+            // Timeout for at lade menuen lukke før drag starter
+            setTimeout(() => startMoveBranch(d.id), 50);
+        }));
+    }
+    
     if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+
 
     // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
     
@@ -4764,7 +5030,7 @@ function handleNodeRightClick(event, d) {
         }));
         
         // Kopier gren (Gælder nu både fremløb og retur)
-        menu.appendChild(createMenuItem('Kopier streng herfra', () => {
+        menu.appendChild(createMenuItem('Kopier gren herfra', () => {
             copyBranch(d.id);
         }));
     }
@@ -4805,13 +5071,15 @@ function handleNodeRightClick(event, d) {
             }));
         }
         
-        // SCENARIE C: Indsæt på Beholder (Kun ny streng hvis fremløb, ellers direkte hvis retur)
+        // SCENARIE C: Indsæt på Beholder
         else if (nodeType === 'beholder') {
             if (isSupplyClip) {
+                 // Fremløb på Beholder -> Altid ny streng
                  menu.appendChild(createMenuItem('Indsæt som ny streng', () => {
                     pasteBranch(d.id, 'new'); 
                 }));
             } else if (isReturnClip) {
+                 // Retur på Beholder -> Forbindes direkte
                  menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
                     pasteBranch(d.id, 'current');
                 }));
@@ -4900,6 +5168,137 @@ function handleNodeRightClick(event, d) {
         document.body.appendChild(menu);
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
+}
+
+/**
+ * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
+ * Låser noderne fast til musen og snapper til GRID.
+ * Bruger "Delta-Snap" for at bevare figurens form og sikre tydeligt grid-snap.
+ */
+function startMoveBranch(rootId) {
+    // 1. Identificer alle noder i grenen
+    const branchNodes = [];
+    
+    const collectNodes = (id) => {
+        const node = state.nodes.find(n => n.id === id);
+        if (node) branchNodes.push(node);
+        
+        document.querySelectorAll('.parent').forEach(select => {
+            if (select.value === id) {
+                const childId = select.closest('tr').dataset.id;
+                collectNodes(childId);
+            }
+        });
+    };
+    
+    collectNodes(rootId);
+    if (branchNodes.length === 0) return;
+
+    // 2. Find musens start-position i diagram-koordinater
+    const svgNode = d3.select('#diagram svg').node();
+    // Hvis vi ikke har et event (kaldt fra menu), bruger vi rod-nodens position som "musens startpunkt"
+    const rootNode = state.nodes.find(n => n.id === rootId);
+    const startX = (rootNode.fx !== undefined && rootNode.fx !== null) ? rootNode.fx : rootNode.x;
+    const startY = (rootNode.fy !== undefined && rootNode.fy !== null) ? rootNode.fy : rootNode.y;
+    
+    // 3. Gem start-data (Oprindelige positioner)
+    state.movingBranch = {
+        nodes: branchNodes,
+        startMouseX: startX,
+        startMouseY: startY,
+        // Gem den oprindelige faste position for hver node
+        initialPositions: branchNodes.map(n => ({
+            id: n.id,
+            fx: (n.fx !== undefined && n.fx !== null) ? n.fx : n.x,
+            fy: (n.fy !== undefined && n.fy !== null) ? n.fy : n.y
+        }))
+    };
+
+    // Visuel feedback (Rød markering)
+    d3.selectAll('.node').filter(d => branchNodes.some(bn => bn.id === d.id))
+        .select('circle, rect')
+        .style('stroke', '#ff0000')
+        .style('stroke-width', '3px');
+
+    // 4. Tilføj event listeners til HELE SVG'en
+    const svg = d3.select('#diagram svg');
+    
+    svg.on('mousemove.branchMove', function(event) {
+        // Konverter musens pixel-koordinater til diagram-koordinater
+        const transform = d3.zoomTransform(this);
+        const [mx, my] = d3.pointer(event);
+        const currentX = transform.invertX(mx);
+        const currentY = transform.invertY(my);
+        
+        // Beregn bevægelsen (Delta)
+        const dx = currentX - state.movingBranch.startMouseX;
+        const dy = currentY - state.movingBranch.startMouseY;
+
+        // SNAP DELTA TIL GRID (Global gridSize = 10)
+        const snappedDx = Math.round(dx / gridSize) * gridSize;
+        const snappedDy = Math.round(dy / gridSize) * gridSize;
+        
+        // Opdater positioner
+        state.movingBranch.nodes.forEach((node, i) => {
+            const initial = state.movingBranch.initialPositions[i];
+            
+            // Ny position = Oprindelig + Snappet Flytning
+            node.fx = initial.fx + snappedDx;
+            node.fy = initial.fy + snappedDy;
+            
+            // TVING VISUEL OPDATERING STRAKS (Fjerner "elastik"-effekt)
+            node.x = node.fx;
+            node.y = node.fy;
+        });
+        
+        // Opdater diagrammet (links følger med)
+        state.sim.alpha(1).restart();
+        state.sim.tick(); // Tvinger D3 til at opdatere links med det samme
+    });
+
+    // Klik for at slippe
+    svg.on('click.branchMove', function() {
+        stopMoveBranch();
+    });
+    
+    // Højreklik for at annullere
+    svg.on('contextmenu.branchMove', function(event) {
+        event.preventDefault();
+        stopMoveBranch();
+    });
+    
+    // Skift markør
+    document.body.style.cursor = 'grabbing';
+}
+
+
+/**
+ * Stopper flytningen og gemmer positionerne.
+ */
+function stopMoveBranch() {
+    if (!state.movingBranch) return;
+    
+    // Fjern event listeners
+    const svg = d3.select('#diagram svg');
+    svg.on('mousemove.branchMove', null);
+    svg.on('click.branchMove', null);
+    svg.on('contextmenu.branchMove', null);
+    
+    // Fjern visuel markering
+    d3.selectAll('.node circle, .node rect')
+        .style('stroke', null)
+        .style('stroke-width', null);
+        
+    document.body.style.cursor = 'default';
+    
+    // Ryd state
+    state.movingBranch = null;
+    
+    // Fortæl systemet at vi har ændret noget (så auto-gem virker)
+    setProjektErÆndret();
+    
+    // Genopfrisk diagrammet for at være sikker på styles
+    updateDiagramStyles();
 }
 
 /**
