@@ -850,7 +850,37 @@
 <script>
 // --- KONSTANTER OG DATA ---
 // Standard Tapsteder (ST) med normvandstrøm (qf) i l/s jf. DS 439:2024
-let ST = { "Lejlighed (standard)": 0.8, "Håndvask": 0.1, "Brusebad": 0.15, "Køkkenvask": 0.2, "Vaskemaskine": 0.2, "Opvaskemaskine": 0.2, "Badekar": 0.3 };
+let ST = { 
+    "Lejlighed (standard)": 0.8, 
+    "Håndvask": 0.1, 
+    "Brusebad": 0.15, 
+    "Køkkenvask": 0.2, 
+    "Vaskemaskine": 0.2, 
+    "Opvaskemaskine": 0.2, 
+    "Badekar": 0.3,
+    "Slangevinde": 0.33,
+    "Rengøringsvask": 0.2,
+    "Udslagsvask": 0.2,
+    "Spulehane": 0.2
+};
+
+// Forkortelser til diagrammet (Branchestandard)
+const TAP_ABBREVIATIONS = {
+    "Lejlighed (standard)": "LEJL",
+    "Håndvask": "HV",
+    "Brusebad": "BRUS",
+    "Køkkenvask": "KV",
+    "Vaskemaskine": "VM",
+    "Opvaskemaskine": "OM",
+    "Badekar": "KAR",
+    "Slangevinde": "SV",
+    "Rengøringsvask": "RV",
+    "Udslagsvask": "UV",
+    "Spulehane": "SH",
+    "WC": "WC",       
+    "Urinal": "UR",   
+    "Udvendig Hane": "UH" 
+};
 
 // =================================================================================
 // == RØR-SERIER: DEFINITION AF RUHED (RH) i mm                                 ==
@@ -1042,6 +1072,14 @@ function handleInputChange(e) {
         // Vi læser data-attributten fra optionen (som vi satte i addTapsted/importProject)
         const isApartment = selectedOption.dataset.isApartment === 'true';
         tr.dataset.isApartment = isApartment;
+
+        // Opdater noden i state, så diagrammet opdateres
+        const nodeId = tr.dataset.id;
+        const node = state.nodes.find(n => n.id === nodeId);
+        if (node) {
+            node.tapType = selectedOption.text;
+            updateDiagram(); // Opdater diagrammet for at vise den nye forkortelse
+        }
         
         // Hvis vi er i "Beholder"-fanen og har valgt Metode A, skal vi opdatere advarslen
         if (document.getElementById('metodeA').checked) {
@@ -1555,6 +1593,8 @@ function pasteBranch(targetParentId, mode = 'current') {
             let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
             if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
             tr.querySelector('.qf').value = nodeData.qf;
+            // Gem typen på selve state-noden, så diagrammet kan vise forkortelsen med det samme
+            state.nodes[state.nodes.length - 1].tapType = nodeData.tapType;
             tr.querySelector('.kote').value = nodeData.kote;
             tr.querySelector('.syst').checked = nodeData.syst;
             tr.dataset.isApartment = nodeData.isApartment;
@@ -1735,6 +1775,10 @@ function addTapsted(btn) {
     const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror"]');
     if(rorInStreng.length > 0) pSel.value = rorInStreng[rorInStreng.length-1].dataset.id;
     
+// Opdater state-noden med den valgte type (standard)
+    const newNode = state.nodes.find(n => n.id === id);
+    if (newNode) newNode.tapType = "Lejlighed (standard)"; // Standardvalget
+
     updateAllSelects();
 }
 
@@ -2060,8 +2104,42 @@ function updateDiagram() {
         }
     });
     
-    // Tilføj ID/Navn-tekst til noderne
-    node.append("text").text(d => getDisplayName(d.id)).attr("dy", "-1em").attr("font-size", "8px").attr("text-anchor", "middle");
+    // Tilføj ID/Navn-tekst (med forkortelse for tapsteder)
+    node.append("text")
+        .text(d => {
+            let label = getDisplayName(d.id);
+            
+            // Hvis det er et tapsted, tilføj forkortelse
+            if (d.type === 'tapsted') {
+                // Vi er nødt til at finde den oprindelige tapType-tekst. 
+                // I 'model' (beregnet) ligger den ofte på d.tapType.
+                // I 'state.nodes' (før beregning) ligger den måske kun i DOM'en eller customTapsteder.
+                // Vi henter den mest robuste måde:
+                
+                // 1. Prøv direkte fra data (hvis loadet/beregnet)
+                let typeName = d.tapType;
+                
+                // 2. Hvis ikke fundet, prøv at slå op i DOM'en (hvis vi redigerer live)
+                if (!typeName) {
+                    const row = document.querySelector(`tr[data-id="${d.id}"]`);
+                    if (row) {
+                        const sel = row.querySelector('.tapType');
+                        if (sel && sel.selectedIndex >= 0) typeName = sel.options[sel.selectedIndex].text;
+                    }
+                }
+
+                // 3. Find forkortelsen
+                if (typeName && TAP_ABBREVIATIONS[typeName]) {
+                    label += ` (${TAP_ABBREVIATIONS[typeName]})`;
+                }
+            }
+            return label;
+        })
+        .attr("dy", "-1em")
+        .attr("font-size", "8px")
+        .attr("text-anchor", "middle")
+        .style("pointer-events", "none") // Sørg for at teksten ikke blokerer musen
+        .style("text-shadow", "0px 0px 3px white"); // Gør teksten læsbar oven på streger
 
     state.sim.nodes(state.nodes).on("tick", () => {
         link
