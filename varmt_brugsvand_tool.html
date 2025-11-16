@@ -1272,7 +1272,18 @@ function copyBranch(rootId) {
     const rootNode = state.nodes.find(n => n.id === rootId);
     const rootRow = document.querySelector(`tr[data-id="${rootId}"]`);
     
-    if (!rootNode || !rootRow) return;
+    if (!rootNode || !rootRow) {
+        console.error("Kunne ikke finde rod-node til kopiering:", rootId);
+        return;
+    }
+
+    // Helper til at hente koordinater sikkert
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+
+    // Gem rodens position
+    const rootX = getX(rootNode);
+    const rootY = getY(rootNode);
 
     // 2. Find afstanden til forælderen (Vektoren)
     const parentId = rootRow.querySelector('.parent').value;
@@ -1281,19 +1292,12 @@ function copyBranch(rootId) {
     let parentOffsetX = 60; 
     let parentOffsetY = 60;
     
-    // Brug fx/fy (faste koordinater) hvis de findes, ellers x/y (simulerede)
-    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
-    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
-    
-    const rX = getX(rootNode);
-    const rY = getY(rootNode);
-    
     if (parentNode) {
-        const pX = getX(parentNode);
-        const pY = getY(parentNode);
-        parentOffsetX = rX - pX;
-        parentOffsetY = rY - pY;
+        parentOffsetX = rootX - getX(parentNode);
+        parentOffsetY = rootY - getY(parentNode);
     }
+    
+    console.log(`Kopierer gren '${rootId}'. Rod-pos: (${rootX.toFixed(0)}, ${rootY.toFixed(0)}). Offset til forælder: (${parentOffsetX.toFixed(0)}, ${parentOffsetY.toFixed(0)})`);
 
     const scrapNode = (id) => {
         const row = document.querySelector(`tr[data-id="${id}"]`);
@@ -1303,11 +1307,12 @@ function copyBranch(rootId) {
         if (type !== 'ror' && type !== 'tapsted') return null;
 
         const node = state.nodes.find(n => n.id === id);
-        // Beregn relativ position i forhold til roden af kopien
+        
+        // Beregn relativ position
         const nX = getX(node);
         const nY = getY(node);
-        const relX = nX - rX;
-        const relY = nY - rY;
+        const relX = nX - rootX;
+        const relY = nY - rootY;
 
         const data = { 
             type: type, 
@@ -1335,6 +1340,7 @@ function copyBranch(rootId) {
             data.isApartment = row.dataset.isApartment;
         }
 
+        // Find børn rekursivt
         document.querySelectorAll('.parent').forEach(select => {
             if (select.value === id) {
                 const childRow = select.closest('tr');
@@ -1356,23 +1362,23 @@ function copyBranch(rootId) {
         tree.parentOffsetX = parentOffsetX;
         tree.parentOffsetY = parentOffsetY;
         state.clipboard = tree;
-        console.log("Kopieret til udklipsholder:", tree);
         
         // Visuel feedback
-        const btn = rootRow.querySelector('button[aria-label="Fjern element"]');
+        const btn = rootRow.querySelector('button[aria-label="Fjern element"]'); // Bruger den korrekte selector nu
         if (btn) {
-            const originalText = btn.innerHTML;
+            const origText = btn.innerHTML;
             btn.innerHTML = "✓";
             btn.classList.add('btn-success');
             btn.classList.remove('btn-outline-danger');
             setTimeout(() => {
-                 btn.innerHTML = originalText;
+                 btn.innerHTML = origText;
                  btn.classList.remove('btn-success');
                  btn.classList.add('btn-outline-danger');
             }, 500);
         }
     }
 }
+
 
 /**
  * Indsætter kopieret gren på den valgte destination.
@@ -1388,18 +1394,26 @@ function pasteBranch(targetParentId) {
 
     // 1. Find position for den NYE forælder
     const targetNode = state.nodes.find(n => n.id === targetParentId);
+    if (!targetNode) {
+        console.error("Fandt ikke destinations-node:", targetParentId);
+        return;
+    }
+
     const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
     const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
 
-    const baseX = targetNode ? getX(targetNode) : 0;
-    const baseY = targetNode ? getY(targetNode) : 0;
+    const baseX = getX(targetNode);
+    const baseY = getY(targetNode);
 
-    // 2. Brug den gemte vektor
+    // 2. Beregn start-position for den nye gren
     const vecX = state.clipboard.parentOffsetX || 60;
     const vecY = state.clipboard.parentOffsetY || 60;
     
     const newRootX = baseX + vecX;
     const newRootY = baseY + vecY;
+    
+    console.log(`Indsætter på '${targetParentId}' (${baseX.toFixed(0)}, ${baseY.toFixed(0)}). Ny rod start: (${newRootX.toFixed(0)}, ${newRootY.toFixed(0)})`);
+
 
     // 3. OPRET ALTID EN NY STRENG (Sektion)
     addStreng(); 
@@ -1410,9 +1424,10 @@ function pasteBranch(targetParentId) {
     const rorContainer = newCard.querySelector('.ror-container');
     const tapstedContainer = newCard.querySelector('.tapsted-container');
     
-    // RYD OP: Slet de standard-rør, addStreng opretter
-    const defaultDeleteBtns = newCard.querySelectorAll('button[aria-label="Fjern element"]');
-    defaultDeleteBtns.forEach(btn => removeElement(btn));
+    // VIGTIGT: TØM DEN NYE STRENG FOR STANDARD-INDHOLD
+    // addStreng opretter automatisk et rør. Vi sletter det for at gøre plads til kopien.
+    rorContainer.innerHTML = '';
+    tapstedContainer.innerHTML = '';
 
     // 4. Rekursiv bygger
     const buildNode = (nodeData, parentId) => {
@@ -1420,10 +1435,11 @@ function pasteBranch(targetParentId) {
         const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
         const datalistId = `list-${newId}`;
         
-        // Positionering
+        // Beregn og lås position
         const newFx = newRootX + (nodeData.relX || 0);
         const newFy = newRootY + (nodeData.relY || 0);
         
+        // Skub til state med det samme (dette bliver 'oldNodes' ved næste render)
         state.nodes.push({
             id: newId,
             fx: newFx,
@@ -1496,7 +1512,7 @@ function pasteBranch(targetParentId) {
         }
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
 
-        // Sæt forælder (midlertidig option for at tvinge værdi)
+        // Tving forælderen ind
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
         tempOpt.value = parentId;
@@ -1512,11 +1528,13 @@ function pasteBranch(targetParentId) {
     // Start byggeriet
     buildNode(state.clipboard, targetParentId);
 
+    // Opdater alt
     updateAllSelects();
     setProjektErÆndret();
+    
+    // Zoom en lille smule ud/centrer, så brugeren kan se det nye
+    if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
-
-
 function addRorSektion(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
