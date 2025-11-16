@@ -1267,9 +1267,124 @@ function splitPipe(targetId, segments) {
  * Kopierer gren og husker position relativt til forælder.
  * Sikrer korrekt beregning af vektor til forælder (også Beholder).
  */
+function copyBranch(rootId) {
+    // 1. Find data om rod-noden
+    const rootNode = state.nodes.find(n => n.id === rootId);
+    const rootRow = document.querySelector(`tr[data-id="${rootId}"]`);
+    
+    if (!rootNode || !rootRow) {
+        console.error("Kunne ikke finde rod-node til kopiering:", rootId);
+        return;
+    }
+
+    // Helper til at hente koordinater sikkert
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+
+    // Gem rodens position
+    const rootX = getX(rootNode);
+    const rootY = getY(rootNode);
+
+    // 2. Find afstanden til forælderen (Vektoren)
+    const parentId = rootRow.querySelector('.parent').value;
+    const parentNode = state.nodes.find(n => n.id === parentId);
+    
+    let parentOffsetX = 60; 
+    let parentOffsetY = 60;
+    
+    if (parentNode) {
+        parentOffsetX = rootX - getX(parentNode);
+        parentOffsetY = rootY - getY(parentNode);
+    }
+    
+    console.log(`Kopierer gren '${rootId}'. Rod-pos: (${rootX.toFixed(0)}, ${rootY.toFixed(0)}). Offset til forælder: (${parentOffsetX.toFixed(0)}, ${parentOffsetY.toFixed(0)})`);
+
+    const scrapNode = (id) => {
+        const row = document.querySelector(`tr[data-id="${id}"]`);
+        if (!row) return null;
+        
+        const type = row.dataset.type;
+        if (type !== 'ror' && type !== 'tapsted') return null;
+
+        const node = state.nodes.find(n => n.id === id);
+        
+        // Beregn relativ position
+        const nX = getX(node);
+        const nY = getY(node);
+        const relX = nX - rootX;
+        const relY = nY - rootY;
+
+        const data = { 
+            type: type, 
+            children: [],
+            relX: relX, 
+            relY: relY
+        };
+        
+        const nameInput = row.querySelector('.name-text');
+        if (nameInput) data.name = nameInput.value;
+
+        if (type === 'ror') {
+            data.material = row.querySelector('.material').value;
+            data.location = row.querySelector('.location').value;
+            data.insulation = row.querySelector('.insulation-class').value;
+            data.dim = row.querySelector('.dim').value;
+            data.len = row.querySelector('.len').value;
+            data.fittings = row.querySelector('.fittings').value;
+        } else if (type === 'tapsted') {
+            const tapSelect = row.querySelector('.tapType');
+            data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
+            data.qf = row.querySelector('.qf').value;
+            data.kote = row.querySelector('.kote').value;
+            data.syst = row.querySelector('.syst').checked;
+            data.isApartment = row.dataset.isApartment;
+        }
+
+        // Find børn rekursivt
+        document.querySelectorAll('.parent').forEach(select => {
+            if (select.value === id) {
+                const childRow = select.closest('tr');
+                if (childRow) {
+                    const childType = childRow.dataset.type;
+                    if (childType === 'ror' || childType === 'tapsted') {
+                        const childData = scrapNode(childRow.dataset.id);
+                        if (childData) data.children.push(childData);
+                    }
+                }
+            }
+        });
+
+        return data;
+    };
+
+    const tree = scrapNode(rootId);
+    if (tree) {
+        tree.parentOffsetX = parentOffsetX;
+        tree.parentOffsetY = parentOffsetY;
+        state.clipboard = tree;
+        
+        // Visuel feedback
+        const btn = rootRow.querySelector('button[aria-label="Fjern element"]'); // Bruger den korrekte selector nu
+        if (btn) {
+            const origText = btn.innerHTML;
+            btn.innerHTML = "✓";
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-outline-danger');
+            setTimeout(() => {
+                 btn.innerHTML = origText;
+                 btn.classList.remove('btn-success');
+                 btn.classList.add('btn-outline-danger');
+            }, 500);
+        }
+    }
+}
+
+
 /**
- * OPDATERET FUNKTION (Fase 4): Indsætter gren som NY STRENG.
- * Rettelse: Håndterer nu offset på '0' korrekt (bugfix).
+ * Indsætter kopieret gren på den valgte destination.
+ * Indsætter gren med SAMME AFSTAND til ny forælder.
+ * Sikrer at alle egenskaber (isolering, kote m.m.) kopieres med.
+ * Opretter altid en ny streng-container, uanset hvor man indsætter.
  */
 function pasteBranch(targetParentId) {
     if (!state.clipboard) {
@@ -1415,161 +1530,7 @@ function pasteBranch(targetParentId) {
     if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
 
-/**
- * Indsætter kopieret gren på den valgte destination.
- * Indsætter gren med SAMME AFSTAND til ny forælder.
- * Sikrer at alle egenskaber (isolering, kote m.m.) kopieres med.
- * Opretter altid en ny streng-container, uanset hvor man indsætter.
- */
-function pasteBranch(targetParentId) {
-    if (!state.clipboard) {
-        alert("Intet at indsætte. Kopier en streng først.");
-        return;
-    }
 
-    // 1. Find position for den NYE forælder
-    const targetNode = state.nodes.find(n => n.id === targetParentId);
-    if (!targetNode) {
-        console.error("Fandt ikke destinations-node:", targetParentId);
-        return;
-    }
-
-    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
-    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
-
-    const baseX = getX(targetNode);
-    const baseY = getY(targetNode);
-
-    // 2. Beregn start-position for den nye gren
-    const vecX = state.clipboard.parentOffsetX || 60;
-    const vecY = state.clipboard.parentOffsetY || 60;
-    
-    const newRootX = baseX + vecX;
-    const newRootY = baseY + vecY;
-    
-    console.log(`Indsætter på '${targetParentId}' (${baseX.toFixed(0)}, ${baseY.toFixed(0)}). Ny rod start: (${newRootX.toFixed(0)}, ${newRootY.toFixed(0)})`);
-
-
-    // 3. OPRET ALTID EN NY STRENG (Sektion)
-    addStreng(); 
-    
-    // Find den nye streng (den sidste i containeren)
-    const newCard = document.querySelector('.streng-card:last-child');
-    const targetStringId = newCard.dataset.id; 
-    const rorContainer = newCard.querySelector('.ror-container');
-    const tapstedContainer = newCard.querySelector('.tapsted-container');
-    
-    // VIGTIGT: TØM DEN NYE STRENG FOR STANDARD-INDHOLD
-    // addStreng opretter automatisk et rør. Vi sletter det for at gøre plads til kopien.
-    rorContainer.innerHTML = '';
-    tapstedContainer.innerHTML = '';
-
-    // 4. Rekursiv bygger
-    const buildNode = (nodeData, parentId) => {
-        state.tC++;
-        const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
-        const datalistId = `list-${newId}`;
-        
-        // Beregn og lås position
-        const newFx = newRootX + (nodeData.relX || 0);
-        const newFy = newRootY + (nodeData.relY || 0);
-        
-        // Skub til state med det samme (dette bliver 'oldNodes' ved næste render)
-        state.nodes.push({
-            id: newId,
-            fx: newFx,
-            fy: newFy
-        });
-
-        const tr = document.createElement('tr');
-        tr.dataset.id = newId;
-        tr.dataset.type = nodeData.type;
-
-        if (nodeData.type === 'ror') {
-            tr.innerHTML = `
-                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
-                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-                <td><select class="form-select form-select-sm material" title="Materiale">
-                    <option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
-                    <option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>
-                </select></td>
-                <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
-                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
-                <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-                <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
-                <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
-                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
-            `;
-            
-            tr.querySelector('.material').value = nodeData.material;
-            tr.querySelector('.location').value = nodeData.location;
-            tr.querySelector('.insulation-class').value = nodeData.insulation;
-            tr.querySelector('.len').value = nodeData.len;
-            tr.querySelector('.fittings').value = nodeData.fittings;
-            
-            const matSelect = tr.querySelector('.material');
-            matSelect.onchange = handleMaterialChange;
-            updateDimOptions(matSelect);
-            tr.querySelector('.dim').value = nodeData.dim;
-
-            rorContainer.appendChild(tr);
-
-        } else if (nodeData.type === 'tapsted') {
-            let opts = ''; 
-            Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
-            Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
-
-            tr.innerHTML = `
-                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-                <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" title="Type">${opts}</select></td>
-                <td><input type="number" class="form-control form-control-sm qf" min="0" step="0.01" title="qf"></td>
-                <td><input type="number" class="form-control form-control-sm kote allow-negative" title="Kote"></td>
-                <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst."></td>
-                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
-            `;
-            
-            const tapSelect = tr.querySelector('.tapType');
-            let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
-            if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
-            
-            tr.querySelector('.qf').value = nodeData.qf;
-            tr.querySelector('.kote').value = nodeData.kote;
-            tr.querySelector('.syst').checked = nodeData.syst;
-            tr.dataset.isApartment = nodeData.isApartment;
-
-            tapstedContainer.appendChild(tr);
-        }
-
-        if (nodeData.name) {
-            state.names.set(newId, nodeData.name);
-            tr.querySelector('.name-text').value = nodeData.name;
-        }
-        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
-
-        // Tving forælderen ind
-        const pSel = tr.querySelector('.parent');
-        const tempOpt = document.createElement('option');
-        tempOpt.value = parentId;
-        tempOpt.text = parentId;
-        pSel.add(tempOpt);
-        pSel.value = parentId;
-
-        if (nodeData.children) {
-            nodeData.children.forEach(child => buildNode(child, newId));
-        }
-    };
-
-    // Start byggeriet
-    buildNode(state.clipboard, targetParentId);
-
-    // Opdater alt
-    updateAllSelects();
-    setProjektErÆndret();
-    
-    // Zoom en lille smule ud/centrer, så brugeren kan se det nye
-    if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
-}
 function addRorSektion(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
