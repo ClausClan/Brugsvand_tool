@@ -2463,15 +2463,15 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // NYT: Kør topologi-analyse før dimensionering
-    calculateQd(model); // Skal køres først for at etablere flow, men vi har brug for stierne til retur-analyse
-    // For at analysere retur korrekt, skal vi kende loops. buildModel laver loops, men path beregnes først i calculateCirculationFlows?
-    // Nej, getPath bruges i calculateCirculationFlows. Vi kalder den her manuelt for at sikre paths er klar til analysen.
-    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    // Beregn flow først
+    calculateQd(model);
     
-    analyzeSystemTopology(model);
+    // NYT: Kør topologi-analyse FØR dimensionering
+    // Vi skal sikre at stier (paths) er beregnet for at analysen kan finde retur-loops
+    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+    analyzeSystemTopology(model); 
+    // ----------------------------------------------------------------
 
-    if (config.isAuto) dimensionFremløb(model, config);
     if (config.isAuto) dimensionFremløb(model, config);
     
     calculatePressureDrop(model.tree, 'dp_tap', 'qd');
@@ -2487,7 +2487,7 @@ function beregnStandard(config) {
         if (config.isAuto) dimensionRetur(model, config);
     }
 
-    if (!validateCirculationLoops(model, advarslerDiv)) return null; // Validering
+    if (!validateCirculationLoops(model, advarslerDiv)) return null;
     
     calculateCirculationDP(model);
     calculateBeholder(model);
