@@ -3937,6 +3937,8 @@ function updateDiagramStyles() {
     const model = state.lastModel;
 
     const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur");
+    
+    // Juster tykkelse baseret på dimension
     const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror' || n.type === 'retur') && n.nom_dim);
     if (pipeNodes.length > 0) {
         const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
@@ -3947,10 +3949,11 @@ function updateDiagramStyles() {
             return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '1.5px';
         });
     }
+
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
     
-    // Nulstil styles
+    // Nulstil først (dette gør dem blå/røde efter CSS standard)
     links.style('stroke', null).style('opacity', null).style('stroke-dasharray', null);
 
     if (showCritical) {
@@ -3958,27 +3961,30 @@ function updateDiagramStyles() {
     } else if (visMode !== 'none') {
         applyColorGradient(visMode);
     } else {
-        // Standardvisning baseret på Temperatur og Funktion
+        // --- HER ER DEN VIGTIGE MODEL B LOGIK ---
+        // Dette overskriver CSS-farverne med vores Topologi-farver
         links.style('stroke', d => {
             const n = model.nodes.get(d.target.id);
             if (!n) return '#ccc';
             
-            // Kategorier (Kan udvides med koldt vand senere)
+            // Hvis kategorien mangler (f.eks. hvis analyse ikke er kørt), falder vi tilbage til CSS (null)
+            if (!n.category) return null;
+
             switch (n.category) {
-                // --- VARMT BRUGSVAND (RØD) ---
-                case 'main': return '#8b0000';          // Mørkerød (Hoved)
-                case 'distribution': return '#dc3545';  // Rød (Fordeling)
-                case 'connection': return '#f08080';    // Lysrød (Kobling)
+                // VARMT VAND (RØD)
+                case 'main': return '#8b0000';          // Mørkerød
+                case 'distribution': return '#dc3545';  // Rød
+                case 'connection': return '#f08080';    // Lysrød
                 
-                // --- VARM CIRKULATION (RØD - Nu samme farve som frem, men stiplet) ---
+                // VARM CIRKULATION (RØD)
                 case 'main_return': return '#8b0000';   // Mørkerød
                 case 'return': return '#dc3545';        // Rød
                 
-                // --- KOLDT BRUGSVAND (BLÅ - Forberedt) ---
-                case 'cold_main': return '#00008b';         // Mørkeblå
-                case 'cold_distribution': return '#0d6efd'; // Blå
-                case 'cold_connection': return '#89cff0';   // Lyseblå
-                case 'cold_return': return '#0d6efd';       // Blå (Cirkulation)
+                // KOLDT VAND (BLÅ - Forberedt)
+                case 'cold_main': return '#00008b';         
+                case 'cold_distribution': return '#0d6efd'; 
+                case 'cold_connection': return '#89cff0';   
+                case 'cold_return': return '#0d6efd';       
 
                 default: return '#ccc';
             }
@@ -3987,26 +3993,21 @@ function updateDiagramStyles() {
             const n = model.nodes.get(d.target.id);
             if (!n) return null;
 
-            // Stiplet linje for alle typer af retur/cirkulation (Både kold og varm)
+            // Stiplet linje for alle retur-typer (Varm og Kold)
             if (['main_return', 'return', 'cold_return'].includes(n.category)) {
-                // Varm Cirkulation = 3 prikker (tæt stiplet) eller bare stiplet? 
-                // Du bad om: "Rød streg med 3 prikker" til Varm Cirkulation.
-                // SVG dasharray er [streg, mellemrum, streg, mellemrum...]
-                // En "3-prik" effekt kan simuleres, men alm. stiplet ('4, 4') er ofte tydeligst i CAD.
-                // Lad os lave en tydelig stiplet linje, som vi aftalte i Model B.
-                
                 if (n.category === 'cold_return') {
-                    return '2, 4'; // Kold Cirkulation: Finprikket (Blå)
+                    return '2, 4'; // Kold: Finprikket
                 } else {
-                    return '6, 4'; // Varm Cirkulation: Stiplet (Rød)
+                    return '6, 4'; // Varm: Stiplet
                 }
             }
-            return null; // Solid (Fuldt optrukken)
+            return null; // Solid
         });
     }
-	
+    
     updateLegend();
 
+    // Opdater labels (tekst på rør)
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
@@ -4018,14 +4019,12 @@ function updateDiagramStyles() {
         if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";        
 
         const parts = [];
-        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows ? (model.circFlows.get(n.id) || 0) : 0);
 
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
         if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
-
         if (showVel) {
-            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
@@ -4039,7 +4038,6 @@ function updateDiagramStyles() {
         return parts.join(' | ');
     });
 }
-
 
 function applyColorGradient(mode) {
     const model = state.lastModel;
