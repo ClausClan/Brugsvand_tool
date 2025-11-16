@@ -514,37 +514,39 @@
                     <p class="small text-muted mb-0">© Copyright 2025 NIRAS. Alle rettigheder forbeholdes.</p>
                 </div>
 
-                <h6 class="border-bottom pb-2 text-primary">1. Farvekoder i Diagrammet (Topologi)</h6>
-                <p class="small text-muted mb-3">Systemet analyserer automatisk netværkets topologi for at bestemme rørtyper og isoleringskrav.</p>
+                <h6 class="border-bottom pb-2 text-primary">1. Signaturforklaring (Model B)</h6>
+                <p class="small text-muted mb-3">Farver indikerer temperatur (Varmt/Koldt). Stregtype indikerer funktion (Forsyning/Cirkulation).</p>
                 
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
-                        <strong class="small text-uppercase text-muted">Fremløb</strong>
+                        <strong class="small text-uppercase text-danger">Varmt Brugsvand (Rød)</strong>
                         <ul class="list-group list-group-flush small">
                             <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #8b0000;"></span>
-                                <div><b>Hovedledning</b> (Mørkerød)<br><span class="text-muted">Forsyner flere strenge/sektioner.</span></div>
+                                <div><b>Hovedledning</b> (Solid)<br><span class="text-muted">Forsyner flere strenge.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
                                 <span class="legend-box" style="background-color: #dc3545;"></span>
-                                <div><b>Fordelingsledning</b> (Rød)<br><span class="text-muted">Forsyner >1 tapsted i samme streng.</span></div>
+                                <div><b>Fordelingsledning</b> (Solid)<br><span class="text-muted">Forsyner >1 tapsted.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-box" style="background-color: #f08080;"></span>
-                                <div><b>Koblingsledning</b> (Lysrød)<br><span class="text-muted">Forsyner kun 1 tapsted. (Kan være Kl. 0).</span></div>
+                                <span class="legend-line" style="border-color: #dc3545; border-style: dashed;"></span>
+                                <div><b>Cirkulation</b> (Stiplet)<br><span class="text-muted">Returløb til beholder.</span></div>
                             </li>
                         </ul>
                     </div>
+
                     <div class="col-md-6">
-                        <strong class="small text-uppercase text-muted">Retur (Cirkulation)</strong>
-                        <ul class="list-group list-group-flush small">
+                        <strong class="small text-uppercase text-primary">Koldt Brugsvand (Blå)</strong>
+                        <div class="alert alert-light border p-2 mb-2"><small><i>Kommer i næste version (Fase 5)</i></small></div>
+                        <ul class="list-group list-group-flush small opacity-50">
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #00008b;"></span>
-                                <div><b>Hovedreturledning</b> (Mørkeblå)<br><span class="text-muted">Samler retur fra flere strenge.</span></div>
+                                <span class="legend-box" style="background-color: #0d6efd;"></span>
+                                <div><b>Forsyning</b> (Solid)<br><span class="text-muted">Koldtvandsforsyning.</span></div>
                             </li>
                             <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #0d6efd;"></span>
-                                <div><b>Returledning</b> (Blå)<br><span class="text-muted">Retur fra én streng/kreds.</span></div>
+                                <span class="legend-line" style="border-color: #0d6efd; border-style: dotted;"></span>
+                                <div><b>Kold Cirkulation</b> (Prikket)<br><span class="text-muted">Sikring af lave temperaturer.</span></div>
                             </li>
                         </ul>
                     </div>
@@ -3956,27 +3958,51 @@ function updateDiagramStyles() {
     } else if (visMode !== 'none') {
         applyColorGradient(visMode);
     } else {
-        // NYT: Standardvisning baseret på Kategori (Model B+)
+        // Standardvisning baseret på Temperatur og Funktion
         links.style('stroke', d => {
             const n = model.nodes.get(d.target.id);
             if (!n) return '#ccc';
             
+            // Kategorier (Kan udvides med koldt vand senere)
             switch (n.category) {
-                case 'main': return '#8b0000'; // Mørkerød (Hoved)
-                case 'distribution': return '#dc3545'; // Rød (Fordeling)
-                case 'connection': return '#f08080'; // Lysrød (Kobling)
-                case 'main_return': return '#00008b'; // Mørkeblå (Hovedretur)
-                case 'return': return '#0d6efd'; // Blå (Retur)
+                // --- VARMT BRUGSVAND (RØD) ---
+                case 'main': return '#8b0000';          // Mørkerød (Hoved)
+                case 'distribution': return '#dc3545';  // Rød (Fordeling)
+                case 'connection': return '#f08080';    // Lysrød (Kobling)
+                
+                // --- VARM CIRKULATION (RØD - Nu samme farve som frem, men stiplet) ---
+                case 'main_return': return '#8b0000';   // Mørkerød
+                case 'return': return '#dc3545';        // Rød
+                
+                // --- KOLDT BRUGSVAND (BLÅ - Forberedt) ---
+                case 'cold_main': return '#00008b';         // Mørkeblå
+                case 'cold_distribution': return '#0d6efd'; // Blå
+                case 'cold_connection': return '#89cff0';   // Lyseblå
+                case 'cold_return': return '#0d6efd';       // Blå (Cirkulation)
+
                 default: return '#ccc';
             }
         })
         .style('stroke-dasharray', d => {
             const n = model.nodes.get(d.target.id);
-            // Stiplet linje for alle retur-typer
-            if (n && (n.category === 'return' || n.category === 'main_return')) return '4, 4';
-            return null;
-        })
-        // Tykkelsen styres allerede af diameteren, men vi kan evt. tweake den her hvis ønsket
+            if (!n) return null;
+
+            // Stiplet linje for alle typer af retur/cirkulation (Både kold og varm)
+            if (['main_return', 'return', 'cold_return'].includes(n.category)) {
+                // Varm Cirkulation = 3 prikker (tæt stiplet) eller bare stiplet? 
+                // Du bad om: "Rød streg med 3 prikker" til Varm Cirkulation.
+                // SVG dasharray er [streg, mellemrum, streg, mellemrum...]
+                // En "3-prik" effekt kan simuleres, men alm. stiplet ('4, 4') er ofte tydeligst i CAD.
+                // Lad os lave en tydelig stiplet linje, som vi aftalte i Model B.
+                
+                if (n.category === 'cold_return') {
+                    return '2, 4'; // Kold Cirkulation: Finprikket (Blå)
+                } else {
+                    return '6, 4'; // Varm Cirkulation: Stiplet (Rød)
+                }
+            }
+            return null; // Solid (Fuldt optrukken)
+        });
     }
 	
     updateLegend();
