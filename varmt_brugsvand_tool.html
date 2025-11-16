@@ -140,8 +140,8 @@
             </button>
             <ul class="dropdown-menu shadow">
                 <li><h6 class="dropdown-header">Projekt</h6></li>
-                <li><a class="dropdown-item text-danger" href="#" onclick="resetProject()">🗑️ Nyt Projekt (Nulstil)</a></li>
-                <li><hr class="dropdown-divider"></li>
+<li><a class="dropdown-item text-danger" href="#" onclick="resetProject()">🗑️ Nyt Projekt (Nulstil)</a></li>
+                <li><a class="dropdown-item" href="#" onclick="renumberAndSortProject()">✨ Omdøb & Sorter (Clean Up)</a></li> <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="#" onclick="document.getElementById('hiddenImportInput').click()">📂 Import Projekt...</a></li>
                 <li><a class="dropdown-item" href="#" onclick="exportProject()">💾 Eksport Projekt</a></li>
             </ul>
@@ -2999,6 +2999,235 @@ function exportProject() {
     a.click();
     URL.revokeObjectURL(url);
 }
+
+/**
+ * NY FUNKTION (Fase 4): Omdøber alle komponenter logisk og sorterer tabellerne.
+ * 1. Gemmer nuværende tilstand.
+ * 2. Analyserer flow-strukturen.
+ * 3. Tildeler nye ID'er (S1-R1, S1-R2...) i flow-rækkefølge.
+ * 4. Genindlæser projektet.
+ */
+function renumberAndSortProject() {
+    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle komponenter nye, logiske numre (f.eks. S1-R1, S1-R2).\n2. Sortere tabellerne efter flow-retning.\n3. Bevare alle data og forbindelser.")) {
+        return;
+    }
+
+    // 1. Gem nuværende tilstand for at få fat i data-objektet
+    autoSaveProject(); 
+    const rawData = localStorage.getItem('varmtBrugsvandAutoSave');
+    if (!rawData) return;
+    
+    const data = JSON.parse(rawData);
+    const idMap = new Map(); // Map<GammeltID, NytID>
+    
+    // Gem 'Beholder' som sig selv (den skifter aldrig navn)
+    idMap.set('Beholder', 'Beholder');
+
+    // --- A. OMDØB STRENGE & FREMLØB ---
+    if (data.strenge) {
+        // Sorter strenge efter deres nuværende ID-nummer (S1, S2...) for at bevare overordnet rækkefølge
+        data.strenge.sort((a, b) => {
+            const numA = parseInt(a.id.replace('S', '')) || 0;
+            const numB = parseInt(b.id.replace('S', '')) || 0;
+            return numA - numB;
+        });
+
+        data.strenge.forEach((streng, index) => {
+            const newStringId = `S${index + 1}`;
+            
+            // Hvis streng-ID ændres (f.eks. S5 -> S2), skal vi huske det (men strenge har ikke forældre på samme måde)
+            // Vi opdaterer selve objektet
+            const oldStringId = streng.id;
+            streng.id = newStringId;
+
+            // Saml alle komponenter i strengen
+            const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+            
+            // 1. Byg afhængigheds-graf for strengen (Parent -> Children)
+            const adjacency = new Map();
+            const nodesInString = new Set(components.map(c => c.id));
+            
+            components.forEach(c => {
+                const p = c.parent;
+                if (!adjacency.has(p)) adjacency.set(p, []);
+                adjacency.get(p).push(c);
+            });
+
+            // 2. Find "Roots" (Komponenter i denne streng, hvis forælder IKKE er i denne streng)
+            // De får vand fra Beholder eller en anden streng.
+            const roots = components.filter(c => !nodesInString.has(c.parent));
+            
+            // Sorter rødder, så rør kommer før tapsteder (hvis de sidder samme sted)
+            roots.sort((a, b) => (a.id.includes('R') ? -1 : 1));
+
+            // 3. Traverser (Depth-First) for at skabe den nye rækkefølge
+            const sortedComponents = [];
+            const traverse = (node) => {
+                sortedComponents.push(node);
+                const children = adjacency.get(node.id) || [];
+                
+                // Sorter børn: Rør før Tapsteder, ellers alfabetisk
+                children.sort((a, b) => {
+                     // Prioriter rør over tapsteder for at følge flowet
+                     const typeA = a.hasOwnProperty('material') ? 0 : 1; // 0=Rør, 1=Tapsted
+                     const typeB = b.hasOwnProperty('material') ? 0 : 1;
+                     return typeA - typeB;
+                });
+
+                children.forEach(child => {
+                    // Kun følg børn, der er en del af denne streng
+                    if (nodesInString.has(child.id)) {
+                        traverse(child);
+                    }
+                });
+            };
+
+            roots.forEach(root => traverse(root));
+
+            // Tilføj evt. "forældreløse" komponenter til sidst (fejlsikring)
+            components.forEach(c => {
+                if (!sortedComponents.includes(c)) sortedComponents.push(c);
+            });
+
+            // 4. Tildel nye ID'er
+            let rCount = 0;
+            let tCount = 0;
+            
+            sortedComponents.forEach(c => {
+                const oldId = c.id;
+                let newId;
+                
+                // Tjek om det er rør eller tapsted
+                if (c.hasOwnProperty('material')) { // Det er et rør
+                    rCount++;
+                    newId = `${newStringId}-R${rCount}`;
+                } else { // Det er et tapsted
+                    tCount++;
+                    newId = `${newStringId}-T${tCount}`;
+                }
+                
+                idMap.set(oldId, newId);
+                c.id = newId;
+            });
+
+            // 5. Opdel tilbage i ror/tapsted arrays (nu sorteret!)
+            streng.ror = sortedComponents.filter(c => c.hasOwnProperty('material'));
+            streng.tapsted = sortedComponents.filter(c => !c.hasOwnProperty('material'));
+        });
+    }
+
+    // --- B. OMDØB RETUR & VENTILER ---
+    if (data.retur || data.valves) {
+        const returComps = [...(data.retur || []), ...(data.valves || [])];
+        
+        // 1. Byg graf
+        const adjacency = new Map();
+        const nodesInRetur = new Set(returComps.map(c => c.id));
+        
+        returComps.forEach(c => {
+            const p = c.parent;
+            if (!adjacency.has(p)) adjacency.set(p, []);
+            adjacency.get(p).push(c);
+        });
+
+        // 2. Find rødder (Forælder er ikke i retur-nettet -> dvs. kommer fra fremløb eller er start-noder)
+        const roots = returComps.filter(c => !nodesInRetur.has(c.parent));
+
+        // 3. Traverser
+        const sortedRetur = [];
+        const traverse = (node) => {
+            sortedRetur.push(node);
+            const children = adjacency.get(node.id) || [];
+            children.forEach(child => {
+                if (nodesInRetur.has(child.id)) traverse(child);
+            });
+        };
+        roots.forEach(root => traverse(root));
+        
+        // Fejlsikring (Orphans)
+        returComps.forEach(c => {
+            if (!sortedRetur.includes(c)) sortedRetur.push(c);
+        });
+
+        // 4. Tildel nye ID'er
+        let returCount = 0;
+        let valveCount = 0;
+        
+        sortedRetur.forEach(c => {
+            const oldId = c.id;
+            let newId;
+            
+            if (c.hasOwnProperty('valveType')) { // Ventil
+                valveCount++;
+                newId = `V${valveCount}`;
+            } else { // Retur-rør
+                returCount++;
+                newId = `Retur${returCount}`;
+            }
+            idMap.set(oldId, newId);
+            c.id = newId;
+        });
+
+        // 5. Gem tilbage sorteret
+        data.retur = sortedRetur.filter(c => !c.hasOwnProperty('valveType'));
+        data.valves = sortedRetur.filter(c => c.hasOwnProperty('valveType'));
+    }
+
+    // --- C. OPDATER REFERENCER (Parent, Circ-start/end, Names) ---
+    
+    // Helper: Opdater et ID hvis det findes i mappet
+    const updateId = (id) => idMap.has(id) ? idMap.get(id) : id;
+
+    // 1. Opdater forældre i alle lister
+    const updateParents = (list) => {
+        if (!list) return;
+        list.forEach(item => {
+            item.parent = updateId(item.parent);
+        });
+    };
+    
+    if (data.strenge) {
+        data.strenge.forEach(s => {
+            updateParents(s.ror);
+            updateParents(s.tapsted);
+            // Opdater cirkulations-koblinger på strengen
+            s.circ_start = updateId(s.circ_start);
+            s.circ_end = updateId(s.circ_end);
+        });
+    }
+    updateParents(data.retur);
+    updateParents(data.valves);
+
+    // 2. Opdater navne-listen (state.names)
+    const newNames = [];
+    if (data.names) {
+        data.names.forEach(([oldId, name]) => {
+            if (idMap.has(oldId)) {
+                newNames.push([idMap.get(oldId), name]);
+            }
+        });
+    }
+    data.names = newNames;
+    
+    // 3. Opdater node-positioner (til diagrammet)
+    if (data.nodePositions) {
+        data.nodePositions.forEach(pos => {
+            if (idMap.has(pos.id)) {
+                pos.id = idMap.get(pos.id);
+            }
+        });
+    }
+    
+    // 4. Opdater Flow-kort (circFlows - hvis gemt, ellers ligegyldigt da det beregnes igen)
+
+    // --- D. GENINDLÆS PROJEKT ---
+    console.log("Omdøbning færdig. ID-Map:", idMap);
+    loadProjectData(data);
+    
+    // Gem den nye, rene tilstand
+    autoSaveProject();
+}
+
 
 /**
  * OPDATERET FUNKTION: Gemmer den nuværende projekt-tilstand til localStorage.
