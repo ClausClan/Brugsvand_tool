@@ -47,8 +47,10 @@
         .card-header h5 { margin-bottom: 0; }
         .accordion-button:not(.collapsed) { background-color: #eef7ff; }
         .streng-card { border-left: 4px solid #dc3545; }
+        /* Standard: Varmt Fremløb (Rød, Solid) */
         .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
-        .link-retur { stroke: #0d6efd; stroke-width: 1.5px; stroke-dasharray: 4, 4; }
+        /* Standard: Varm Cirkulation (Rød, Stiplet) */
+        .link-retur { stroke: #dc3545; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
         .node circle { stroke: #333; stroke-width: 0.5px; cursor: move; }
         .node.reparenting circle { stroke: #ffc107; stroke-width: 3px; }
         .dim-input:disabled { background-color: #e9ecef; }
@@ -2052,7 +2054,9 @@ function updateDiagram() {
         } else {
             group.append("circle")
                 .attr("r", d => d.type === 'beholder' ? 10 : 5)
-                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#0d6efd' : '#343a40');
+                // ÆNDRET: Retur-noder er nu Mørkerøde (#a71d2a) i stedet for Blå (#0d6efd)
+                // Vi reserverer blå til Koldt Vand i fremtiden.
+                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#a71d2a' : '#343a40');
         }
     });
     
