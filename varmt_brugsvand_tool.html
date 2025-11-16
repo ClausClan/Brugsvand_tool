@@ -1304,28 +1304,24 @@ function splitPipe(targetId, segments) {
  * Rettet: Kopierer kun fremløbs-komponenter (ror/tapsted), ignorerer retur-tilslutninger.
  * Kopierer gren og husker position relativt til forælder.
  * Sikrer korrekt beregning af vektor til forælder (også Beholder).
+ * Kopierer gren (Fremløb ELLER Retur).
+ * Inkluderer logik til at filtrere børn baseret på typen af gren.
  */
 function copyBranch(rootId) {
-    // 1. Find data om rod-noden
     const rootNode = state.nodes.find(n => n.id === rootId);
     const rootRow = document.querySelector(`tr[data-id="${rootId}"]`);
     
-    if (!rootNode || !rootRow) {
-        console.error("Kunne ikke finde rod-node til kopiering:", rootId);
-        return;
-    }
+    if (!rootNode || !rootRow) return;
 
-    // Helper til at hente koordinater sikkert
-    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
-    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
-
-    // Gem rodens position
-    const rootX = getX(rootNode);
-    const rootY = getY(rootNode);
-
-    // 2. Find afstanden til forælderen (Vektoren)
+    // Hent offset til forælder
     const parentId = rootRow.querySelector('.parent').value;
     const parentNode = state.nodes.find(n => n.id === parentId);
+    
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+    
+    const rootX = getX(rootNode);
+    const rootY = getY(rootNode);
     
     let parentOffsetX = 60; 
     let parentOffsetY = 60;
@@ -1335,18 +1331,15 @@ function copyBranch(rootId) {
         parentOffsetY = rootY - getY(parentNode);
     }
     
-    console.log(`Kopierer gren '${rootId}'. Rod-pos: (${rootX.toFixed(0)}, ${rootY.toFixed(0)}). Offset til forælder: (${parentOffsetX.toFixed(0)}, ${parentOffsetY.toFixed(0)})`);
-
     const scrapNode = (id) => {
         const row = document.querySelector(`tr[data-id="${id}"]`);
         if (!row) return null;
         
         const type = row.dataset.type;
-        if (type !== 'ror' && type !== 'tapsted') return null;
+        // Tillad nu også retur og valve
+        if (!['ror', 'tapsted', 'retur', 'valve'].includes(type)) return null;
 
         const node = state.nodes.find(n => n.id === id);
-        
-        // Beregn relativ position
         const nX = getX(node);
         const nY = getY(node);
         const relX = nX - rootX;
@@ -1362,7 +1355,8 @@ function copyBranch(rootId) {
         const nameInput = row.querySelector('.name-text');
         if (nameInput) data.name = nameInput.value;
 
-        if (type === 'ror') {
+        // Data udtrækning
+        if (type === 'ror' || type === 'retur') {
             data.material = row.querySelector('.material').value;
             data.location = row.querySelector('.location').value;
             data.insulation = row.querySelector('.insulation-class').value;
@@ -1376,6 +1370,9 @@ function copyBranch(rootId) {
             data.kote = row.querySelector('.kote').value;
             data.syst = row.querySelector('.syst').checked;
             data.isApartment = row.dataset.isApartment;
+        } else if (type === 'valve') {
+            const vSel = row.querySelector('.valve-type-select');
+            data.valveType = vSel ? vSel.value : "";
         }
 
         // Find børn rekursivt
@@ -1384,7 +1381,18 @@ function copyBranch(rootId) {
                 const childRow = select.closest('tr');
                 if (childRow) {
                     const childType = childRow.dataset.type;
-                    if (childType === 'ror' || childType === 'tapsted') {
+                    
+                    // LOGIK: Hvis vi er i en fremløbs-gren (ror/tapsted), kopier kun fremløb.
+                    // Hvis vi er i en retur-gren (retur/valve), kopier kun retur.
+                    // Dette forhindrer at vi "hopper" over i det andet netværk.
+                    let shouldCopy = false;
+                    if (['ror', 'tapsted'].includes(type)) {
+                        if (['ror', 'tapsted'].includes(childType)) shouldCopy = true;
+                    } else if (['retur', 'valve'].includes(type)) {
+                        if (['retur', 'valve'].includes(childType)) shouldCopy = true;
+                    }
+
+                    if (shouldCopy) {
                         const childData = scrapNode(childRow.dataset.id);
                         if (childData) data.children.push(childData);
                     }
@@ -1402,21 +1410,15 @@ function copyBranch(rootId) {
         state.clipboard = tree;
         
         // Visuel feedback
-        const btn = rootRow.querySelector('button[aria-label="Fjern element"]'); // Bruger den korrekte selector nu
+        const btn = rootRow.querySelector('button');
         if (btn) {
-            const origText = btn.innerHTML;
-            btn.innerHTML = "✓";
-            btn.classList.add('btn-success');
-            btn.classList.remove('btn-outline-danger');
-            setTimeout(() => {
-                 btn.innerHTML = origText;
-                 btn.classList.remove('btn-success');
-                 btn.classList.add('btn-outline-danger');
-            }, 500);
+            const origClass = btn.className;
+            btn.className = 'btn btn-sm btn-success';
+            setTimeout(() => { btn.className = origClass; }, 500);
         }
+        console.log("Kopieret:", tree);
     }
 }
-
 
 /**
  * Indsætter kopieret gren på den valgte destination.
@@ -1424,93 +1426,92 @@ function copyBranch(rootId) {
  * Sikrer at alle egenskaber (isolering, kote m.m.) kopieres med.
  * mode = 'new' (Opret ny streng/sektion) eller 'current' (Indsæt i eksisterende streng).
  */
-function pasteBranch(targetParentId, mode = 'new') {
+/**
+ * OPDATERET FUNKTION (Fase 4): Indsætter gren (Fremløb eller Retur).
+ */
+function pasteBranch(targetParentId, mode = 'current') {
     if (!state.clipboard) {
-        alert("Intet at indsætte. Kopier en streng først.");
+        alert("Intet at indsætte.");
         return;
     }
 
-    // 1. Find position for den NYE forælder
     const targetNode = state.nodes.find(n => n.id === targetParentId);
-    if (!targetNode) {
-        console.error("Fandt ikke destinations-node:", targetParentId);
+    if (!targetNode) return;
+
+    // TJEK KOMPATIBILITET
+    const clipType = state.clipboard.type;
+    const isReturnClip = ['retur', 'valve'].includes(clipType);
+    const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
+    const parentType = targetNode.type;
+
+    let allowed = false;
+    if (isSupplyClip && (parentType === 'ror' || parentType === 'beholder')) allowed = true;
+    if (isReturnClip && (parentType === 'retur' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
+    
+    if (!allowed) {
+        alert(`Kan ikke indsætte ${clipType} på ${parentType}.`);
         return;
     }
 
+    // Positionering
     const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
     const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
-
     const baseX = getX(targetNode);
     const baseY = getY(targetNode);
-
-    // 2. Beregn start-position
-    // Husk at tjekke for undefined (bugfix for 0-værdi)
     const vecX = (state.clipboard.parentOffsetX !== undefined) ? state.clipboard.parentOffsetX : 60;
     const vecY = (state.clipboard.parentOffsetY !== undefined) ? state.clipboard.parentOffsetY : 60;
-    
     const newRootX = baseX + vecX;
     const newRootY = baseY + vecY;
 
-    // 3. FORBERED CONTAINER (NY ELLER EKSISTERENDE)
-    let targetStringId, rorContainer, tapstedContainer;
+    // CONTAINER LOGIK
+    let targetStringId = ""; 
 
-    if (mode === 'new') {
-        // Opret ny streng
-        addStreng(); 
-        const newCard = document.querySelector('.streng-card:last-child');
-        targetStringId = newCard.dataset.id; 
-        rorContainer = newCard.querySelector('.ror-container');
-        tapstedContainer = newCard.querySelector('.tapsted-container');
-        
-        // RYD OP: Slet de standard-rør, addStreng opretter
-        const defaultDeleteBtns = newCard.querySelectorAll('button[aria-label="Fjern element"]');
-        defaultDeleteBtns.forEach(btn => removeElement(btn));
-        
-    } else {
-        // Indsæt i eksisterende streng
-        // Antagelse: ID er formateret som "S1-..." eller "S1"
-        // Hvis targetParentId er et rør (S1-R1), er strengen S1.
-        const parts = targetParentId.split('-');
-        if (parts.length > 0) {
-            targetStringId = parts[0]; // f.eks. "S1"
-            const card = document.querySelector(`.streng-card[data-id="${targetStringId}"]`);
-            if (card) {
-                rorContainer = card.querySelector('.ror-container');
-                tapstedContainer = card.querySelector('.tapsted-container');
-            } else {
-                alert("Kunne ikke finde den tilhørende streng.");
-                return;
-            }
+    if (isSupplyClip) {
+        if (mode === 'new') {
+             addStreng(); 
+             const newCard = document.querySelector('.streng-card:last-child');
+             targetStringId = newCard.dataset.id; 
+             // Slet standard-rør
+             newCard.querySelectorAll('button[aria-label="Fjern element"]').forEach(btn => removeElement(btn));
         } else {
-             alert("Ugyldigt forælder-ID.");
-             return;
+             if (parentType === 'beholder') { alert("På beholder skal du vælge 'Ny streng'"); return; }
+             const parts = targetParentId.split('-');
+             if (parts.length > 0) targetStringId = parts[0];
         }
     }
+    // Retur-netværk har kun én global container (#returContainerBody), så ingen streng-logik nødvendig
 
-    // 4. Rekursiv bygger
+    // REKURSIV BYGGER
     const buildNode = (nodeData, parentId) => {
-        state.tC++;
-        const newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
+        let newId;
+        
+        if (nodeData.type === 'ror' || nodeData.type === 'tapsted') {
+             state.tC++;
+             newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
+        } else if (nodeData.type === 'retur') {
+             state.rC++;
+             newId = `Retur${state.rC}`;
+        } else if (nodeData.type === 'valve') {
+             valveCounter++;
+             newId = `V${valveCounter}`;
+        }
+        
         const datalistId = `list-${newId}`;
         
-        // Positionering
         const newFx = newRootX + (nodeData.relX || 0);
         const newFy = newRootY + (nodeData.relY || 0);
-        
         state.nodes.push({ id: newId, fx: newFx, fy: newFy });
 
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = nodeData.type;
 
+        // GENERER HTML BASERET PÅ TYPE
         if (nodeData.type === 'ror') {
             tr.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-                <td><select class="form-select form-select-sm material" title="Materiale">
-                    <option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
-                    <option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>
-                </select></td>
+                <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
                 <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
                 <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
                 <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
@@ -1518,7 +1519,7 @@ function pasteBranch(targetParentId, mode = 'new') {
                 <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
             `;
-            
+            // Indsæt data
             tr.querySelector('.material').value = nodeData.material;
             tr.querySelector('.location').value = nodeData.location;
             tr.querySelector('.insulation-class').value = nodeData.insulation;
@@ -1529,15 +1530,15 @@ function pasteBranch(targetParentId, mode = 'new') {
             matSelect.onchange = handleMaterialChange;
             updateDimOptions(matSelect);
             tr.querySelector('.dim').value = nodeData.dim;
-
-            rorContainer.appendChild(tr);
+            
+            document.querySelector(`.streng-card[data-id="${targetStringId}"] .ror-container`).appendChild(tr);
 
         } else if (nodeData.type === 'tapsted') {
-            let opts = ''; 
-            Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
-            Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
+             let opts = ''; 
+             Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
+             Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
 
-            tr.innerHTML = `
+             tr.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
                 <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" title="Type">${opts}</select></td>
@@ -1546,22 +1547,70 @@ function pasteBranch(targetParentId, mode = 'new') {
                 <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst."></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
             `;
-            
             const tapSelect = tr.querySelector('.tapType');
             let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
             if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
-            
             tr.querySelector('.qf').value = nodeData.qf;
             tr.querySelector('.kote').value = nodeData.kote;
             tr.querySelector('.syst').checked = nodeData.syst;
             tr.dataset.isApartment = nodeData.isApartment;
+            
+            document.querySelector(`.streng-card[data-id="${targetStringId}"] .tapsted-container`).appendChild(tr);
 
-            tapstedContainer.appendChild(tr);
+        } else if (nodeData.type === 'retur') {
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+                <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
+                <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            tr.querySelector('.material').value = nodeData.material;
+            tr.querySelector('.location').value = nodeData.location;
+            tr.querySelector('.insulation-class').value = nodeData.insulation;
+            tr.querySelector('.len').value = nodeData.len;
+            tr.querySelector('.fittings').value = nodeData.fittings;
+            
+            const matSelect = tr.querySelector('.material');
+            matSelect.onchange = handleMaterialChange;
+            updateDimOptions(matSelect);
+            tr.querySelector('.dim').value = nodeData.dim;
+            
+            document.getElementById('returContainerBody').appendChild(tr);
+
+        } else if (nodeData.type === 'valve') {
+             tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text"><svg width="14" height="14" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg><span class="id-text ms-2">${newId} ...</span></span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm valve-type-select" title="Vælg ventiltype"></select></td>
+                <td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            
+            const valveSelect = tr.querySelector('.valve-type-select');
+            let vOpts = '<option value="" disabled>Vælg type...</option>';
+            for (const typeName in VALVE_TYPES) vOpts += `<option value="${typeName}">${typeName}</option>`;
+            valveSelect.innerHTML = vOpts;
+            valveSelect.value = nodeData.valveType || "";
+            
+            valveSelect.onchange = (e) => {
+                const newType = e.target.value;
+                tr.dataset.valveType = newType;
+                tr.querySelector('.id-text').textContent = `${newId} (${newType.substring(0, 10)}...)`;
+            };
+            tr.dataset.valveType = nodeData.valveType;
+            tr.querySelector('.id-text').textContent = `${newId} (${(nodeData.valveType || "Vælg").substring(0, 10)}...)`;
+            
+            document.getElementById('returContainerBody').appendChild(tr);
         }
-
-        if (nodeData.name) {
-            state.names.set(newId, nodeData.name);
-            tr.querySelector('.name-text').value = nodeData.name;
+        
+        if(nodeData.name) {
+             state.names.set(newId, nodeData.name);
+             tr.querySelector('.name-text').value = nodeData.name;
         }
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
 
@@ -1572,17 +1621,15 @@ function pasteBranch(targetParentId, mode = 'new') {
         pSel.add(tempOpt);
         pSel.value = parentId;
 
-        if (nodeData.children) {
-            nodeData.children.forEach(child => buildNode(child, newId));
-        }
+        if (nodeData.children) nodeData.children.forEach(child => buildNode(child, newId));
     };
 
     buildNode(state.clipboard, targetParentId);
-
     updateAllSelects();
     setProjektErÆndret();
     if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
+
 function addRorSektion(btn) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
@@ -4650,6 +4697,7 @@ function handleNodeClick(event, d) {
  * @param {object} event - Højreklik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
  * Indeholder undermenuer og logik for alle komponenttyper.
+ * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel).
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -4667,7 +4715,7 @@ function handleNodeRightClick(event, d) {
     menu.style.padding = '5px 0';
     menu.style.zIndex = '1000';
 
-    // Helper til at lave menupunkter (med klasse-støtte for undermenuer)
+    // Helper til at lave menupunkter
     const createMenuItem = (text, onClick, hasSubmenu = false) => {
         const item = document.createElement('div');
         item.textContent = text;
@@ -4686,7 +4734,7 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
-    // --- 1. FORBINDELSER ---
+    // --- 1. FORBINDELSER (Fælles) ---
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
@@ -4702,7 +4750,7 @@ function handleNodeRightClick(event, d) {
     
     if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
 
-    // --- 2. RØR-FUNKTIONER (Opdel, Kopier, Indsæt) ---
+    // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
     
     // Opdel Rør (Gælder både fremløb og retur)
     if (nodeType === 'ror' || nodeType === 'retur') {
@@ -4713,30 +4761,32 @@ function handleNodeRightClick(event, d) {
                 if (!isNaN(count) && count > 1) splitPipe(d.id, count);
             }
         }));
-    }
-
-    // Fremløbs-specifikke funktioner
-    if (nodeType === 'ror') {
-        // Kopier
+        
+        // Kopier gren (Gælder nu både fremløb og retur)
         menu.appendChild(createMenuItem('Kopier streng herfra', () => {
             copyBranch(d.id);
         }));
+    }
 
-        // Indsæt (Med Undermenu)
-        if (state.clipboard) {
-            const pasteItem = createMenuItem('Indsæt...', null, true); // null handler fordi den har undermenu
+    // --- 3. INDSÆT (Paste) LOGIK ---
+    if (state.clipboard) {
+        const clipType = state.clipboard.type;
+        const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
+        const isReturnClip = ['retur', 'valve'].includes(clipType);
+
+        // SCENARIE A: Indsæt på Fremløbsrør (Submenu: I denne / Ny streng)
+        if (nodeType === 'ror' && isSupplyClip) {
+            const pasteItem = createMenuItem('Indsæt...', null, true);
             
             const submenu = document.createElement('div');
             submenu.className = 'context-submenu';
             
-            // Valg 1: Indsæt i nuværende streng
             const subItem1 = document.createElement('div');
             subItem1.className = 'menu-item';
             subItem1.textContent = 'I denne streng';
             subItem1.onclick = () => { pasteBranch(d.id, 'current'); removeContextMenu(); };
             submenu.appendChild(subItem1);
             
-            // Valg 2: Opret ny streng
             const subItem2 = document.createElement('div');
             subItem2.className = 'menu-item';
             subItem2.textContent = 'Som ny streng';
@@ -4747,9 +4797,35 @@ function handleNodeRightClick(event, d) {
             menu.appendChild(pasteItem);
         }
         
-        menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+        // SCENARIE B: Indsæt på Retur/Ventil (Direkte: I denne streng)
+        else if ((nodeType === 'retur' || nodeType === 'valve') && isReturnClip) {
+             menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
+                pasteBranch(d.id, 'current');
+            }));
+        }
+        
+        // SCENARIE C: Indsæt på Beholder (Kun ny streng hvis fremløb, ellers direkte hvis retur)
+        else if (nodeType === 'beholder') {
+            if (isSupplyClip) {
+                 menu.appendChild(createMenuItem('Indsæt som ny streng', () => {
+                    pasteBranch(d.id, 'new'); 
+                }));
+            } else if (isReturnClip) {
+                 menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
+                    pasteBranch(d.id, 'current');
+                }));
+            }
+        }
+    }
+    
+    if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
+         menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+    }
 
-        // Tilføj komponenter manuelt
+    // --- 4. TILFØJ KOMPONENTER MANUELT ---
+    
+    // Fremløb
+    if (nodeType === 'ror') {
         menu.appendChild(createMenuItem('Tilføj rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
@@ -4778,20 +4854,19 @@ function handleNodeRightClick(event, d) {
         }));
     }
 
-    // --- 3. NY STRENG (Fra Beholder eller Rør) ---
+    // Ny Streng (Fra Beholder eller Rør)
     if (nodeType === 'beholder' || nodeType === 'ror') {
         menu.appendChild(createMenuItem('Tilføj ny streng herfra', () => {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
-                // addStreng laver automatisk et rør, vi sætter dets forælder
                 const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror"]');
                 if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
         }));
     }
 
-    // --- 4. RETUR NETVÆRK ---
+    // Retur komponenter
     if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Tilføj retur-rør her', () => {
             addReturRor();
@@ -4807,11 +4882,13 @@ function handleNodeRightClick(event, d) {
 
     // --- 5. SLET (Alle undtagen Beholder) ---
     if (nodeType !== 'beholder') {
-        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+        if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
+             menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+        }
         menu.appendChild(createMenuItem('Slet Komponent', () => {
             const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
             if (element) {
-                // Vi leder efter en knap med aria-label der indeholder "Fjern" (den vi tilføjede i loadProjectData/templates)
+                // Vi leder efter knappen med aria-label "Fjern..."
                 const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
                 if (uiDeleteButton) uiDeleteButton.click();
             }
