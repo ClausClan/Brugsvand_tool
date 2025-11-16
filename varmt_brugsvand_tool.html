@@ -920,7 +920,7 @@ const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
 const RHO=985, C=4184, MU=0.0005, G=9.82;
-const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null };
+const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null, movingBranch: null };
 
 // Global "Dirty Flag" til auto-gem
 let projektErÆndret = false;
@@ -4927,7 +4927,7 @@ function handleNodeClick(event, d) {
  * @param {object} event - Højreklik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
  * Indeholder undermenuer og logik for alle komponenttyper.
- * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel).
+ * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel)
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -4964,7 +4964,7 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
-    // --- 1. FORBINDELSER (Fælles) ---
+    // --- 1. FORBINDELSER & FLYTNING (Fælles) ---
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
@@ -4978,7 +4978,16 @@ function handleNodeRightClick(event, d) {
         }));
     }
     
+    // Flyt gren (Fælles for rør/retur/ventil, men ikke beholder)
+    if (nodeType !== 'beholder' && nodeType !== 'tapsted') {
+        menu.appendChild(createMenuItem('Flyt gren herfra', () => {
+            // Timeout for at lade menuen lukke før drag starter
+            setTimeout(() => startMoveBranch(d.id), 50);
+        }));
+    }
+    
     if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+
 
     // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
     
@@ -4993,7 +5002,7 @@ function handleNodeRightClick(event, d) {
         }));
         
         // Kopier gren (Gælder nu både fremløb og retur)
-        menu.appendChild(createMenuItem('Kopier streng herfra', () => {
+        menu.appendChild(createMenuItem('Kopier gren herfra', () => {
             copyBranch(d.id);
         }));
     }
@@ -5034,13 +5043,15 @@ function handleNodeRightClick(event, d) {
             }));
         }
         
-        // SCENARIE C: Indsæt på Beholder (Kun ny streng hvis fremløb, ellers direkte hvis retur)
+        // SCENARIE C: Indsæt på Beholder
         else if (nodeType === 'beholder') {
             if (isSupplyClip) {
+                 // Fremløb på Beholder -> Altid ny streng
                  menu.appendChild(createMenuItem('Indsæt som ny streng', () => {
                     pasteBranch(d.id, 'new'); 
                 }));
             } else if (isReturnClip) {
+                 // Retur på Beholder -> Forbindes direkte
                  menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
                     pasteBranch(d.id, 'current');
                 }));
@@ -5129,6 +5140,123 @@ function handleNodeRightClick(event, d) {
         document.body.appendChild(menu);
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
+}
+
+/**
+ * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
+ * Låser noderne fast til musen.
+ */
+function startMoveBranch(rootId) {
+    // 1. Identificer alle noder i grenen (samme logik som copyBranch)
+    const branchNodes = [];
+    
+    const collectNodes = (id) => {
+        const node = state.nodes.find(n => n.id === id);
+        if (node) branchNodes.push(node);
+        
+        // Find børn via DOM for at få den aktuelle struktur
+        document.querySelectorAll('.parent').forEach(select => {
+            if (select.value === id) {
+                const childId = select.closest('tr').dataset.id;
+                collectNodes(childId);
+            }
+        });
+    };
+    
+    collectNodes(rootId);
+    
+    if (branchNodes.length === 0) return;
+
+    // 2. Find musens start-position i diagram-koordinater
+    const svgNode = d3.select('#diagram svg').node();
+    const transform = d3.zoomTransform(svgNode);
+    
+    // Vi skal bruge d3.pointer til at få koordinater relativt til SVG'en
+    // Men da funktionen kaldes fra en menu, har vi ikke eventet her direkte.
+    // Vi "snyder" lidt og bruger den aktuelle position af rod-noden som anker.
+    const rootNode = state.nodes.find(n => n.id === rootId);
+    
+    // 3. Gem start-data
+    state.movingBranch = {
+        nodes: branchNodes,
+        // Gem offset for hver node relativt til rod-noden
+        offsets: branchNodes.map(n => ({
+            id: n.id,
+            dx: (n.fx || n.x) - (rootNode.fx || rootNode.x),
+            dy: (n.fy || n.y) - (rootNode.fy || rootNode.y)
+        }))
+    };
+
+    // Visuel feedback: Gør noderne lidt gennemsigtige eller marker dem
+    d3.selectAll('.node').filter(d => branchNodes.some(bn => bn.id === d.id))
+        .select('circle, rect')
+        .style('stroke', '#ff0000')
+        .style('stroke-width', '2px');
+
+    // 4. Tilføj event listeners til HELE SVG'en
+    const svg = d3.select('#diagram svg');
+    
+    svg.on('mousemove.branchMove', function(event) {
+        // Konverter musens pixel-koordinater til diagram-koordinater
+        const transform = d3.zoomTransform(this);
+        const [mx, my] = d3.pointer(event);
+        const x = transform.invertX(mx);
+        const y = transform.invertY(my);
+        
+        // Flyt alle noder
+        state.movingBranch.nodes.forEach((node, i) => {
+            const offset = state.movingBranch.offsets[i];
+            // Flyt noden til: Musens position + dens relative offset
+            node.fx = x + offset.dx;
+            node.fy = y + offset.dy;
+        });
+        
+        // Genstart simulationen let for at opdatere linjerne (links)
+        state.sim.alpha(0.1).restart();
+    });
+
+    // Klik for at slippe
+    svg.on('click.branchMove', function() {
+        stopMoveBranch();
+    });
+    
+    // Højreklik for at annullere (valgfrit, men god UX)
+    svg.on('contextmenu.branchMove', function(event) {
+        event.preventDefault();
+        stopMoveBranch();
+    });
+    
+    // Skift markør
+    document.body.style.cursor = 'grabbing';
+}
+
+/**
+ * Stopper flytningen og gemmer positionerne.
+ */
+function stopMoveBranch() {
+    if (!state.movingBranch) return;
+    
+    // Fjern event listeners
+    const svg = d3.select('#diagram svg');
+    svg.on('mousemove.branchMove', null);
+    svg.on('click.branchMove', null);
+    svg.on('contextmenu.branchMove', null);
+    
+    // Fjern visuel markering
+    d3.selectAll('.node circle, .node rect')
+        .style('stroke', null)
+        .style('stroke-width', null);
+        
+    document.body.style.cursor = 'default';
+    
+    // Ryd state
+    state.movingBranch = null;
+    
+    // Fortæl systemet at vi har ændret noget (så auto-gem virker)
+    setProjektErÆndret();
+    
+    // Genopfrisk diagrammet for at være sikker på styles
+    updateDiagramStyles();
 }
 
 /**
