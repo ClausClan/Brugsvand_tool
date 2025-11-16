@@ -86,6 +86,44 @@
             font-weight: normal;
         }
 
+        /* Styles til Højrekliks-menu og Undermenu */
+        #context-menu .menu-item {
+            position: relative;
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+        #context-menu .menu-item:hover {
+            background-color: #f2f2f2;
+        }
+        /* Pilen der indikerer undermenu */
+        .has-submenu::after {
+            content: "▶";
+            font-size: 0.7em;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #666;
+        }
+        /* Selve undermenuen */
+        .context-submenu {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: -5px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            min-width: 180px;
+            padding: 5px 0;
+            z-index: 1001;
+        }
+        /* Vis undermenu ved hover */
+        .menu-item:hover .context-submenu {
+            display: block;
+        }
+
     </style>
 </head>
 <body>
@@ -882,7 +920,7 @@ const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
 const RHO=985, C=4184, MU=0.0005, G=9.82;
-const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map() };
+const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null };
 
 // Global "Dirty Flag" til auto-gem
 let projektErÆndret = false;
@@ -1115,6 +1153,481 @@ function addReturRor() {
     updateDimOptions(materialSelect);
     
     updateAllSelects();
+}
+
+/**
+ * Opdeler et eksisterende rør i flere segmenter.
+ * Indsætter nye rør før det valgte rør for at bevare nedstrøms-strukturen.
+ * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
+ * Opdeler et rør (både fremløb og retur).
+ */
+function splitPipe(targetId, segments) {
+    const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
+    if (!targetRow) return;
+    
+    // Bestem typen (ror eller retur)
+    const type = targetRow.dataset.type;
+    if (type !== 'ror' && type !== 'retur') {
+        alert("Kun rør kan opdeles.");
+        return;
+    }
+
+    // --- TRIN A: BEREGN KOORDINATER ---
+    const currentParentId = targetRow.querySelector('.parent').value;
+    const startNode = state.nodes.find(n => n.id === currentParentId);
+    const endNode = state.nodes.find(n => n.id === targetId);
+    
+    let startX = 0, startY = 0, endX = 0, endY = 0;
+    let useCoords = false;
+
+    if (startNode && endNode) {
+        // Brug .fx/.fy hvis de er sat (låst), ellers .x/.y
+        startX = (startNode.fx !== undefined && startNode.fx !== null) ? startNode.fx : startNode.x;
+        startY = (startNode.fy !== undefined && startNode.fy !== null) ? startNode.fy : startNode.y;
+        endX = (endNode.fx !== undefined && endNode.fx !== null) ? endNode.fx : endNode.x;
+        endY = (endNode.fy !== undefined && endNode.fy !== null) ? endNode.fy : endNode.y;
+        useCoords = true;
+    }
+    // ----------------------------------
+
+    const originalLen = parseFloat(targetRow.querySelector('.len').value) || 0;
+    const newLen = originalLen / segments;
+    
+    const material = targetRow.querySelector('.material').value;
+    const location = targetRow.querySelector('.location').value;
+    const dim = targetRow.querySelector('.dim').value;
+    const insulation = targetRow.querySelector('.insulation-class').value;
+    const fittings = 0; 
+
+    let lastParentId = currentParentId;
+
+    // 2. Opret N-1 nye rør FØR det oprindelige rør
+    for (let i = 1; i < segments; i++) {
+        let newId;
+        
+        // GENERER KORREKT ID BASERET PÅ TYPE
+        if (type === 'ror') {
+            const sId = targetId.split('-')[0]; 
+            state.tC++; 
+            newId = `${sId}-R${state.tC}`;
+        } else { // type === 'retur'
+            state.rC++;
+            newId = `Retur${state.rC}`;
+        }
+        
+        const datalistId = `list-${newId}`;
+        
+        // --- TRIN B: KOORDINATER ---
+        if (useCoords) {
+            const ratio = i / segments;
+            const newX = startX + (endX - startX) * ratio;
+            const newY = startY + (endY - startY) * ratio;
+            
+            state.nodes.push({
+                id: newId,
+                fx: newX,
+                fy: newY
+            });
+        }
+
+        const tr = document.createElement('tr');
+        tr.dataset.id = newId;
+        tr.dataset.type = type; // Sæt korrekt type
+        
+        // Byg HTML (Universel for både ror og retur)
+        tr.innerHTML = `
+            <td>
+                <span class="input-group input-group-sm">
+                    <span class="input-group-text id-text">${newId}</span>
+                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn">
+                </span>
+            </td>
+            <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+            <td><select class="form-select form-select-sm material" title="Materiale">
+                <option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+                <option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>
+            </select></td>
+            <td>
+                <select class="form-select form-select-sm location" title="Placering">
+                    <option value="heated">Opvarmet rum</option>
+                    <option value="unheated">Uopvarmet rum</option>
+                    <option value="outside">Udendørs</option>
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions" title="Isol."></td>
+            <td>
+                <input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" title="Dim" list="${datalistId}">
+                <datalist id="${datalistId}"></datalist>
+            </td>
+            <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}" title="Længde"></td>
+            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${fittings}" title="Zeta"></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+        `;
+
+        tr.querySelector('.material').value = material;
+        tr.querySelector('.location').value = location;
+        
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
+        const matSelect = tr.querySelector('.material');
+        matSelect.onchange = handleMaterialChange;
+        
+        targetRow.parentNode.insertBefore(tr, targetRow);
+        
+        updateDimOptions(matSelect);
+
+        const pSel = tr.querySelector('.parent');
+        const tempOpt = document.createElement('option');
+        tempOpt.value = lastParentId;
+        tempOpt.text = lastParentId;
+        pSel.add(tempOpt);
+        pSel.value = lastParentId;
+
+        lastParentId = newId;
+    }
+
+    targetRow.querySelector('.len').value = newLen.toFixed(2);
+    
+    const targetPSel = targetRow.querySelector('.parent');
+    const tempOptTarget = document.createElement('option');
+    tempOptTarget.value = lastParentId;
+    tempOptTarget.text = lastParentId;
+    targetPSel.add(tempOptTarget);
+    targetPSel.value = lastParentId;
+
+    updateAllSelects();
+    setProjektErÆndret();
+}
+
+/**
+ * Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
+ * Kopierer gren med RELATIVE KOORDINATER.
+ * Rettet: Kopierer kun fremløbs-komponenter (ror/tapsted), ignorerer retur-tilslutninger.
+ * Kopierer gren og husker position relativt til forælder.
+ * Sikrer korrekt beregning af vektor til forælder (også Beholder).
+ * Kopierer gren (Fremløb ELLER Retur).
+ * Inkluderer logik til at filtrere børn baseret på typen af gren.
+ */
+function copyBranch(rootId) {
+    const rootNode = state.nodes.find(n => n.id === rootId);
+    const rootRow = document.querySelector(`tr[data-id="${rootId}"]`);
+    
+    if (!rootNode || !rootRow) return;
+
+    // Hent offset til forælder
+    const parentId = rootRow.querySelector('.parent').value;
+    const parentNode = state.nodes.find(n => n.id === parentId);
+    
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+    
+    const rootX = getX(rootNode);
+    const rootY = getY(rootNode);
+    
+    let parentOffsetX = 60; 
+    let parentOffsetY = 60;
+    
+    if (parentNode) {
+        parentOffsetX = rootX - getX(parentNode);
+        parentOffsetY = rootY - getY(parentNode);
+    }
+    
+    const scrapNode = (id) => {
+        const row = document.querySelector(`tr[data-id="${id}"]`);
+        if (!row) return null;
+        
+        const type = row.dataset.type;
+        // Tillad nu også retur og valve
+        if (!['ror', 'tapsted', 'retur', 'valve'].includes(type)) return null;
+
+        const node = state.nodes.find(n => n.id === id);
+        const nX = getX(node);
+        const nY = getY(node);
+        const relX = nX - rootX;
+        const relY = nY - rootY;
+
+        const data = { 
+            type: type, 
+            children: [],
+            relX: relX, 
+            relY: relY
+        };
+        
+        const nameInput = row.querySelector('.name-text');
+        if (nameInput) data.name = nameInput.value;
+
+        // Data udtrækning
+        if (type === 'ror' || type === 'retur') {
+            data.material = row.querySelector('.material').value;
+            data.location = row.querySelector('.location').value;
+            data.insulation = row.querySelector('.insulation-class').value;
+            data.dim = row.querySelector('.dim').value;
+            data.len = row.querySelector('.len').value;
+            data.fittings = row.querySelector('.fittings').value;
+        } else if (type === 'tapsted') {
+            const tapSelect = row.querySelector('.tapType');
+            data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
+            data.qf = row.querySelector('.qf').value;
+            data.kote = row.querySelector('.kote').value;
+            data.syst = row.querySelector('.syst').checked;
+            data.isApartment = row.dataset.isApartment;
+        } else if (type === 'valve') {
+            const vSel = row.querySelector('.valve-type-select');
+            data.valveType = vSel ? vSel.value : "";
+        }
+
+        // Find børn rekursivt
+        document.querySelectorAll('.parent').forEach(select => {
+            if (select.value === id) {
+                const childRow = select.closest('tr');
+                if (childRow) {
+                    const childType = childRow.dataset.type;
+                    
+                    // LOGIK: Hvis vi er i en fremløbs-gren (ror/tapsted), kopier kun fremløb.
+                    // Hvis vi er i en retur-gren (retur/valve), kopier kun retur.
+                    // Dette forhindrer at vi "hopper" over i det andet netværk.
+                    let shouldCopy = false;
+                    if (['ror', 'tapsted'].includes(type)) {
+                        if (['ror', 'tapsted'].includes(childType)) shouldCopy = true;
+                    } else if (['retur', 'valve'].includes(type)) {
+                        if (['retur', 'valve'].includes(childType)) shouldCopy = true;
+                    }
+
+                    if (shouldCopy) {
+                        const childData = scrapNode(childRow.dataset.id);
+                        if (childData) data.children.push(childData);
+                    }
+                }
+            }
+        });
+
+        return data;
+    };
+
+    const tree = scrapNode(rootId);
+    if (tree) {
+        tree.parentOffsetX = parentOffsetX;
+        tree.parentOffsetY = parentOffsetY;
+        state.clipboard = tree;
+        
+        // Visuel feedback
+        const btn = rootRow.querySelector('button');
+        if (btn) {
+            const origClass = btn.className;
+            btn.className = 'btn btn-sm btn-success';
+            setTimeout(() => { btn.className = origClass; }, 500);
+        }
+        console.log("Kopieret:", tree);
+    }
+}
+
+/**
+ * Indsætter kopieret gren på den valgte destination.
+ * Indsætter gren med SAMME AFSTAND til ny forælder.
+ * Sikrer at alle egenskaber (isolering, kote m.m.) kopieres med.
+ * mode = 'new' (Opret ny streng/sektion) eller 'current' (Indsæt i eksisterende streng).
+ */
+/**
+ * OPDATERET FUNKTION (Fase 4): Indsætter gren (Fremløb eller Retur).
+ */
+function pasteBranch(targetParentId, mode = 'current') {
+    if (!state.clipboard) {
+        alert("Intet at indsætte.");
+        return;
+    }
+
+    const targetNode = state.nodes.find(n => n.id === targetParentId);
+    if (!targetNode) return;
+
+    // TJEK KOMPATIBILITET
+    const clipType = state.clipboard.type;
+    const isReturnClip = ['retur', 'valve'].includes(clipType);
+    const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
+    const parentType = targetNode.type;
+
+    let allowed = false;
+    if (isSupplyClip && (parentType === 'ror' || parentType === 'beholder')) allowed = true;
+    if (isReturnClip && (parentType === 'retur' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
+    
+    if (!allowed) {
+        alert(`Kan ikke indsætte ${clipType} på ${parentType}.`);
+        return;
+    }
+
+    // Positionering
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+    const baseX = getX(targetNode);
+    const baseY = getY(targetNode);
+    const vecX = (state.clipboard.parentOffsetX !== undefined) ? state.clipboard.parentOffsetX : 60;
+    const vecY = (state.clipboard.parentOffsetY !== undefined) ? state.clipboard.parentOffsetY : 60;
+    const newRootX = baseX + vecX;
+    const newRootY = baseY + vecY;
+
+    // CONTAINER LOGIK
+    let targetStringId = ""; 
+
+    if (isSupplyClip) {
+        if (mode === 'new') {
+             addStreng(); 
+             const newCard = document.querySelector('.streng-card:last-child');
+             targetStringId = newCard.dataset.id; 
+             // Slet standard-rør
+             newCard.querySelectorAll('button[aria-label="Fjern element"]').forEach(btn => removeElement(btn));
+        } else {
+             if (parentType === 'beholder') { alert("På beholder skal du vælge 'Ny streng'"); return; }
+             const parts = targetParentId.split('-');
+             if (parts.length > 0) targetStringId = parts[0];
+        }
+    }
+    // Retur-netværk har kun én global container (#returContainerBody), så ingen streng-logik nødvendig
+
+    // REKURSIV BYGGER
+    const buildNode = (nodeData, parentId) => {
+        let newId;
+        
+        if (nodeData.type === 'ror' || nodeData.type === 'tapsted') {
+             state.tC++;
+             newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
+        } else if (nodeData.type === 'retur') {
+             state.rC++;
+             newId = `Retur${state.rC}`;
+        } else if (nodeData.type === 'valve') {
+             valveCounter++;
+             newId = `V${valveCounter}`;
+        }
+        
+        const datalistId = `list-${newId}`;
+        
+        const newFx = newRootX + (nodeData.relX || 0);
+        const newFy = newRootY + (nodeData.relY || 0);
+        state.nodes.push({ id: newId, fx: newFx, fy: newFy });
+
+        const tr = document.createElement('tr');
+        tr.dataset.id = newId;
+        tr.dataset.type = nodeData.type;
+
+        // GENERER HTML BASERET PÅ TYPE
+        if (nodeData.type === 'ror') {
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+                <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
+                <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            // Indsæt data
+            tr.querySelector('.material').value = nodeData.material;
+            tr.querySelector('.location').value = nodeData.location;
+            tr.querySelector('.insulation-class').value = nodeData.insulation;
+            tr.querySelector('.len').value = nodeData.len;
+            tr.querySelector('.fittings').value = nodeData.fittings;
+            
+            const matSelect = tr.querySelector('.material');
+            matSelect.onchange = handleMaterialChange;
+            updateDimOptions(matSelect);
+            tr.querySelector('.dim').value = nodeData.dim;
+            
+            document.querySelector(`.streng-card[data-id="${targetStringId}"] .ror-container`).appendChild(tr);
+
+        } else if (nodeData.type === 'tapsted') {
+             let opts = ''; 
+             Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
+             Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
+
+             tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" title="Type">${opts}</select></td>
+                <td><input type="number" class="form-control form-control-sm qf" min="0" step="0.01" title="qf"></td>
+                <td><input type="number" class="form-control form-control-sm kote allow-negative" title="Kote"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Syst."></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            const tapSelect = tr.querySelector('.tapType');
+            let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === nodeData.tapType);
+            if (foundIdx !== -1) tapSelect.selectedIndex = foundIdx;
+            tr.querySelector('.qf').value = nodeData.qf;
+            tr.querySelector('.kote').value = nodeData.kote;
+            tr.querySelector('.syst').checked = nodeData.syst;
+            tr.dataset.isApartment = nodeData.isApartment;
+            
+            document.querySelector(`.streng-card[data-id="${targetStringId}"] .tapsted-container`).appendChild(tr);
+
+        } else if (nodeData.type === 'retur') {
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+                <td><select class="form-select form-select-sm location" title="Placering"><option value="heated">Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions" title="Isol."></td>
+                <td><input type="text" class="form-control form-control-sm dim-input dim" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                <td><input type="number" min="0" class="form-control form-control-sm len" title="Længde"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings" title="Zeta"></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            tr.querySelector('.material').value = nodeData.material;
+            tr.querySelector('.location').value = nodeData.location;
+            tr.querySelector('.insulation-class').value = nodeData.insulation;
+            tr.querySelector('.len').value = nodeData.len;
+            tr.querySelector('.fittings').value = nodeData.fittings;
+            
+            const matSelect = tr.querySelector('.material');
+            matSelect.onchange = handleMaterialChange;
+            updateDimOptions(matSelect);
+            tr.querySelector('.dim').value = nodeData.dim;
+            
+            document.getElementById('returContainerBody').appendChild(tr);
+
+        } else if (nodeData.type === 'valve') {
+             tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text"><svg width="14" height="14" fill="currentColor" class="bi bi-diamond-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.175.435a.636.636 0 0 1 .634-.14L8 1.442l1.191-.987a.636.636 0 0 1 .634.141l4.695 3.886a.636.636 0 0 1 .14.634l-.987 1.191 1.442.825a.636.636 0 0 1 .14.634l-3.886 4.695a.636.636 0 0 1-.634.14l-1.191-.987-1.191.987a.636.636 0 0 1-.634-.14l-4.695-3.886a.636.636 0 0 1-.14-.634l.987-1.191-1.442-.825a.636.636 0 0 1-.14-.634L6.175.435z"/></svg><span class="id-text ms-2">${newId} ...</span></span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+                <td><select class="form-select form-select-sm valve-type-select" title="Vælg ventiltype"></select></td>
+                <td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            `;
+            
+            const valveSelect = tr.querySelector('.valve-type-select');
+            let vOpts = '<option value="" disabled>Vælg type...</option>';
+            for (const typeName in VALVE_TYPES) vOpts += `<option value="${typeName}">${typeName}</option>`;
+            valveSelect.innerHTML = vOpts;
+            valveSelect.value = nodeData.valveType || "";
+            
+            valveSelect.onchange = (e) => {
+                const newType = e.target.value;
+                tr.dataset.valveType = newType;
+                tr.querySelector('.id-text').textContent = `${newId} (${newType.substring(0, 10)}...)`;
+            };
+            tr.dataset.valveType = nodeData.valveType;
+            tr.querySelector('.id-text').textContent = `${newId} (${(nodeData.valveType || "Vælg").substring(0, 10)}...)`;
+            
+            document.getElementById('returContainerBody').appendChild(tr);
+        }
+        
+        if(nodeData.name) {
+             state.names.set(newId, nodeData.name);
+             tr.querySelector('.name-text').value = nodeData.name;
+        }
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
+
+        const pSel = tr.querySelector('.parent');
+        const tempOpt = document.createElement('option');
+        tempOpt.value = parentId;
+        tempOpt.text = parentId;
+        pSel.add(tempOpt);
+        pSel.value = parentId;
+
+        if (nodeData.children) nodeData.children.forEach(child => buildNode(child, newId));
+    };
+
+    buildNode(state.clipboard, targetParentId);
+    updateAllSelects();
+    setProjektErÆndret();
+    if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
 
 function addRorSektion(btn) {
@@ -3379,16 +3892,13 @@ function beregnGlobalOptimering(config) {
     console.group("🚀 GLOBAL OPTIMERING START");
     const model = buildModel(config);
     
-    // Forbered data og kør analyse
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model);
 
-    // Sæt constraint type
     config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
     console.log(`Constraint Type: ${config.globalConstraintType}`);
     console.log(`Grænser: Max dp=${config.max_dp_m} Pa/m, Max v=${config.max_v_f} m/s`);
 
-    // Nulstil alle rør til mindste dimension
     console.log("Nulstiller alle rør til mindste dimension...");
     model.nodes.forEach(n => {
         if (n.type === 'ror' || n.type === 'retur') {
@@ -3398,65 +3908,68 @@ function beregnGlobalOptimering(config) {
     });
 
     let iterations = 0;
-    const maxIterations = 200;
+    const maxIterations = 10000;
     let optimized = false;
+    let finalLocalFailures = [];
+    let finalGlobalFailures = [];
 
     while (iterations < maxIterations) {
-        // Kør beregning
         calculateQd(model);
         calculatePressureDrop(model.tree, 'dp_tap', 'qd');
         
-        // Analyser resultatet
         const localFailures = findLocalFailures(model, config);
         const globalFailures = findFailingTapPoints(model, config);
         
-        // Debug-log for hver 10. iteration eller hvis vi er tæt på slutningen
-        if (iterations === 0 || iterations % 10 === 0 || localFailures.length === 0) {
-            console.log(`Iteration ${iterations}: Lokale fejl=${localFailures.length}, Globale fejl=${globalFailures.length}`);
+        if (iterations === 0 || iterations % 500 === 0 || localFailures.length === 0) {
+             // Logger lidt sjældnere nu hvor vi kører op til 10.000
+             console.log(`Iteration ${iterations}: Lokale fejl=${localFailures.length}, Globale fejl=${globalFailures.length}`);
         }
 
         if (localFailures.length === 0 && globalFailures.length === 0) {
-            console.log("✅ Ingen fejl fundet. Optimering færdig!");
+            console.log(`✅ Ingen fejl fundet efter ${iterations} iterationer. Optimering færdig!`);
             optimized = true;
             break; 
         }
+        
+        // Gem status til hvis vi timer ud
+        finalLocalFailures = localFailures;
+        finalGlobalFailures = globalFailures;
 
         let pipeToUpgradeId;
-        let reason = "";
 
         if (localFailures.length > 0) {
-            // Prioriter at rette lokale fejl
             const fail = localFailures[0];
             pipeToUpgradeId = fail.id;
-            reason = `Lokal fejl (${fail.type}: ${fail.value.toFixed(2)})`;
         } else {
-            // Hvis ingen lokale fejl, ret den værste globale fejl (tryk)
             const worstTap = globalFailures[0];
             const worstPath = getPathToTapPoint(model, worstTap.id);
             pipeToUpgradeId = findWorstOffendingPipe(model, worstPath);
-            reason = `Global fejl ved ${worstTap.id} (${(worstTap.pressure/1000).toFixed(1)} kPa fri). Opgraderer flaskehals.`;
         }
 
         if (pipeToUpgradeId) {
             const pipeNode = model.nodes.get(pipeToUpgradeId);
-            const oldDim = pipeNode.nom_dim;
             const success = upgradePipeDimension(pipeNode);
-            if (success) {
-                // console.log(`Opgraderer ${pipeToUpgradeId}: ${oldDim} -> ${pipeNode.nom_dim} mm. Grund: ${reason}`);
-            } else {
-                console.warn(`Kunne ikke opgradere ${pipeToUpgradeId} (allerede max). Stopper for at undgå uendeligt loop.`);
+            if (!success) {
+                console.warn(`Kunne ikke opgradere ${pipeToUpgradeId} (allerede max). Stopper.`);
                 break;
             }
         } else {
-            console.warn("Kunne ikke finde et rør at opgradere, selvom der er fejl. Stopper.");
+            console.warn("Kunne ikke finde et rør at opgradere. Stopper.");
             break;
         }
         iterations++;
     }
 
     if (!optimized) {
-        console.warn(`⚠️ Optimering stoppede efter ${iterations} iterationer. Løsning muligvis ikke fundet.`);
+        console.warn(`⚠️ Optimering stoppede efter ${iterations} iterationer. Løsning IKKE fundet.`);
     }
+
+    // Gem optimerings-status på modellen, så displayResults kan se den
+    model.optimizationInfo = {
+        converged: optimized,
+        iterations: iterations,
+        remainingErrors: finalLocalFailures.length + finalGlobalFailures.length
+    };
 
     // Kør afsluttende beregninger
     const pressureDropResult = findMaxPathDp(model.tree, config);
@@ -3476,6 +3989,7 @@ function beregnGlobalOptimering(config) {
     console.groupEnd();
     return model;
 }
+
 function findLocalFailures(model, config) {
     const failures = [];
     model.nodes.forEach(n => {
@@ -4183,6 +4697,8 @@ function handleNodeClick(event, d) {
  * Håndterer højre-klik på en node for at vise en kontekstmenu.
  * @param {object} event - Højreklik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
+ * Indeholder undermenuer og logik for alle komponenttyper.
+ * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel).
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -4200,122 +4716,184 @@ function handleNodeRightClick(event, d) {
     menu.style.padding = '5px 0';
     menu.style.zIndex = '1000';
 
-    const createMenuItem = (text, onClick) => {
+    // Helper til at lave menupunkter
+    const createMenuItem = (text, onClick, hasSubmenu = false) => {
         const item = document.createElement('div');
         item.textContent = text;
-        item.style.padding = '8px 15px';
-        item.style.cursor = 'pointer';
-        item.onmouseenter = () => item.style.backgroundColor = '#f2f2f2';
-        item.onmouseleave = () => item.style.backgroundColor = 'white';
-        item.onclick = () => {
-            onClick();
-            removeContextMenu();
-        };
-        menu.appendChild(item);
+        item.className = 'menu-item'; 
+        if (hasSubmenu) item.classList.add('has-submenu');
+        
+        if (onClick) {
+            item.onclick = (e) => {
+                e.stopPropagation(); 
+                onClick();
+                removeContextMenu();
+            };
+        }
+        return item;
     };
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
-    // Menu: "Forbind til..." (Sæt forælder)
+    // --- 1. FORBINDELSER (Fælles) ---
     if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
-        createMenuItem('Forbind til...', () => {
+        menu.appendChild(createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
-        });
+        }));
     }
-    // Menu: "Forbind til retur..." (Sæt cirkulationskobling)
     if (nodeType === 'ror') {
-        createMenuItem('Forbind til retur...', () => {
+        menu.appendChild(createMenuItem('Forbind til retur...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'return' };
             document.body.style.cursor = 'crosshair';
-        });
+        }));
     }
-    if (menu.hasChildNodes()) {
-        menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+    
+    if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+
+    // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
+    
+    // Opdel Rør (Gælder både fremløb og retur)
+    if (nodeType === 'ror' || nodeType === 'retur') {
+        menu.appendChild(createMenuItem('Opdel rør...', () => {
+            const segments = prompt("Antal segmenter rørstrekket skal opdeles i:", "2");
+            if (segments) {
+                const count = parseInt(segments, 10);
+                if (!isNaN(count) && count > 1) splitPipe(d.id, count);
+            }
+        }));
+        
+        // Kopier gren (Gælder nu både fremløb og retur)
+        menu.appendChild(createMenuItem('Kopier streng herfra', () => {
+            copyBranch(d.id);
+        }));
     }
-    // Menu: Tilføj fremløbskomponenter
+
+    // --- 3. INDSÆT (Paste) LOGIK ---
+    if (state.clipboard) {
+        const clipType = state.clipboard.type;
+        const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
+        const isReturnClip = ['retur', 'valve'].includes(clipType);
+
+        // SCENARIE A: Indsæt på Fremløbsrør (Submenu: I denne / Ny streng)
+        if (nodeType === 'ror' && isSupplyClip) {
+            const pasteItem = createMenuItem('Indsæt...', null, true);
+            
+            const submenu = document.createElement('div');
+            submenu.className = 'context-submenu';
+            
+            const subItem1 = document.createElement('div');
+            subItem1.className = 'menu-item';
+            subItem1.textContent = 'I denne streng';
+            subItem1.onclick = () => { pasteBranch(d.id, 'current'); removeContextMenu(); };
+            submenu.appendChild(subItem1);
+            
+            const subItem2 = document.createElement('div');
+            subItem2.className = 'menu-item';
+            subItem2.textContent = 'Som ny streng';
+            subItem2.onclick = () => { pasteBranch(d.id, 'new'); removeContextMenu(); };
+            submenu.appendChild(subItem2);
+            
+            pasteItem.appendChild(submenu);
+            menu.appendChild(pasteItem);
+        }
+        
+        // SCENARIE B: Indsæt på Retur/Ventil (Direkte: I denne streng)
+        else if ((nodeType === 'retur' || nodeType === 'valve') && isReturnClip) {
+             menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
+                pasteBranch(d.id, 'current');
+            }));
+        }
+        
+        // SCENARIE C: Indsæt på Beholder (Kun ny streng hvis fremløb, ellers direkte hvis retur)
+        else if (nodeType === 'beholder') {
+            if (isSupplyClip) {
+                 menu.appendChild(createMenuItem('Indsæt som ny streng', () => {
+                    pasteBranch(d.id, 'new'); 
+                }));
+            } else if (isReturnClip) {
+                 menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
+                    pasteBranch(d.id, 'current');
+                }));
+            }
+        }
+    }
+    
+    if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
+         menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
+    }
+
+    // --- 4. TILFØJ KOMPONENTER MANUELT ---
+    
+    // Fremløb
     if (nodeType === 'ror') {
-        createMenuItem('Tilføj rør her', () => {
+        menu.appendChild(createMenuItem('Tilføj rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
                 const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
-                if (!addRorButton) { console.error("Could not find 'Add Rør' button"); return; }
-                
-                addRorSektion(addRorButton); // Tilføjer en ny <tr>
-                
-                const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror"]:last-child');
-                if (newPipe) { 
-                    newPipe.querySelector('.parent').value = parentId; 
-                    updateAllSelects(); 
+                if (addRorButton) {
+                    addRorSektion(addRorButton);
+                    const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror"]:last-child');
+                    if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
                 }
             }
-        });
-        createMenuItem('Tilføj tapsted her', () => {
+        }));
+        menu.appendChild(createMenuItem('Tilføj tapsted her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
             if (strengCard) {
                 const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
-                if (!addTapstedButton) { console.error("Could not find 'Add Tapsted' button"); return; }
-
-                addTapsted(addTapstedButton); // Tilføjer en ny <tr>
-                
-                const newTapsted = strengCard.querySelector('.tapsted-container > tr[data-type="tapsted"]:last-child');
-                if (newTapsted) { 
-                    newTapsted.querySelector('.parent').value = parentId; 
-                    updateAllSelects(); 
+                if (addTapstedButton) {
+                    addTapsted(addTapstedButton);
+                    const newTap = strengCard.querySelector('.tapsted-container > tr[data-type="tapsted"]:last-child');
+                    if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
                 }
             }
-        });
+        }));
     }
-    // Menu: Tilføj ny streng
+
+    // Ny Streng (Fra Beholder eller Rør)
     if (nodeType === 'beholder' || nodeType === 'ror') {
-        createMenuItem('Tilføj ny streng herfra', () => {
+        menu.appendChild(createMenuItem('Tilføj ny streng herfra', () => {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
                 const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror"]');
-                if (firstPipe) { 
-                    firstPipe.querySelector('.parent').value = d.id; 
-                    updateAllSelects(); 
-                }
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
-        });
+        }));
     }
-    // Menu: Tilføj retur-komponenter
+
+    // Retur komponenter
     if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
-        createMenuItem('Tilføj retur-rør her', () => {
-            addReturRor(); // Tilføjer en ny <tr> til returContainerBody
-            const newReturRor = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child'); // Finder den nye række
-            if (newReturRor) {
-                newReturRor.querySelector('.parent').value = d.id; // Sætter forælder til den klikkede node (d.id)
-                updateAllSelects();
-            }
-        });
-        createMenuItem('Tilføj Cirkulationsventil her', () => {
-            addValve(); // Tilføjer en ny <tr> til returContainerBody
-            const newValve = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child'); // Finder den nye række
-            if (newValve) {
-                newValve.querySelector('.parent').value = d.id; // Sætter forælder til den klikkede node (d.id)
-                updateAllSelects();
-            }
-        });
+        menu.appendChild(createMenuItem('Tilføj retur-rør her', () => {
+            addReturRor();
+            const newEl = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child');
+            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+        }));
+        menu.appendChild(createMenuItem('Tilføj Cirkulationsventil her', () => {
+            addValve();
+            const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
+            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+        }));
     }
-    // Menu: Slet komponent
+
+    // --- 5. SLET (Alle undtagen Beholder) ---
     if (nodeType !== 'beholder') {
-        if (menu.hasChildNodes() && !menu.querySelector('hr')) {
+        if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
              menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
         }
-        createMenuItem('Slet Komponent', () => {
-            // Finder elementet, uanset om det er en <tr> (rør/tapsted/retur/ventil) eller en <div> (gammel/andet)
+        menu.appendChild(createMenuItem('Slet Komponent', () => {
             const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
             if (element) {
+                // Vi leder efter knappen med aria-label "Fjern..."
                 const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
                 if (uiDeleteButton) uiDeleteButton.click();
             }
-        });
+        }));
     }
     
     if (menu.hasChildNodes()) {
@@ -4323,7 +4901,7 @@ function handleNodeRightClick(event, d) {
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
 }
-	
+
 /**
  * Fjerner kontekstmenuen fra siden.
  */
