@@ -466,6 +466,10 @@
                 <input class="form-check-input" type="radio" name="visMode" id="visVarmetab" value="heat_loss" onclick="updateDiagramStyles()">
                 <label class="form-check-label" for="visVarmetab">Varmetab (W/m)</label>
             </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visTemp" value="temp" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visTemp">Temperatur (°C)</label>
+            </div>
              <div class="vr"></div>
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" role="switch" id="visLegend" onclick="updateLegend()" checked>
@@ -2524,6 +2528,7 @@ function finishCalculation(model, config) {
         document.getElementById('advarsler').innerHTML = `<p class="alert alert-danger">Beregningen fejlede.</p>`;
         return;
     }
+    calculateTemperatures(model, config);
     syncModelToState(model);
     state.lastConfig = config;
     displayResults(model, config);
@@ -2984,6 +2989,8 @@ function calculateCirculationDP(model, config) {
     return model;
 }
 
+
+
 function getPath(model, startId, endId) {
     const path = new Set();
     let current = model.nodes.get(startId);
@@ -3024,6 +3031,71 @@ function solveBeholder(model) {
         document.getElementById('beregnetEffekt').textContent = (beregnetEffekt * N).toFixed(1);
         document.getElementById('userEffekt').value = '';
     }
+}
+
+function calculateTemperatures(model, config) {
+    const HEAT_CAPACITY_FACTOR = 4121; 
+    model.nodeTemps = new Map();
+
+    // --- FREMLØB (Forward calculation) ---
+    // Starter ved beholder med T_v
+    function traverseSupply(nodeId, currentTemp) {
+        model.nodeTemps.set(nodeId, currentTemp);
+        const node = model.nodes.get(nodeId);
+        if (!node || !node.children) return;
+
+        node.children.forEach(child => {
+            if (child.type === 'ror') {
+                // Flow i dette rør (cirkulation + evt. tapning, men her ser vi på cirkulationstilstanden)
+                // Vi bruger KUN cirkulationsflowet til at beregne temperaturfaldet i "ventetilstand"
+                const flow = model.circFlows.get(child.id) || 0;
+                let nextTemp = currentTemp;
+
+                if (flow > 0.0001) {
+                    const q_tab = child.q_tab || 0;
+                    const dt = q_tab / (flow * HEAT_CAPACITY_FACTOR);
+                    nextTemp = currentTemp - dt;
+                }
+                traverseSupply(child.id, nextTemp);
+            } else {
+                // Tapsteder og andet arver temperaturen
+                traverseSupply(child.id, currentTemp);
+            }
+        });
+    }
+    traverseSupply('Beholder', config.T_v);
+
+    // --- RETUR (Approksimation) ---
+    // Vi beregner retur-temperaturer ved at se på loops
+    model.loops.forEach(loop => {
+        // Start-temp for retur er slut-temp for fremløb
+        let t = model.nodeTemps.get(loop.startNodeId);
+        
+        // Traverser retur-stien (som er gemt i loop.path, men den indeholder også fremløb)
+        // Vi skal finde segmenterne i retur-delen
+        // Enklere: Vi finder retur-noderne i loopet
+        const returnNodes = loop.path.filter(id => {
+            const n = model.nodes.get(id);
+            return n && (n.type === 'retur' || n.type === 'valve');
+        });
+        
+        // Beregn temperaturfald gennem retur
+        returnNodes.forEach(nodeId => {
+            const n = model.nodes.get(nodeId);
+            const flow = model.circFlows.get(nodeId) || 0;
+            
+            // Sæt temperatur hvis den ikke allerede er sat (eller tag den laveste hvis flere loops mødes)
+            const existingT = model.nodeTemps.get(nodeId);
+            if (existingT === undefined || t < existingT) {
+                model.nodeTemps.set(nodeId, t);
+            }
+            
+            if (flow > 0.0001 && n.q_tab) {
+                const dt = n.q_tab / (flow * HEAT_CAPACITY_FACTOR);
+                t -= dt;
+            }
+        });
+    });
 }
 
 function interpolate(x, x_pts, y_pts) {
@@ -4173,37 +4245,74 @@ function updateDiagramStyles() {
 function applyColorGradient(mode) {
     const model = state.lastModel;
     let values = [];
+    
     model.nodes.forEach(n => {
         if ((n.type === 'ror' || n.type === 'retur') && n.L > 0 && n.nom_dim) {
             let value;
-            if (mode === 'velocity') {
-                const flow = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
-                const d_i = ID[n.material][n.nom_dim];
-                value = (flow / 1000) / (Math.PI * (d_i / 2000) ** 2);
-            } else if (mode === 'pressure_drop') {
-                const dp = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
-                value = dp / n.L;
-            } else if (mode === 'heat_loss') {
-                value = (n.q_tab || 0) / n.L;
+            
+            if (mode === 'temp') {
+                // Hent temperatur. Hvis den ikke findes, brug T_v (fejlsikring)
+                // Vi bruger gennemsnittet af indløb og udløb for at farve røret
+                const t_in = model.nodeTemps ? (model.nodeTemps.get(n.id) || 0) : 0;
+                // Estimer t_out til visualisering
+                let t_out = t_in;
+                // Genberegn lille dt for at få præcis farve
+                if (mode === 'temp') {
+                     const flow = model.circFlows.get(n.id) || 0;
+                     if (flow > 0.0001) {
+                         const dt = (n.q_tab || 0) / (flow * 4121);
+                         t_out = t_in - dt;
+                     }
+                }
+                value = (t_in + t_out) / 2;
+                
+                // Skaf værdier til legende
+                if (value > 0) values.push(value);
+                n._visValue = value;
+
+            } else {
+                // ... (Eksisterende logik for velocity, pressure_drop, heat_loss) ...
+                if (mode === 'velocity') {
+                    // ... (din eksisterende kode)
+                    const flow = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+                    const d_i = ID[n.material][n.nom_dim];
+                    value = (flow / 1000) / (Math.PI * (d_i / 2000) ** 2);
+                } else if (mode === 'pressure_drop') {
+                    const dp = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+                    value = dp / n.L;
+                } else if (mode === 'heat_loss') {
+                    value = (n.q_tab || 0) / n.L;
+                }
+                n._visValue = value;
+                if (isFinite(value)) values.push(value);
             }
-            n._visValue = value;
-            if (isFinite(value)) values.push(value);
         }
     });
 
     if (values.length === 0) return;
-    const domain = d3.extent(values);
-    if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
-    if (!domain[0] && !domain[1]) return;
-
-    const colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
+    
+    let colorScale;
+    
+    if (mode === 'temp') {
+        // Speciel farveskala for temperatur: Rød (Varm) -> Blå (Kold)
+        // Vi sætter domænet fra T_v ned til T_v - dT - buffer
+        // F.eks. 55 -> 48 grader.
+        const maxTemp = d3.max(values) || 55;
+        const minTemp = d3.min(values) || 45;
+        
+        // Turbo er god, men måske omvendt (Rød høj, Blå lav)
+        colorScale = d3.scaleSequential(d3.interpolateTurbo).domain([minTemp, maxTemp]); 
+    } else {
+        const domain = d3.extent(values);
+        if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
+        colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
+    }
     
     d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
       .style('stroke', d => {
           const node = model.nodes.get(d.target.id);
           return node && isFinite(node._visValue) ? colorScale(node._visValue) : '#ccc';
       });
-      // Linjen, der satte stroke-width, er fjernet herfra
 }
 
 function highlightCriticalPath() {
@@ -4251,7 +4360,7 @@ function updateLegend() {
         if (nodesWithValues.length > 0) {
             const minVal = d3.min(nodesWithValues, n => n._visValue);
             const maxVal = d3.max(nodesWithValues, n => n._visValue);
-            const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m'};
+            const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m', temp: '°C'};
             html = `
                 <div class="d-flex justify-content-between">
                     <span>${minVal.toFixed(2)}</span>
