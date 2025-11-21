@@ -224,6 +224,9 @@
             <div class="col-md-4"><label class="form-label" for="max_v_f">Max v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Max Hastighed (Fremløb)" data-bs-content="Maksimal tilladt vandhastighed (m/s) i fremløbsrør. Anvendes af 'Design Mode'. Høje hastigheder kan medføre støj og korrosion. Jf. DS 439:2024, afsnit 5.4 og Tabel 10.">(?)</a></label><div class="input-group"><input id="max_v_f" type="number" min="0" value="1.0" class="form-control"><span class="input-group-text">m/s</span></div></div>
             <div class="col-md-4"><label class="form-label" for="min_v_f">Min v Fremløb <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="bottom" data-bs-title="Min Hastighed (Fremløb)" data-bs-content="Mindste ønskede vandhastighed (m/s) i fremløbsrør for at sikre turbulent strømning og modvirke biofilm. Jf. DS 439:2024, afsnit 5.5.14.">(?)</a></label><div class="input-group"><input id="min_v_f" type="number" min="0" step="0.1" value="0.5" class="form-control"><span class="input-group-text">m/s</span></div></div>
             <div class="col-md-6"><label class="form-label" for="fittings_pct">Generelt tillæg for fittings (DS 439) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Fittings tillæg (%)" data-bs-content="Procentvist tillæg til det rene rørtryktab for at dække enkeltmodstande (bøjninger, T-stykker), hvis disse ikke indtastes specifikt som Zeta. DS 439 anbefaler 25%, hvis specifikke data mangler.">(?)</a></label><div class="input-group"><input id="fittings_pct" type="number" min="0" class="form-control" value="25" placeholder="F.eks. 25"><span class="input-group-text">%</span></div></div>
+            <div class="col-md-6"><label class="form-label" for="heat_loss_pct">Tillæg til varmetab (Kuldebroer) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmetabstillæg (%)" data-bs-content="Ekstra procenttillæg til det beregnede varmetab for at dække tab fra rørbæringer, ventiler og uisolerede komponenter. DS 452 anbefaler typisk 15% indvendigt og 25% udvendigt, hvis det ikke beregnes specifikt.">(?)</a></label><div class="input-group"><input id="heat_loss_pct" type="number" min="0" class="form-control" value="20" placeholder="F.eks. 20"><span class="input-group-text">%</span>
+    </div>
+</div>
         </div>
     </div>
 
@@ -2339,7 +2342,8 @@ function getGlobalConfig() {
         T_omg_ude: parseFloat(document.getElementById('T_omg_ude')?.value) || 5,
         dT: parseFloat(document.getElementById('dT')?.value) || 5,
         lambda: parseFloat(document.getElementById('lambda')?.value) || 0.037,
-        fittings_pct: parseFloat(document.getElementById('fittings_pct')?.value) || 0, // NY LINJE
+        fittings_pct: parseFloat(document.getElementById('fittings_pct')?.value) || 0,
+        heat_loss_pct: parseFloat(document.getElementById('heat_loss_pct')?.value) || 0,
         isAuto: document.getElementById('autoDimToggle')?.checked || false,
         dimPrinciple: document.getElementById('dimPrinciple')?.value || 'combined',
         max_dp_m: parseFloat(document.getElementById('max_dp_m')?.value) || 150,
@@ -2874,20 +2878,27 @@ function findMaxPathDp(startNode, config) { //'config' tilføjes for at få adga
 
 // OPDATERET FUNKTION: Bruger den præcist beregnede u_value_per_meter
 function calculateHeatLoss(model, config) {
+    // Hent varmetabstillæg fra config, standard til 0 hvis det mangler
+    const allowance_factor = 1 + ((config.heat_loss_pct || 0) / 100);
+
     model.nodes.forEach(n => {
         if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
             let T_ambient;
+            // Bestem omgivelsestemperatur
             if (n.location === 'outside') {
                 T_ambient = config.T_omg_ude;
             } else {
-                T_ambient = config.T_omg_inde; // "heated" og "unheated" bruger begge T_omg_inde
+                T_ambient = config.T_omg_inde; // "heated" og "unheated" bruger begge T_omg_inde i din nuværende model
             }
             
-            // Brug den unikke, beregnede U-værdi pr. meter (nu beregnet i calculateInsulation)
-            // Sørg for at u_value_per_meter er et gyldigt tal
+            // Brug den unikke, beregnede U-værdi pr. meter
             const u_value = (typeof n.u_value_per_meter === 'number' && isFinite(n.u_value_per_meter)) ? n.u_value_per_meter : 0;
             
-            n.q_tab = u_value * n.L * (config.T_v - T_ambient);
+            // Beregn basis varmetab
+            const base_heat_loss = u_value * n.L * (config.T_v - T_ambient);
+            
+            // Påfør tillægget (for bæringer, ventiler, samlinger etc.)
+            n.q_tab = base_heat_loss * allowance_factor;
         }
     });
     return model;
