@@ -2556,31 +2556,41 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // Beregn flow først
+    // 1. Beregn flow i fremløb (Spidslast)
     calculateQd(model);
     
-    // NYT: Kør topologi-analyse FØR dimensionering
-    // Vi skal sikre at stier (paths) er beregnet for at analysen kan finde retur-loops
+    // 2. Analyser systemet (find hovedrør/grenrør for farvekoder)
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model); 
-    // ----------------------------------------------------------------
 
+    // 3. Dimensioner fremløb (hvis auto)
     if (config.isAuto) dimensionFremløb(model, config);
     
-calculatePressureDrop(model.tree, 'dp_tap', 'qd', config); 
+    // 4. Beregn tryktab i fremløb
+    calculatePressureDrop(model.tree, 'dp_tap', 'qd', config); 
     
+    // 5. Find kritisk vej (til resttryk)
     const pressureDropResult = findMaxPathDp(model.tree, config);
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
     
-    for (let i = 0; i < 3; i++) {
+    // 6. CIRKULATIONS BEREGNING (Andelsprincippet)
+    // a. Beregn isoleringstykkelser baseret på nuværende dimensioner
+    calculateInsulation(model, config);
+    
+    // b. Kør den store cirkulations-motor
+    // (Denne funktion indeholder nu iterationen for Varmetab <-> Flow <-> Dimension)
+    calculateCirculationFlows(model, config);
+    
+    // c. Opdater isolering og varmetab en sidste gang
+    // Hvis rørstørrelserne ændrede sig under cirkulationsberegningen, skal vi sikre,
+    // at U-værdier og Varmetab (til visning) passer til de nye rør.
+    if (config.isAuto) {
         calculateInsulation(model, config);
         calculateHeatLoss(model, config);
-        calculateCirculationFlows(model, config);
-        calculateCirculationFlowsAggregation(model);
-        if (config.isAuto) dimensionRetur(model, config);
     }
 
+    // 7. Validering og afslutning
     if (!validateCirculationLoops(model, advarslerDiv)) return null;
     
     calculateCirculationDP(model, config);
@@ -2905,20 +2915,12 @@ function calculateHeatLoss(model, config) {
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
 
-    // Konstant: rho * cp for vand (ca. 4121 J/(L*K))
-    // Formel: q [l/s] = Phi [W] / (4121 * dT)
-    const HEAT_CAPACITY_FACTOR = 4121; 
+    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
 
-    // TRIN 1: KORTLÆGNING (Hvem deler hvad?)
-    // Nulstil loop-tællere på alle noder
+    // TRIN 1: KORTLÆGNING
     model.nodes.forEach(n => n.loopCount = 0);
-
-    // Gennemgå alle loops for at tælle belastningen på hvert rør
     model.loops.forEach(l => {
-        // Sikr at stien er opdateret
         l.path = getPath(model, l.startNodeId, l.endNodeId);
-        
-        // For hvert rør i stien, tæl 1 op
         l.path.forEach(nodeId => {
             const node = model.nodes.get(nodeId);
             if (node && (node.type === 'ror' || node.type === 'retur')) {
@@ -2927,54 +2929,43 @@ function calculateCirculationFlows(model, config) {
         });
     });
 
-    // TRIN 2: ITERATION (Dimensionering <-> Varmetab <-> Flow)
-    // Vi kører dette i en løkke, da ændret flow kan ændre rørdimension (hvis Auto),
-    // hvilket ændrer varmetabet, hvilket ændrer flowet...
-    // 3 gennemløb er typisk nok til konvergens.
+    // TRIN 2: BEREGNING (Kører iterativt for at stabilisere auto-dimensionering)
+    // Hvis vi ikke kører auto-dim, er 1 gang nok.
     const iterations = config.isAuto ? 3 : 1;
 
     for (let i = 0; i < iterations; i++) {
-        
-        // A. Beregn varmetab for alle rør (baseret på nuværende dimensioner)
-        // Vi kalder den eksisterende funktion, som inkluderer dine tillæg (25% etc.)
+        // A. Opdater varmetab (hvis dimensioner har ændret sig)
         calculateHeatLoss(model, config);
 
-        // B. Fordel varmetabet (Andelsprincippet)
+        // B. Fordel varmetab og beregn flow
         model.loops.forEach(l => {
             let weightedHeatLossSum = 0;
-
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
-                // Hvis det er et rør med varmetab
                 if (node && (node.type === 'ror' || node.type === 'retur') && node.q_tab > 0) {
-                    // Andelen er TotalTab / AntalLoops
-                    // Hvis 10 strenge deler røret, betaler denne streng 1/10 af varmetabet.
+                    // Andelsprincippet: Del rørets tab med antallet af loops
                     const share = node.q_tab / (node.loopCount || 1);
                     weightedHeatLossSum += share;
                 }
             });
-
-            // Gem det vægtede tab på loopet (dette er den energi, dette loop SKAL levere)
             l.q_tab_tot = weightedHeatLossSum;
 
-            // C. Beregn Flow
-            // q = Q_vægtet / (c * rho * dT)
+            // C. Beregn Flow (Uden * 1000 fejl!)
+            // l/s = W / (4121 * K)
             l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
             
-            // Sikkerhed: Minimum flow for at undgå stillestående vand i meget korte strenge
-            if (l.circ_flow < 0.002) l.circ_flow = 0.002; 
+            // Minimumsflow for at undgå beregningsfejl (0.002 l/s = 7.2 l/h)
+            if (l.circ_flow < 0.002) l.circ_flow = 0.002;
         });
 
-        // D. Summer flow i fælles rør (til brug for dimensionering)
+        // D. Summer flow
         calculateCirculationFlowsAggregation(model);
 
-        // E. Dimensioner Returrør (kun hvis Auto er valgt)
-        // Dette vil ændre dimensioner baseret på det nye flow, hvilket påvirker varmetabet i næste trin.
+        // E. Opdater dimensioner (kun hvis auto)
         if (config.isAuto) {
             dimensionRetur(model, config);
         }
     }
-    
     return model;
 }
 
@@ -4456,7 +4447,7 @@ function beregnGlobalOptimering(config) {
     console.log(`Constraint Type: ${config.globalConstraintType}`);
     console.log(`Grænser: Max dp=${config.max_dp_m} Pa/m, Max v=${config.max_v_f} m/s, Fittings+=${config.fittings_pct}%`);
 
-    console.log("Nulstiller alle rør til mindste dimension...");
+    // Nulstil til mindste dimensioner før start
     model.nodes.forEach(n => {
         if (n.type === 'ror' || n.type === 'retur') {
             const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
@@ -4464,6 +4455,7 @@ function beregnGlobalOptimering(config) {
         }
     });
 
+    // --- OPTIMERINGS LOOP (Fremløb) ---
     let iterations = 0;
     const maxIterations = 10000;
     let optimized = false;
@@ -4473,17 +4465,12 @@ function beregnGlobalOptimering(config) {
     while (iterations < maxIterations) {
         calculateQd(model);
         
-        // ÆNDRET: Sender config med her, så fittings-tillæg indregnes i totaltrykket under optimeringen
+        // Husk config i calculatePressureDrop for at få fittings-tillæg med
         calculatePressureDrop(model.tree, 'dp_tap', 'qd', config);
         
-        // findLocalFailures har allerede config som argument, så den er OK (hvis du har opdateret funktionen ovenfor)
         const localFailures = findLocalFailures(model, config);
         const globalFailures = findFailingTapPoints(model, config);
         
-        if (iterations === 0 || iterations % 500 === 0 || localFailures.length === 0) {
-             console.log(`Iteration ${iterations}: Lokale fejl=${localFailures.length}, Globale fejl=${globalFailures.length}`);
-        }
-
         if (localFailures.length === 0 && globalFailures.length === 0) {
             console.log(`✅ Ingen fejl fundet efter ${iterations} iterationer. Optimering færdig!`);
             optimized = true;
@@ -4507,19 +4494,15 @@ function beregnGlobalOptimering(config) {
         if (pipeToUpgradeId) {
             const pipeNode = model.nodes.get(pipeToUpgradeId);
             const success = upgradePipeDimension(pipeNode);
-            if (!success) {
-                console.warn(`Kunne ikke opgradere ${pipeToUpgradeId} (allerede max). Stopper.`);
-                break;
-            }
+            if (!success) break; // Kan ikke opgradere mere
         } else {
-            console.warn("Kunne ikke finde et rør at opgradere. Stopper.");
-            break;
+            break; // Fandt ingen rør at opgradere
         }
         iterations++;
     }
 
     if (!optimized) {
-        console.warn(`⚠️ Optimering stoppede efter ${iterations} iterationer. Løsning IKKE fundet.`);
+        console.warn(`⚠️ Optimering stoppede efter ${iterations} iterationer.`);
     }
 
     model.optimizationInfo = {
@@ -4528,23 +4511,25 @@ function beregnGlobalOptimering(config) {
         remainingErrors: finalLocalFailures.length + finalGlobalFailures.length
     };
 
-    // Kør afsluttende beregninger
-    // ÆNDRET: Sender config med i sidste gennemløb også
+    // --- AFSLUTTENDE BEREGNINGER (Samme logik som beregnStandard) ---
+    
+    // 1. Kritisk vej
     const pressureDropResult = findMaxPathDp(model.tree, config);
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
     
-    for (let i = 0; i < 3; i++) {
-        calculateInsulation(model, config);
-        calculateHeatLoss(model, config);
-        calculateCirculationFlows(model, config);
-        calculateCirculationFlowsAggregation(model);
-        dimensionRetur(model, config);
-    }
+    // 2. CIRKULATION (Opdateret til at bruge Andelsprincippet)
+    calculateInsulation(model, config); // Initiel isolering
     
-    // ÆNDRET: Sender config med til cirkulationsberegningen
+    // Her kalder vi motoren, der håndterer varmetab -> flow -> dimensionering
+    calculateCirculationFlows(model, config);
+    
+    // Opdater til sidst for visningens skyld
+    calculateInsulation(model, config);
+    calculateHeatLoss(model, config);
+    
+    // 3. Pumper og Beholder
     calculateCirculationDP(model, config);
-    
     calculateBeholder(model);
 
     console.groupEnd();
