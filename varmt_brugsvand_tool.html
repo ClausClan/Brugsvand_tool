@@ -2909,39 +2909,33 @@ function calculateHeatLoss(model, config) {
 }
 
 // =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (Robust Iterativ Termodynamik)
+// == 4. VANDMÆNGDE BEREGNING (Ratio-baseret Balancering)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
     
-    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K) (rho * cp)
-    const MIN_FLOW = 0.005; // l/s (Sikrer mod 0-flow fejl)
+    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
+    const MIN_FLOW = 0.002; // l/s (Meget lavt, men ikke 0)
     
-    // Måltemperatur for returvandet (Normkrav: min 50 grader)
-    // Vi bruger T_v - dT som mål, men sikrer at den aldrig er under 50 i logikken hvis T_v er høj.
-    // Eller vi holder os strengt til brugerens dT valg:
+    // Måltemperatur for returvandet (typisk 50 grader ved 55 frem)
     const targetReturnTemp = config.T_v - config.dT;
 
-    // TRIN 1: Initialt gæt (Worst-case fordeling)
+    // TRIN 1: Initialisering (Start med et gennemsnitligt gæt)
     model.loops.forEach(l => {
-        // Find varmetabet i strengen (inkl. tillæg)
         l.path = getPath(model, l.startNodeId, l.endNodeId);
         l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
-        
-        // Start med et rimelig højt flow for at undgå "kold start" problemer
-        // Vi antager at vi har 2 grader til rådighed som startgæt
-        l.circ_flow = Math.max(MIN_FLOW, l.q_tab_tot / (HEAT_CAPACITY_FACTOR * 2) * 1000);
+        // Startgæt: Antag at vi har 5 grader til rådighed overalt
+        l.circ_flow = Math.max(MIN_FLOW, l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT) * 1000);
     });
 
-    // Intern funktion til temperatur-simulering
+    // Intern funktion til at beregne temperaturer i netværket
     function calcTempInternal() {
         const nodeTemps = new Map();
         nodeTemps.set('Beholder', config.T_v);
         
-        // VIGTIGT: Opdater hovedrørenes flow baseret på de nye loop-flows
-        calculateCirculationFlowsAggregation(model);
+        calculateCirculationFlowsAggregation(model); // Opdater summerede flows
 
-        // Traverser Fremløb (Beholder -> ud)
+        // Traverser fra Beholder og ud
         function traverse(nodeId, currentTemp) {
             nodeTemps.set(nodeId, currentTemp);
             const node = model.nodes.get(nodeId);
@@ -2949,25 +2943,24 @@ function calculateCirculationFlows(model, config) {
 
             node.children.forEach(child => {
                 if (child.type === 'ror') {
-                    // Hent det aggregerede flow i dette rørsegment
                     const flow = model.circFlows.get(child.id) || 0;
                     let nextTemp = currentTemp;
                     
-                    if (flow > 0.00001) {
-                        // Beregn temperaturfald: dT = Q / (m * cp)
-                        let dt = (child.q_tab || 0) / (flow * HEAT_CAPACITY_FACTOR);
-                        
-                        // CLAMPING: Forhindrer absurde temperaturfald i iterationen
-                        // Vandet kan aldrig blive koldere end omgivelserne + 1 grad
-                        // (Dette forhindrer de 1.63 grader fejl)
-                        if ((currentTemp - dt) < config.T_omg_inde) {
-                            dt = currentTemp - config.T_omg_inde;
-                        }
+                    // Beregn temperaturfald i dette rørsegment
+                    if (flow > 0.000001) {
+                        const dt = (child.q_tab || 0) / (flow * HEAT_CAPACITY_FACTOR);
                         nextTemp = currentTemp - dt;
+                    } else {
+                        // Ved 0 flow falder temperaturen mod omgivelsestemperaturen
+                        // (Simpel lineær approksimation for døde ender i denne beregning)
+                        nextTemp = currentTemp - 0.5; 
                     }
+                    
+                    // Sikkerhedsventil: Vandet kan ikke blive koldere end rummet
+                    if (nextTemp < config.T_omg_inde) nextTemp = config.T_omg_inde;
+                    
                     traverse(child.id, nextTemp);
                 } else {
-                    // Tapsteder mm. arver temperaturen
                     traverse(child.id, currentTemp);
                 }
             });
@@ -2976,50 +2969,88 @@ function calculateCirculationFlows(model, config) {
         return nodeTemps;
     }
 
-    // TRIN 2: Iteration (Balance)
-    // Vi kører flere iterationer for at lade systemet "svinge ind" på plads
-    const iterations = 20; 
+    // TRIN 2: Iterations-løkke
+    // Vi kører 25 gange for at sikre stabilitet
+    const iterations = 25; 
 
     for (let i = 0; i < iterations; i++) {
-        // A. Beregn aktuelle temperaturer i hele nettet med nuværende flows
         const temps = calcTempInternal();
 
-        // B. Juster flow for hver streng baseret på energibalance
         model.loops.forEach(l => {
-            // Hvad er temperaturen ved indgangen til denne streng?
-            // (Altså der hvor den kobles på hovedstrengen)
-            const tempIn = temps.get(l.startNodeId);
+            // 1. Find temperaturen ved indløbet til denne streng (hvor den kobles på hovedledningen)
+            const t_in = temps.get(l.startNodeId);
+            // 2. Find temperaturen ved udløbet (før den rammer returledningen)
+            // Bemærk: I din model er 'startNodeId' faktisk det fjerneste punkt (circ-start), 
+            // og 'endNodeId' er koblingen på returen.
+            // Vent, lad os tjekke definitionen i getPath:
+            // "path" er ruten. Vi skal finde varmetabet specifikt for denne strengs rør.
+            // Men temperaturfaldet sker i flow-retningen.
             
-            if (tempIn === undefined) return;
+            // I din model: Fremløb går fra Beholder -> startNodeId (circ-start).
+            // Retur går fra startNodeId -> endNodeId -> Beholder.
+            
+            // Vi skal regulere flowet, så temperaturen ved retur-tilslutningen (endNodeId) eller
+            // ved beholderen er 50 grader?
+            // Normen siger: Ingen steder under 50. Det mest kritiske punkt er typisk ved 'circ-start',
+            // da returrøret derefter blandes med varmere vand fra andre strenge tættere på beholderen.
+            // Men hvis returrøret er langt, taber det også varme.
+            
+            // LOGIK: Vi styrer efter, at temperaturen ved 'circ-start' (fjerneste punkt) skal være
+            // præcis så høj, at den kan tåle at løbe hjem til beholderen uden at gå under 50.
+            // MEN den simpleste og mest robuste metode i denne type beregning er:
+            // Sigt efter at temperaturen ved 'circ-start' er (ReturnTempTarget + lille margin).
+            // Hvis vi sætter målet til T_v - dT (f.eks. 50C) ved 'circ-start', er vi sikre.
+            
+            // Faktisk temperatur ved strengens slutning (circ-start)
+            const actualTempAtEnd = temps.get(l.startNodeId); 
+            
+            if (actualTempAtEnd === undefined) return;
 
-            // Hvor meget varme må vi tabe?
-            // Available Drop = Temp_Ind - Mål_Retur
-            let availableDrop = tempIn - targetReturnTemp;
+            // Hvad er det faktiske temperaturfald fra beholderen til dette punkt?
+            const actualDrop = config.T_v - actualTempAtEnd;
+            
+            // Hvad er det tilladte temperaturfald?
+            // Vi vil gerne lande på 50 grader. (dvs. drop = 5)
+            // Men hvis indløbet til strengen allerede er 51 grader, har vi kun 1 grad tilbage.
+            // Dette håndteres automatisk af modellen, da actualTempAtEnd er resultatet af hele kæden.
+            
+            // Ratio-logik:
+            // Hvis actualDrop er 0.2 (meget varmt vand), og targetDrop er 5.0:
+            // Vi skal have temperaturfaldet til at være 25 gange større.
+            // Da dT = Q / m, skal vi gøre m (flowet) 25 gange MINDRE.
+            // NyFlow = GammeltFlow * (ActualDrop / TargetDrop)
+            // NyFlow = GammeltFlow * (0.2 / 5.0) = GammeltFlow * 0.04.
+            
+            // Hvis actualDrop er 10 (meget koldt vand, 45 grader):
+            // NyFlow = GammeltFlow * (10 / 5) = GammeltFlow * 2.
+            
+            let ratio = actualDrop / config.dT;
 
-            // CRITICAL FIX: Hvis hovedrøret allerede har tabt så meget varme, 
-            // at vi er tæt på målet, skal vi pumpe MEGET vand.
-            // Vi sætter en minimums "sikkerhedsmargin" på 0.5 grader for at undgå uendeligt flow.
-            if (availableDrop < 0.5) {
-                availableDrop = 0.5; 
-            }
-
-            // Beregn det nødvendige flow rent fysisk: m = Q / (cp * dt_available)
-            // Vi ganger med 1000 for at få l/s
-            const requiredFlow = (l.q_tab_tot / (HEAT_CAPACITY_FACTOR * availableDrop)) * 1000;
-
-            // C. Dæmpning (Relaxation)
-            // Vi tager ikke det fulde spring på én gang for at undgå oscillering
-            // 40% nyt gæt, 60% gammelt gæt er en stabil blanding
-            const dampedFlow = (l.circ_flow * 0.6) + (requiredFlow * 0.4);
-
-            // D. Sæt grænser
-            l.circ_flow = Math.max(MIN_FLOW, dampedFlow);
+            // 3. CLAMPING (Sikkerhedsbremse)
+            // For at undgå at systemet går i selvsving (0 -> uendelig), begrænser vi ændringen
+            // pr. trin til max 20% op eller 20% ned (faktor 0.8 til 1.2) i starten, 
+            // men her tillader vi større spring med dæmpning.
+            
+            // Vi forhindrer ratio i at blive 0 eller uendelig
+            if (ratio < 0.01) ratio = 0.01;
+            if (ratio > 5.0) ratio = 5.0;
+            
+            // 4. DÆMPNING (Relaxation)
+            // Vi bruger en "blød" opdatering: New = Old * 0.5 + Calculated * 0.5
+            const calculatedFlow = l.circ_flow * ratio;
+            
+            // Er det for varmt (ratio < 1)? Sænk flow.
+            // Er det for koldt (ratio > 1)? Hæv flow.
+            
+            // Vi anvender dæmpning for stabilitet
+            l.circ_flow = (l.circ_flow * 0.7) + (calculatedFlow * 0.3);
+            
+            // Sørg for minimumsflow
+            if (l.circ_flow < MIN_FLOW) l.circ_flow = MIN_FLOW;
         });
     }
 
-    // Kør en sidste aggregering for at sikre at model.circFlows er opdateret til display
     calculateCirculationFlowsAggregation(model);
-    
     return model;
 }
 
