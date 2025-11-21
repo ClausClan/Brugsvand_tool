@@ -2924,7 +2924,7 @@ function calculateHeatLoss(model, config) {
 
 
 // =============================================================================
-// == 4. VANDMÆNGDE & DIMENSIONERING (KONVERGENS-BASERET)
+// == 4. VANDMÆNGDE & DIMENSIONERING (TOTAL OPTIMERING)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
@@ -2932,11 +2932,11 @@ function calculateCirculationFlows(model, config) {
     const HEAT_CAPACITY_FACTOR = 4121; 
     const MIN_FLOW = 0.005; 
     const targetDrop = config.dT; 
-    const maxIterations = 50; // Sikkerhedsstop
+    const maxIterations = 50; 
     
-    console.group("🚀 DEBUG: Cirkulation Konvergens-Loop");
+    console.group("🚀 DEBUG: Cirkulation & Retur-Optimering");
 
-    // TRIN 1: Initialt gæt (Baseret på nuværende rør)
+    // TRIN 1: Initialt gæt (Varmetabs-basis)
     calculateHeatLoss(model, config);
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
@@ -2953,119 +2953,129 @@ function calculateCirculationFlows(model, config) {
         let changesMade = false;
         let maxTempDeviation = 0;
 
-        // A. Opdater aggregerede flows (nødvendigt for både dimensionering og temp-beregning)
+        // A. Aggregering: Beregn totalt flow i alle fælles rør (hovedrør)
         calculateCirculationFlowsAggregation(model);
 
-        // B. Tjek og Opdater Dimensioner (Retur)
-        // Hvis tryktabet er for højt med det nuværende flow, skal vi opgradere røret.
-        // Hvis røret opgraderes, ændres varmetabet -> flowet skal justeres i næste trin.
+        // B. DIMENSIONERING AF RETUR (Optimering til grænsen)
         if (config.isAuto) {
             let dimsChanged = false;
             
             model.nodes.forEach(n => {
                 if (n.type !== 'retur') return;
                 
+                // Hent totalt flow i dette rør (inkl. alle strenge der løber igennem)
                 const flow = model.circFlows.get(n.id) || 0;
                 const mat = n.material;
                 const currentDim = n.nom_dim;
+                
+                // Sorter dimensioner fra lille til stor
                 const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
                 
-                // Find den mindste dimension, der overholder krav til v og dp
-                let newDim = sortedDims[sortedDims.length - 1]; // Start med største
-                
+                // Find den optimale dimension
+                let bestDim = null;
+
                 for (const dim of sortedDims) {
                     const d_i = ID[mat][dim] / 1000;
                     const area = Math.PI * (d_i / 2) ** 2;
+                    
+                    // 1. Tjek Hastighed
                     const v = (flow / 1000) / area;
-                    // Beregn dp/m (friktion + fittings)
+                    
+                    // 2. Tjek Tryktab pr. meter (Friktion + Fittings tillæg)
+                    // Vi bruger 1 meter som længde for at få Pa/m
                     const dp_m = getDP(flow, d_i, RH[mat] / 1000, 1, 0, config.fittings_pct);
                     
-                    if (v < config.max_v_c && dp_m < config.max_dp_m) {
-                        newDim = dim;
-                        break;
+                    // OVERHOLDER VI GRÆNSERNE?
+                    if (v <= config.max_v_c && dp_m <= config.max_dp_m) {
+                        bestDim = dim;
+                        break; // Stop ved første (mindste) gyldige rør
                     }
                 }
 
-                if (newDim !== currentDim) {
-                    n.nom_dim = newDim;
+                // Fallback: Hvis intet rør er stort nok, vælg det største
+                if (bestDim === null) {
+                    bestDim = sortedDims[sortedDims.length - 1];
+                }
+
+                // Hvis vi ændrede størrelse
+                if (bestDim !== currentDim) {
+                    n.nom_dim = bestDim;
                     dimsChanged = true;
-                    changesMade = true; // Vi skal køre en runde mere
+                    changesMade = true;
+                    // Log kun store ændringer i hovedrør for overblik
+                    if (flow > 0.5) {
+                         console.log(`Optimering: Hovedrør ${n.id} ændret til ${bestDim}mm (Flow: ${flow.toFixed(3)} l/s)`);
+                    }
                 }
             });
 
-            // Hvis dimensioner ændrede sig, genberegn isolering og varmetab
+            // Hvis dimensioner ændrede sig, skal varmetabet genberegnes
+            // (Større rør = større overflade = mere varmetab = behov for mere flow)
             if (dimsChanged) {
                 calculateInsulation(model, config);
                 calculateHeatLoss(model, config);
             }
         }
 
-        // C. Tjek og Juster Temperatur (Flow)
+        // C. TEMPERATUR-STYRET FLOW JUSTERING
         model.loops.forEach(l => {
             let actualPathDrop = 0;
 
-            // Beregn faktisk temperaturtab gennem hele strengen
+            // Beregn det faktiske temperaturfald gennem hele strengen
+            // baseret på de aktuelle rørstørrelser og flows
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
                 if (node && (node.type === 'ror' || node.type === 'retur')) {
                     const totalFlow = model.circFlows.get(nodeId);
                     if (totalFlow > 0.000001) {
+                        // dT = Watt / (Flow * Konstant)
                         const segmentDrop = node.q_tab / (totalFlow * HEAT_CAPACITY_FACTOR);
                         actualPathDrop += segmentDrop;
                     }
                 }
             });
 
-            // Gem til debug
             l._debugDrop = actualPathDrop;
 
-            // Beregn afvigelse
-            const diff = actualPathDrop - targetDrop; // Positiv = For koldt (Tab > Mål)
+            // Tjek om vi rammer målet (dT)
+            const diff = actualPathDrop - targetDrop;
             if (Math.abs(diff) > maxTempDeviation) maxTempDeviation = Math.abs(diff);
 
-            // Juster flow (Proportional regulator med dæmpning)
-            // Hvis diff > 0.05 (dvs mere end 0.05 grader forkert), juster vi.
+            // Juster flowet hvis vi afviger mere end 0.05 grader
             if (Math.abs(diff) > 0.05) {
                 let correction = actualPathDrop / targetDrop;
                 
-                // Sikkerhedsgrænser for korrektion (for at undgå eksplosion)
+                // Begræns korrektionen for at undgå "svingninger"
                 if (correction > 2.0) correction = 2.0;
                 if (correction < 0.5) correction = 0.5;
 
                 const newFlow = l.circ_flow * correction;
-                
-                // Dæmpet opdatering
                 l.circ_flow = (l.circ_flow * 0.6) + (newFlow * 0.4);
+                
                 if (l.circ_flow < MIN_FLOW) l.circ_flow = MIN_FLOW;
                 
-                changesMade = true; // Vi er ikke færdige endnu
+                changesMade = true;
             }
         });
 
-        // Log status hver 5. iteration eller ved slut
-        if (iteration % 5 === 0 || !changesMade) {
-            console.log(`Iter ${iteration}: Max temp afvigelse: ${maxTempDeviation.toFixed(3)} K. Ændringer? ${changesMade ? 'Ja' : 'Nej'}`);
-        }
-
-        // Stop kriterie: Ingen ændringer i dimensioner OG temperaturafvigelse < 0.05 K
+        // Stop kriterier
         if (!changesMade && maxTempDeviation < 0.05) {
             converged = true;
         }
     }
 
-    // Afsluttende opdatering
+    // Final opdatering
     calculateCirculationFlowsAggregation(model);
     
     if (converged) {
-        console.log(`✅ Konvergeret efter ${iteration} iterationer.`);
+        console.log(`✅ System optimeret og i balance efter ${iteration} iterationer.`);
     } else {
-        console.warn(`⚠️ Ikke konvergeret efter ${maxIterations} iterationer. Resultater kan være upræcise.`);
+        console.warn(`⚠️ Max iterationer nået. Afvigelse: ${maxTempDeviation?.toFixed(3)} K`);
     }
     console.groupEnd();
     
     return model;
 }
-
 
 function calculateCirculationFlowsAggregation(model) {
     model.circFlows = new Map();
