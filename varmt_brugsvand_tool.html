@@ -2333,35 +2333,35 @@ function validateInputs(config) {
 }
 
 function getGlobalConfig() {
+    // Hjælper til sikker parsing
+    const getVal = (id, def) => {
+        const el = document.getElementById(id);
+        const val = parseFloat(el ? el.value : def);
+        return isNaN(val) ? def : val;
+    };
+
     return {
         projectName: document.getElementById('projectName')?.value || '',
-        pln: parseFloat(document.getElementById('pln')?.value) || 0,
-        min_tap_tryk: parseFloat(document.getElementById('min_tap_tryk')?.value) || 0,
-        T_v: parseFloat(document.getElementById('T_v')?.value) || 55,
-        T_omg_inde: parseFloat(document.getElementById('T_omg')?.value) || 20,
-        T_omg_ude: parseFloat(document.getElementById('T_omg_ude')?.value) || 5,
-        dT: parseFloat(document.getElementById('dT')?.value) || 5,
-        lambda: parseFloat(document.getElementById('lambda')?.value) || 0.037,
-        fittings_pct: parseFloat(document.getElementById('fittings_pct')?.value) || 0,
-        heat_loss_pct: parseFloat(document.getElementById('heat_loss_pct')?.value) || 0,
+        pln: getVal('pln', 400000),
+        min_tap_tryk: getVal('min_tap_tryk', 100000),
+        T_v: getVal('T_v', 55),
+        T_omg_inde: getVal('T_omg', 20),
+        T_omg_ude: getVal('T_omg_ude', 5),
+        dT: getVal('dT', 5),
+        lambda: getVal('lambda', 0.037),
+        
+        // Her sikrer vi at tillæggene kommer med. Standard er 25% og 20% hvis feltet er tomt.
+        fittings_pct: getVal('fittings_pct', 25), 
+        heat_loss_pct: getVal('heat_loss_pct', 20),
+
         isAuto: document.getElementById('autoDimToggle')?.checked || false,
         dimPrinciple: document.getElementById('dimPrinciple')?.value || 'combined',
-        max_dp_m: parseFloat(document.getElementById('max_dp_m')?.value) || 150,
-        max_v_f: parseFloat(document.getElementById('max_v_f')?.value) || 1.5,
-        min_v_f: parseFloat(document.getElementById('min_v_f')?.value) || 0.5,
-        max_v_c: parseFloat(document.getElementById('max_v_c')?.value) || 1.5,
-        forsyningens_kote: parseFloat(document.getElementById('forsyningens_kote')?.value) || 0
+        max_dp_m: getVal('max_dp_m', 150),
+        max_v_f: getVal('max_v_f', 1.5),
+        min_v_f: getVal('min_v_f', 0.5),
+        max_v_c: getVal('max_v_c', 1.5),
+        forsyningens_kote: getVal('forsyningens_kote', 0)
     };
-	// Aflæs hvilken grænse der er valgt for global optimering
-    if (config.dimPrinciple === 'global_pressure') {
-        const constraintRadio = document.querySelector('input[name="globalConstraint"]:checked');
-        if (constraintRadio) {
-            config.globalConstraintType = constraintRadio.value;
-        } else {
-            config.globalConstraintType = 'pressure_drop'; // Default
-        }
-    }
-    return config;
 }
 
 function buildModel(config) {
@@ -2796,8 +2796,8 @@ function dimensionRetur(model, config) {
 function calculatePressureDrop(startNode, dp_prop, flow_prop, config) {
     if ((startNode.type === 'ror' || startNode.type === 'retur') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
-        // Hent fittings_pct fra config, default til 0 hvis undefined
-        const pct = config && config.fittings_pct ? config.fittings_pct : 0;
+        // Hent fittings tillæg
+        const pct = config && config.fittings_pct !== undefined ? config.fittings_pct : 0;
         
         startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct);
     }
@@ -2808,16 +2808,13 @@ function calculatePressureDrop(startNode, dp_prop, flow_prop, config) {
 function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0) {
     if(!flow_ls || flow_ls < 0.0001) return 0;
     
-    // Beregn hastighed og Reynolds tal
     const v = (flow_ls/1000)/(Math.PI*(d_inner/2)**2); 
     const Re = RHO*v*d_inner/MU;
     
-    // Beregn lambda (friktionskoefficient)
     let lambda = 0.02;
     if (Re < 2300) { 
         lambda = 64 / Re;
     } else { 
-        // Colebrook-White iteration
         for(let i=0; i<10; i++) { 
             let f=1/Math.sqrt(lambda); 
             f=-2*Math.log10(roughness/(3.7*d_inner)+2.51/(Re*f)); 
@@ -2827,13 +2824,13 @@ function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0) {
 
     const dynamic_pressure = RHO * v**2 / 2;
     
-    // Beregn friktionstab i lige rør
+    // 1. Rent rørtab
     const pipe_friction_loss = lambda * (L / d_inner) * dynamic_pressure;
     
-    // Påfør procenttillæg PÅ rørfriktionen (DS 439 metode for "generelt tillæg")
+    // 2. Tillæg for fittings (Procent af rørtab)
     const pipe_friction_with_allowance = pipe_friction_loss * (1 + (fittings_pct / 100));
     
-    // Beregn tab i enkeltmodstande (specifikke zeta værdier)
+    // 3. Enkeltmodstande (Zeta)
     const fittings_loss = zeta * dynamic_pressure;
 
     return pipe_friction_with_allowance + fittings_loss;
@@ -2878,26 +2875,28 @@ function findMaxPathDp(startNode, config) { //'config' tilføjes for at få adga
 
 // OPDATERET FUNKTION: Bruger den præcist beregnede u_value_per_meter
 function calculateHeatLoss(model, config) {
-    // Hent varmetabstillæg fra config, standard til 0 hvis det mangler
-    const allowance_factor = 1 + ((config.heat_loss_pct || 0) / 100);
+    // Beregn tillægsfaktor. F.eks. 20% -> 1.20
+    const allowance_pct = config.heat_loss_pct || 0;
+    const allowance_factor = 1 + (allowance_pct / 100);
+
+    console.log(`Beregner varmetab med tillæg: ${allowance_pct}% (Faktor: ${allowance_factor})`); // Debug i konsol
 
     model.nodes.forEach(n => {
         if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
             let T_ambient;
-            // Bestem omgivelsestemperatur
             if (n.location === 'outside') {
                 T_ambient = config.T_omg_ude;
             } else {
-                T_ambient = config.T_omg_inde; // "heated" og "unheated" bruger begge T_omg_inde i din nuværende model
+                T_ambient = config.T_omg_inde; 
             }
             
-            // Brug den unikke, beregnede U-værdi pr. meter
+            // Hent U-værdi (beregnet i calculateInsulation)
             const u_value = (typeof n.u_value_per_meter === 'number' && isFinite(n.u_value_per_meter)) ? n.u_value_per_meter : 0;
             
-            // Beregn basis varmetab
+            // 1. Beregn fysisk varmetab
             const base_heat_loss = u_value * n.L * (config.T_v - T_ambient);
             
-            // Påfør tillægget (for bæringer, ventiler, samlinger etc.)
+            // 2. Påfør tillæg (Kuldebroer m.m.)
             n.q_tab = base_heat_loss * allowance_factor;
         }
     });
@@ -2908,7 +2907,12 @@ function calculateCirculationFlows(model, config) {
     if(config.dT <= 0) return model;
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
+        
+        // Summer q_tab (som nu indeholder varmetabstillægget)
         l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
+        
+        // Beregn flow: q = P / (rho * c * dT)
+        // Da q_tab_tot er højere pga. tillægget, SKAL circ_flow blive højere.
         l.circ_flow = l.q_tab_tot / (RHO*C*config.dT) * 1000;
     });
     return model;
