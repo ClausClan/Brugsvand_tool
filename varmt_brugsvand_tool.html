@@ -2908,18 +2908,126 @@ function calculateHeatLoss(model, config) {
     return model;
 }
 
+// =============================================================================
+// == 4. VANDMÆNGDE BEREGNING (Iterativ Temperatur-afbalancering)
+// =============================================================================
 function calculateCirculationFlows(model, config) {
-    if(config.dT <= 0) return model;
+    if (config.dT <= 0) return model;
+    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
+
+    // TRIN 1: Initialt gæt (Standard metode)
+    // Vi starter med den simple beregning for at have et udgangspunkt
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
-        
-        // Summer q_tab (som nu indeholder varmetabstillægget)
         l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
-        
-        // Beregn flow: q = P / (rho * c * dT)
-        // Da q_tab_tot er højere pga. tillægget, SKAL circ_flow blive højere.
-        l.circ_flow = l.q_tab_tot / (RHO*C*config.dT) * 1000;
+        l.circ_flow = l.q_tab_tot / (RHO * C * config.dT) * 1000; // l/s
+        // Sikkerhedsventil: Minimum flow for at undgå stagnation i starten
+        if (l.circ_flow < 0.005) l.circ_flow = 0.005; 
     });
+
+    // Vi skal bruge en intern hjælpefunktion til at beregne temperaturer 
+    // (Ligner calculateTemperatures, men returnerer data vi kan bruge her)
+    function calcTempInternal() {
+        const nodeTemps = new Map();
+        nodeTemps.set('Beholder', config.T_v);
+        
+        // Aggreger flow først, så vi kender flow i hovedrør
+        calculateCirculationFlowsAggregation(model);
+
+        // Traverser Fremløb
+        function traverse(nodeId, currentTemp) {
+            nodeTemps.set(nodeId, currentTemp);
+            const node = model.nodes.get(nodeId);
+            if (!node || !node.children) return;
+
+            node.children.forEach(child => {
+                if (child.type === 'ror') {
+                    const flow = model.circFlows.get(child.id) || 0;
+                    let nextTemp = currentTemp;
+                    if (flow > 0.00001) {
+                        const dt = (child.q_tab || 0) / (flow * HEAT_CAPACITY_FACTOR);
+                        nextTemp = currentTemp - dt;
+                    }
+                    traverse(child.id, nextTemp);
+                } else {
+                    traverse(child.id, currentTemp);
+                }
+            });
+        }
+        traverse('Beholder', config.T_v);
+        return nodeTemps;
+    }
+
+    // TRIN 2: Iteration (Balance)
+    // Vi kører en række loops for at finjustere flowet
+    const iterations = 15; // Nok til at stabilisere
+    const targetReturnTemp = config.T_v - config.dT; // F.eks. 55 - 5 = 50 grader
+
+    for (let i = 0; i < iterations; i++) {
+        // A. Beregn aktuelle temperaturer med nuværende flow
+        const temps = calcTempInternal();
+
+        // B. Juster flow for hver streng
+        model.loops.forEach(l => {
+            // Find temperaturen ved starten af returløbet (venderøret)
+            // Dette er temperaturen, når vandet har passeret hele fremløbet ud til strengen
+            // Da vi antager minimalt tab i returrøret (eller at dT skal holdes over hele kredsen),
+            // kigger vi på temperaturen ved det punkt, hvor strengen vender (startNodeId).
+            
+            const actualTempAtTurn = temps.get(l.startNodeId);
+            
+            // Hvis vi ikke har data, spring over
+            if (actualTempAtTurn === undefined) return;
+
+            // Beregn det aktuelle temperaturfald over hele strengen
+            // NB: Vi fokuserer på at returtemperaturen (som her approksimeres ved vendepunktet minus returtab)
+            // skal ramme målet.
+            // En simplere og meget robust metode er:
+            // Se på temperaturfaldet fra Beholder -> Vendepunkt.
+            // Vi ønsker at (T_beholder - T_vendepunkt) + (T_tab_retur) = dT.
+            
+            // Men den simple regulator-metode virker bedst:
+            // Beregn det aktuelle fald:
+            const currentDrop = config.T_v - actualTempAtTurn;
+            
+            // Vi skal også huske varmetabet i returløbet (l.zeta er fittings, vi har brug for q_tab for retur-delen)
+            // Vi estimerer retur-tabet som en andel eller beregner det præcist.
+            // For nu, lad os justere baseret på, at T_vendepunkt skal være lidt højere end 50 grader,
+            // så der er plads til at tabe lidt i returen. 
+            // Eller mere korrekt: Vi justerer flowet proportionalt med afvigelsen.
+            
+            // Vi bruger hele kredsens varmetab (l.q_tab_tot) og den aktuelle temperatur ved vendepunktet
+            // til at estimere, hvor meget mere/mindre vand vi skal bruge.
+            
+            // Regulator: NewFlow = OldFlow * (ActualDrop / TargetDrop)
+            // Men vi skal tage højde for retur-tabet. 
+            // Lad os sige, at vi vil have T_retur_mix = 50. 
+            // Det er svært at ramme præcist uden at simulere retur-blanding.
+            
+            // En robust tilnærmelse, der løser problemet med "kolde strenge tæt på":
+            // Vi justerer flowet, så temperaturen ved vendepunktet (før retur) ikke er for lav.
+            
+            // Hvis strengen er tæt på: Hovedrøret er varmt. currentDrop er lille.
+            // Men hov, problemet var, at flowet var for lille, så grenrøret blev koldt.
+            // Så actualTempAtTurn vil være LAV (f.eks. 45 grader), dvs. currentDrop er HØJT (10 grader).
+            // Formel: 10 / 5 = 2. Vi skal bruge dobbelt så meget vand. Det virker!
+            
+            // Hvis strengen er langt væk: Hovedrøret har tabt varme.
+            // Men flowet er højt.
+            
+            // Vi tilføjer en dæmpningsfaktor (0.5) for ikke at oscillere for voldsomt
+            let ratio = currentDrop / (config.dT * 0.9); // Vi sigter lidt højere temp (0.9 * dT) for at kompensere for returtab
+            
+            // Begræns justeringen pr. trin for stabilitet
+            ratio = Math.max(0.5, Math.min(2.0, ratio));
+            
+            l.circ_flow = l.circ_flow * ratio;
+        });
+    }
+
+    // Kør en sidste aggregering for at gemme de endelige flows i modellen
+    calculateCirculationFlowsAggregation(model);
+    
     return model;
 }
 
