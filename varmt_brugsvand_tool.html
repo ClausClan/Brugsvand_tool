@@ -2909,16 +2909,20 @@ function calculateHeatLoss(model, config) {
     return model;
 }
 
+
 // =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (ANDELSPRINCIPPET / VÆGTET VARMETAB)
+// == 4. VANDMÆNGDE BEREGNING (MED DEBUG / SLADREHANKE)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
 
     const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
+    console.group("🕵️‍♂️ DEBUG: Cirkulationsberegning Start");
+    console.log(`Konfiguration: dT = ${config.dT} K, T_v = ${config.T_v} °C`);
 
     // TRIN 1: KORTLÆGNING
     model.nodes.forEach(n => n.loopCount = 0);
+    
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
         l.path.forEach(nodeId => {
@@ -2929,46 +2933,77 @@ function calculateCirculationFlows(model, config) {
         });
     });
 
-    // TRIN 2: BEREGNING (Kører iterativt for at stabilisere auto-dimensionering)
-    // Hvis vi ikke kører auto-dim, er 1 gang nok.
+    // Tjek: Hvor mange loops deler hovedrøret fra beholderen?
+    const mainPipeId = model.nodes.get('Beholder').children.find(c => c.type === 'ror')?.id;
+    if (mainPipeId) {
+        const mainPipe = model.nodes.get(mainPipeId);
+        console.log(`INFO: Hovedrøret '${mainPipeId}' deles af ${mainPipe.loopCount} loops.`);
+    }
+
+    // TRIN 2: ITERATION
     const iterations = config.isAuto ? 3 : 1;
 
     for (let i = 0; i < iterations; i++) {
-        // A. Opdater varmetab (hvis dimensioner har ændret sig)
+        console.groupCollapsed(`🔄 Iteration ${i + 1} af ${iterations}`);
+        
+        // A. Beregn varmetab
         calculateHeatLoss(model, config);
 
-        // B. Fordel varmetab og beregn flow
+        // B. Fordel og Beregn
+        let totalSystemHeatLoss = 0;
+        let totalCalculatedFlow = 0;
+
         model.loops.forEach(l => {
             let weightedHeatLossSum = 0;
+            let rawHeatLossSum = 0; // Det fulde tab uden deling (til kontrol)
+            let pipeCount = 0;
+
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
-                if (node && (node.type === 'ror' || node.type === 'retur') && node.q_tab > 0) {
-                    // Andelsprincippet: Del rørets tab med antallet af loops
-                    const share = node.q_tab / (node.loopCount || 1);
-                    weightedHeatLossSum += share;
+                if (node && (node.type === 'ror' || node.type === 'retur')) {
+                    const q = node.q_tab || 0;
+                    rawHeatLossSum += q;
+                    if (q > 0) {
+                        const share = q / (node.loopCount || 1);
+                        weightedHeatLossSum += share;
+                        pipeCount++;
+                    }
                 }
             });
-            l.q_tab_tot = weightedHeatLossSum;
 
-            // C. Beregn Flow (Uden * 1000 fejl!)
-            // l/s = W / (4121 * K)
-            l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
+            l.q_tab_tot = weightedHeatLossSum; // Det er denne vi dimensionerer efter
             
-            // Minimumsflow for at undgå beregningsfejl (0.002 l/s = 7.2 l/h)
+            // Beregn Flow
+            l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
             if (l.circ_flow < 0.002) l.circ_flow = 0.002;
+
+            totalSystemHeatLoss += l.q_tab_tot;
+            totalCalculatedFlow += l.circ_flow;
+
+            // SLADREHANK for hver streng
+            console.log(`Streng ${l.id}:
+            - Rørsegmenter i loop: ${pipeCount}
+            - Fuldt Varmetab (hvis alene): ${rawHeatLossSum.toFixed(1)} W
+            - Vægtet Varmetab (Andel): ${l.q_tab_tot.toFixed(1)} W
+            - Beregnet Flow: ${l.circ_flow.toFixed(4)} l/s (${(l.circ_flow*3600).toFixed(1)} l/h)`);
         });
+
+        console.log(`>> TOTAL SYSTEM: Varmetab (sum af andele) = ${totalSystemHeatLoss.toFixed(1)} W`);
+        console.log(`>> TOTAL SYSTEM: Flow (sum af strenge) = ${totalCalculatedFlow.toFixed(4)} l/s`);
 
         // D. Summer flow
         calculateCirculationFlowsAggregation(model);
 
-        // E. Opdater dimensioner (kun hvis auto)
+        // E. Dimensioner
         if (config.isAuto) {
             dimensionRetur(model, config);
         }
+        console.groupEnd();
     }
+    
+    console.groupEnd();
     return model;
 }
-
 function calculateCirculationFlowsAggregation(model) {
     model.circFlows = new Map();
     model.loops.forEach(l => {
