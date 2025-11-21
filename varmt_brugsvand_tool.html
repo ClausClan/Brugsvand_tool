@@ -2900,37 +2900,80 @@ function calculateHeatLoss(model, config) {
 }
 
 // =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (KORREKT DS 439 METODE)
+// == 4. VANDMÆNGDE BEREGNING (ANDELSPRINCIPPET / VÆGTET VARMETAB)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
 
-    // Specifik varmekapacitet * densitet for vand ved 55 grader.
-    // 4184 J/kgK * 0.985 kg/L = ca 4121 J/(L*K)
+    // Konstant: rho * cp for vand (ca. 4121 J/(L*K))
+    // Formel: q [l/s] = Phi [W] / (4121 * dT)
     const HEAT_CAPACITY_FACTOR = 4121; 
 
-    // Nulstil flows
-    model.circFlows = new Map();
+    // TRIN 1: KORTLÆGNING (Hvem deler hvad?)
+    // Nulstil loop-tællere på alle noder
+    model.nodes.forEach(n => n.loopCount = 0);
 
+    // Gennemgå alle loops for at tælle belastningen på hvert rør
     model.loops.forEach(l => {
-        // 1. Find ruten
+        // Sikr at stien er opdateret
         l.path = getPath(model, l.startNodeId, l.endNodeId);
-
-        // 2. Beregn samlet varmetab for denne strengs rute (W)
-        // Dette inkluderer allerede dine tillæg fra calculateHeatLoss
-        l.q_tab_tot = l.path.reduce((sum, id) => {
-            const node = model.nodes.get(id);
-            return sum + (node?.q_tab || 0);
-        }, 0);
-
-        // 3. Beregn nødvendigt flow (l/s)
-        // Formel: Effekt (W) / (4121 * DeltaT)
-        // FEJLEN VAR HER: Der blev ganget med 1000 igen. Det er fjernet nu.
-        l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
+        
+        // For hvert rør i stien, tæl 1 op
+        l.path.forEach(nodeId => {
+            const node = model.nodes.get(nodeId);
+            if (node && (node.type === 'ror' || node.type === 'retur')) {
+                node.loopCount = (node.loopCount || 0) + 1;
+            }
+        });
     });
 
-    // 4. Summer flows i fælles rør
-    calculateCirculationFlowsAggregation(model);
+    // TRIN 2: ITERATION (Dimensionering <-> Varmetab <-> Flow)
+    // Vi kører dette i en løkke, da ændret flow kan ændre rørdimension (hvis Auto),
+    // hvilket ændrer varmetabet, hvilket ændrer flowet...
+    // 3 gennemløb er typisk nok til konvergens.
+    const iterations = config.isAuto ? 3 : 1;
+
+    for (let i = 0; i < iterations; i++) {
+        
+        // A. Beregn varmetab for alle rør (baseret på nuværende dimensioner)
+        // Vi kalder den eksisterende funktion, som inkluderer dine tillæg (25% etc.)
+        calculateHeatLoss(model, config);
+
+        // B. Fordel varmetabet (Andelsprincippet)
+        model.loops.forEach(l => {
+            let weightedHeatLossSum = 0;
+
+            l.path.forEach(nodeId => {
+                const node = model.nodes.get(nodeId);
+                // Hvis det er et rør med varmetab
+                if (node && (node.type === 'ror' || node.type === 'retur') && node.q_tab > 0) {
+                    // Andelen er TotalTab / AntalLoops
+                    // Hvis 10 strenge deler røret, betaler denne streng 1/10 af varmetabet.
+                    const share = node.q_tab / (node.loopCount || 1);
+                    weightedHeatLossSum += share;
+                }
+            });
+
+            // Gem det vægtede tab på loopet (dette er den energi, dette loop SKAL levere)
+            l.q_tab_tot = weightedHeatLossSum;
+
+            // C. Beregn Flow
+            // q = Q_vægtet / (c * rho * dT)
+            l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
+            
+            // Sikkerhed: Minimum flow for at undgå stillestående vand i meget korte strenge
+            if (l.circ_flow < 0.002) l.circ_flow = 0.002; 
+        });
+
+        // D. Summer flow i fælles rør (til brug for dimensionering)
+        calculateCirculationFlowsAggregation(model);
+
+        // E. Dimensioner Returrør (kun hvis Auto er valgt)
+        // Dette vil ændre dimensioner baseret på det nye flow, hvilket påvirker varmetabet i næste trin.
+        if (config.isAuto) {
+            dimensionRetur(model, config);
+        }
+    }
     
     return model;
 }
@@ -3046,10 +3089,10 @@ function solveBeholder(model) {
 }
 
 function calculateTemperatures(model, config) {
-    const HEAT_CAPACITY_FACTOR = 4121; 
+    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K) - Samme konstant som i beregningen
     model.nodeTemps = new Map();
 
-    // --- FREMLØB (Forward pass) ---
+    // --- FREMLØB (Beregner det fysiske temperaturfald ud gennem systemet) ---
     function traverseSupply(nodeId, currentTemp) {
         model.nodeTemps.set(nodeId, currentTemp);
         const node = model.nodes.get(nodeId);
@@ -3057,60 +3100,67 @@ function calculateTemperatures(model, config) {
 
         node.children.forEach(child => {
             if (child.type === 'ror') {
+                // Vi bruger det aggregerede flow (summen af alle loops i dette rør)
                 const flow = model.circFlows.get(child.id) || 0;
                 let nextTemp = currentTemp;
 
-                // Hvis der er flow, beregn temperaturfaldet
-                if (flow > 0.000001) {
-                    const q_tab = child.q_tab || 0;
-                    // dT = W / (l/s * 4121)
+                // Hvis der er flow, beregn temperaturfaldet fysisk: dT = Q / (m * c)
+                if (flow > 0.00001) {
+                    const q_tab = child.q_tab || 0; // Dette varmetab indeholder dine 25% tillæg
                     const dt = q_tab / (flow * HEAT_CAPACITY_FACTOR);
+                    
                     nextTemp = currentTemp - dt;
+                    
+                    // Fysisk sikkerhed: Kan ikke blive koldere end rummet
+                    if(nextTemp < config.T_omg_inde) nextTemp = config.T_omg_inde;
                 } else {
-                    // Ingen flow (døde ender) antager vi falder til rumtemperatur over tid
-                    // eller holder temp for visualiseringens skyld (her lader vi den falde lidt)
-                    nextTemp = currentTemp - 0.1;
+                    // Ingen cirkulation her (døde ender til tapsteder)
+                    // Vi lader temperaturen falde lidt for syns skyld
+                    nextTemp = currentTemp - 0.5;
                 }
-                
-                // Sikring: Kan ikke blive koldere end rummet
-                if(nextTemp < config.T_omg_inde) nextTemp = config.T_omg_inde;
-                
                 traverseSupply(child.id, nextTemp);
             } else {
+                // Tapsteder arver temperaturen fra røret
                 traverseSupply(child.id, currentTemp);
             }
         });
     }
-    // Start med fremløbstemperatur (T_v)
+    // Start ved beholderen med T_v (fx 55 grader)
     traverseSupply('Beholder', config.T_v);
 
-    // --- RETUR (Visualisering) ---
-    // Sætter temperaturen i returløbet baseret på, hvad der kommer ud af strengen
+
+    // --- RETUR (Visualisering af returløbet) ---
+    // Vi forbinder loop-enden visuelt med beholderen
     model.loops.forEach(loop => {
-        let t = model.nodeTemps.get(loop.startNodeId); // Temp ved vendepunktet
+        // Temperaturen ved "vendepunktet" (hvor fremløb bliver til retur)
+        let t = model.nodeTemps.get(loop.startNodeId); 
         
+        // Find alle retur-komponenter i dette loop
         const returnNodes = loop.path.filter(id => {
             const n = model.nodes.get(id);
             return n && (n.type === 'retur' || n.type === 'valve');
         });
         
+        // Beregn temperaturfaldet "hjemad" mod beholderen
         returnNodes.forEach(nodeId => {
             const n = model.nodes.get(nodeId);
-            const flow = model.circFlows.get(nodeId) || 0;
+            const flow = model.circFlows.get(nodeId) || 0; // Total flow i dette returrør
             
-            // Gem temp. Hvis flere strenge mødes, viser vi den "koldeste" blanding for sikkerheds skyld
-            // (I virkeligheden blandes energien, men dette er til visuelt tjek)
+            // Hvis røret deles af flere loops (blanding), bruger vi den laveste temperatur
+            // for at vise "worst case" i diagrammet.
             if (!model.nodeTemps.has(nodeId) || t < model.nodeTemps.get(nodeId)) {
                 model.nodeTemps.set(nodeId, t);
             }
 
-            if (flow > 0.000001 && n.q_tab) {
+            // Træk varmetabet fra temperaturen
+            if (flow > 0.00001 && n.q_tab) {
                 const dt = n.q_tab / (flow * HEAT_CAPACITY_FACTOR);
                 t -= dt;
             }
         });
     });
 }
+
 
 function interpolate(x, x_pts, y_pts) {
     if (x <= x_pts[0]) return y_pts[0];
