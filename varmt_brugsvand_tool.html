@@ -2784,30 +2784,43 @@ function dimensionFremløb(model, config) {
 }
 
 function dimensionRetur(model, config) {
-    // Denne funktion er typisk styret af max hastighed for at undgå støj.
-    // Vi beholder den simple logik her, men den kan udvides med samme princip som fremløb, hvis det ønskes.
     model.nodes.forEach(n => {
         if (n.type !== 'retur') return;
 
+        // Hent det aktuelle flow i røret (aggregeret)
         const flow = model.circFlows.get(n.id) || 0;
         n.circ_flow = flow;
+        
         const mat = n.material;
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+        
+        // Start med største dimension som fallback
         let bestDim = sortedDims[sortedDims.length - 1];
 
+        // Find den mindste dimension, der overholder BÅDE hastighed OG tryktab
         for (const dim of sortedDims) {
             const d_i = ID[mat][dim] / 1000;
-            const v = (flow / 1000) / (Math.PI * (d_i / 2) ** 2);
-            // Cirkulation optimeres typisk kun på max hastighed for at undgå støj
-            if (v < config.max_v_c) {
+            const area = Math.PI * (d_i / 2) ** 2;
+            
+            // Beregn hastighed
+            const v = (flow / 1000) / area;
+            
+            // Beregn tryktab pr. meter (uden enkeltmodstande, kun rørfriktion + fittings-tillæg)
+            // Vi antager L=1m for at få Pa/m
+            const dp_m = getDP(flow, d_i, RH[mat] / 1000, 1, 0, config.fittings_pct);
+
+            // TJEK: Er hastighed OK? OG Er tryktab OK?
+            // Vi bruger max_dp_m (f.eks. 150 Pa/m) som grænse, ligesom på fremløb
+            if (v < config.max_v_c && dp_m < config.max_dp_m) {
                 bestDim = dim;
-                break;
+                break; // Vi har fundet den mindste brugbare dimension
             }
         }
         n.nom_dim = bestDim;
     });
     return model;
 }
+
 function calculatePressureDrop(startNode, dp_prop, flow_prop, config) {
     if ((startNode.type === 'ror' || startNode.type === 'retur') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
@@ -2911,108 +2924,96 @@ function calculateHeatLoss(model, config) {
 
 
 // =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (Andelsprincip + Temperatur Feedback)
-// =============================================================================
-
-// =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (FYSISK SIMULATION / TRUE RETURN TEMP)
+// == 4. VANDMÆNGDE & DIMENSIONERING (Fuld Integreret Loop)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
 
-    const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
-    const MIN_FLOW = 0.005; // Minimum flow (l/s) for at undgå stagnation
-    const targetDrop = config.dT; // F.eks. 5.0 grader
+    const HEAT_CAPACITY_FACTOR = 4121; 
+    const MIN_FLOW = 0.005; 
+    const targetDrop = config.dT; 
 
-    console.group("🕵️‍♂️ DEBUG: Cirkulationsberegning (Fysisk Retur-Simulering)");
-    
-    // TRIN 1: Initialt gæt (baseret på simpelt varmetab)
-    // Vi starter højt for at sikre stabilitet
+    console.group("🕵️‍♂️ DEBUG: Cirkulation (Flow + Dimensionering + Varmetab)");
+
+    // TRIN 1: Initialt gæt
+    // Vi starter med at sikre, at vi har en basis varmetabsberegning
     calculateHeatLoss(model, config);
+    
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
         const totalQ = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
-        // Startgæt: Enkelt strengs tab / dT
         l.circ_flow = Math.max(MIN_FLOW, totalQ / (HEAT_CAPACITY_FACTOR * targetDrop));
     });
 
-    // TRIN 2: ITERATION (Fysisk Balance)
-    // Vi kører indtil temperaturerne passer
+    // TRIN 2: DEN STORE OPTIMERINGS-LØKKE
+    // Vi itererer flow, dimensioner og varmetab samtidig
     const iterations = 15; 
 
     for (let i = 0; i < iterations; i++) {
-        // A. Opdater aggregerede flows i alle rør (Vigtigt!)
-        // Dette fortæller os, hvor meget vand der løber i hovedrørene
+        // A. Opdater aggregerede flows i alle rør (så vi kan dimensionere)
         calculateCirculationFlowsAggregation(model);
 
-        // B. Tjek hver streng: Hvad er det FAKTISKE temperaturfald?
+        // B. DIMENSIONER RØR (Hvis auto)
+        // Dette er nyt herinde! Vi ændrer rørstørrelsen baseret på det flow, vi lige har gættet.
+        // Større flow -> Større rør -> Lavere tryktab -> Men lidt højere varmetab.
+        if (config.isAuto) {
+            dimensionRetur(model, config);
+            
+            // Når dimensionen ændres, ændres U-værdien og Varmetabet
+            calculateInsulation(model, config);
+            calculateHeatLoss(model, config);
+        }
+
+        // C. Tjek temperaturfald med de NYE rør og NYE varmetab
         model.loops.forEach(l => {
             let actualPathDrop = 0;
 
-            // Gennemgå hele ruten (Frem + Retur)
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
                 if (node && (node.type === 'ror' || node.type === 'retur')) {
-                    // Hvad er det totale flow i dette rørsegment?
-                    // (Dette inkluderer flow fra andre strenge)
                     const totalFlowInPipe = model.circFlows.get(nodeId);
-                    
                     if (totalFlowInPipe > 0.000001) {
-                        // Fysisk formel: dT = Q / (m_total * c)
-                        // Hvor meget falder temperaturen i dette rørstykke?
+                        // dT = Q_ny / (m_total * c)
                         const segmentDrop = node.q_tab / (totalFlowInPipe * HEAT_CAPACITY_FACTOR);
                         actualPathDrop += segmentDrop;
                     }
                 }
             });
 
-            // C. Juster flowet baseret på resultatet
-            // Hvis actualPathDrop er 2.0 grader (for varmt/lavt tab), og target er 5.0:
-            // Vi har for meget flow. (Fordi dT er omvendt proportional med flow).
-            // Vent, hvis dT er lille, er flowet højt.
-            // Vi vil have dT op på 5.0. Vi skal SÆNKE flowet.
-            
-            // Formel: NewFlow = CurrentFlow * (ActualDrop / TargetDrop)
-            // Eks: Flow * (2.0 / 5.0) = 0.4 * Flow. Flow sænkes. Korrekt.
-            
-            // Eks: ActualDrop er 10.0 (for koldt). Target 5.0.
-            // Flow * (10 / 5) = 2 * Flow. Flow øges. Korrekt.
-            
+            // D. Juster flow (Feedback)
             let correction = 1.0;
             if (actualPathDrop > 0) {
                 correction = actualPathDrop / targetDrop;
             } else {
-                correction = 2.0; // Sikkerhed hvis drop er 0
+                correction = 1.5; // Sikkerhed
             }
             
-            // Dæmpning for stabilitet (50% gammel, 50% ny)
+            // Dæmpning
             const newFlow = l.circ_flow * correction;
-            l.circ_flow = (l.circ_flow * 0.5) + (newFlow * 0.5);
+            l.circ_flow = (l.circ_flow * 0.6) + (newFlow * 0.4);
 
-            // Overhold minimum
             if (l.circ_flow < MIN_FLOW) l.circ_flow = MIN_FLOW;
             
-            // Gem data til debug i sidste runde
+            // Debug info til sidste runde
             if (i === iterations - 1) {
                 l._debugDrop = actualPathDrop;
-                l._debugCorr = correction;
             }
         });
     }
 
-    // Log resultater
-    console.log("--- Slutresultater ---");
+    // Afsluttende opdatering
+    calculateCirculationFlowsAggregation(model);
+    
+    console.log("--- Slutresultater (Flow & Temp) ---");
     model.loops.forEach(l => {
         const returTemp = config.T_v - (l._debugDrop || 0);
-        console.log(`Streng ${l.id}: Flow ${(l.circ_flow*3600).toFixed(1)} l/h | Faktisk Temp Tab: ${(l._debugDrop||0).toFixed(2)} K | Retur Temp: ${returTemp.toFixed(2)} °C`);
+        console.log(`Streng ${l.id}: Flow ${(l.circ_flow*3600).toFixed(1)} l/h | Retur: ${returTemp.toFixed(2)} °C`);
     });
     console.groupEnd();
-
-    // Opdater en sidste gang til visning
-    calculateCirculationFlowsAggregation(model);
     
     return model;
 }
+
 
 function calculateCirculationFlowsAggregation(model) {
     model.circFlows = new Map();
