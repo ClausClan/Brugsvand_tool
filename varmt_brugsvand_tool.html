@@ -2911,18 +2911,20 @@ function calculateHeatLoss(model, config) {
 
 
 // =============================================================================
-// == 4. VANDMÆNGDE BEREGNING (MED DEBUG / SLADREHANKE)
+// == 4. VANDMÆNGDE BEREGNING (Andelsprincip + Temperatur Feedback)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
 
     const HEAT_CAPACITY_FACTOR = 4121; // J/(L*K)
-    console.group("🕵️‍♂️ DEBUG: Cirkulationsberegning Start");
-    console.log(`Konfiguration: dT = ${config.dT} K, T_v = ${config.T_v} °C`);
+    const MIN_FLOW = 0.002;
+    
+    // Måltemperatur for retur (Normkrav: min 50 grader)
+    // Vi bruger T_v - dT som mål, men vi sikrer at looppet booster flowet, hvis vi rammer under.
+    const targetDrop = config.dT; 
 
     // TRIN 1: KORTLÆGNING
     model.nodes.forEach(n => n.loopCount = 0);
-    
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
         l.path.forEach(nodeId => {
@@ -2933,77 +2935,82 @@ function calculateCirculationFlows(model, config) {
         });
     });
 
-    // Tjek: Hvor mange loops deler hovedrøret fra beholderen?
-    const mainPipeId = model.nodes.get('Beholder').children.find(c => c.type === 'ror')?.id;
-    if (mainPipeId) {
-        const mainPipe = model.nodes.get(mainPipeId);
-        console.log(`INFO: Hovedrøret '${mainPipeId}' deles af ${mainPipe.loopCount} loops.`);
-    }
-
-    // TRIN 2: ITERATION
-    const iterations = config.isAuto ? 3 : 1;
+    // TRIN 2: BEREGNINGS-LOOP
+    // Vi øger antallet af iterationer lidt for at lade temperaturen stabilisere sig
+    const iterations = 5; 
 
     for (let i = 0; i < iterations; i++) {
-        console.groupCollapsed(`🔄 Iteration ${i + 1} af ${iterations}`);
-        
-        // A. Beregn varmetab
+        // A. Beregn Varmetab (med 25% tillæg fra config)
         calculateHeatLoss(model, config);
 
-        // B. Fordel og Beregn
-        let totalSystemHeatLoss = 0;
-        let totalCalculatedFlow = 0;
-
+        // B. Grundlæggende Flow (Andelsprincippet)
         model.loops.forEach(l => {
             let weightedHeatLossSum = 0;
-            let rawHeatLossSum = 0; // Det fulde tab uden deling (til kontrol)
-            let pipeCount = 0;
-
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
-                if (node && (node.type === 'ror' || node.type === 'retur')) {
-                    const q = node.q_tab || 0;
-                    rawHeatLossSum += q;
-                    if (q > 0) {
-                        const share = q / (node.loopCount || 1);
-                        weightedHeatLossSum += share;
-                        pipeCount++;
-                    }
+                if (node && node.q_tab > 0) {
+                    const share = node.q_tab / (node.loopCount || 1);
+                    weightedHeatLossSum += share;
                 }
             });
-
-            l.q_tab_tot = weightedHeatLossSum; // Det er denne vi dimensionerer efter
+            l.q_tab_tot = weightedHeatLossSum;
             
-            // Beregn Flow
-            l.circ_flow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * config.dT);
-            if (l.circ_flow < 0.002) l.circ_flow = 0.002;
-
-            totalSystemHeatLoss += l.q_tab_tot;
-            totalCalculatedFlow += l.circ_flow;
-
-            // SLADREHANK for hver streng
-            console.log(`Streng ${l.id}:
-            - Rørsegmenter i loop: ${pipeCount}
-            - Fuldt Varmetab (hvis alene): ${rawHeatLossSum.toFixed(1)} W
-            - Vægtet Varmetab (Andel): ${l.q_tab_tot.toFixed(1)} W
-            - Beregnet Flow: ${l.circ_flow.toFixed(4)} l/s (${(l.circ_flow*3600).toFixed(1)} l/h)`);
+            // Beregn basis flow baseret på energikrav
+            const baseFlow = l.q_tab_tot / (HEAT_CAPACITY_FACTOR * targetDrop);
+            
+            // I første iteration sætter vi flowet direkte.
+            // I senere iterationer bruger vi det kun som "anker", hvis vi ikke har boostet det.
+            if (i === 0) {
+                l.circ_flow = Math.max(MIN_FLOW, baseFlow);
+            }
         });
 
-        console.log(`>> TOTAL SYSTEM: Varmetab (sum af andele) = ${totalSystemHeatLoss.toFixed(1)} W`);
-        console.log(`>> TOTAL SYSTEM: Flow (sum af strenge) = ${totalCalculatedFlow.toFixed(4)} l/s`);
-
-        // D. Summer flow
+        // C. Opdater Aggregering (nødvendig for at beregne temperaturer)
         calculateCirculationFlowsAggregation(model);
 
-        // E. Dimensioner
+        // D. TEMPERATUR TJEK & BOOST (Her er magien!)
+        // Vi kører temperatur-simulationen "internt" her for at tjekke resultatet
+        calculateTemperatures(model, config); // Denne opdaterer model.nodeTemps
+
+        model.loops.forEach(l => {
+            // Hent temperaturen ved vendepunktet (det fjerneste punkt)
+            // Dette er det kritiske punkt. Returløbet hjem til beholderen taber yderligere lidt,
+            // så vi skal sikre os, at vi ligger godt her.
+            const tempAtTurn = model.nodeTemps.get(l.startNodeId);
+            
+            if (tempAtTurn !== undefined) {
+                const currentDrop = config.T_v - tempAtTurn;
+                
+                // Hvis temperaturfaldet er større end tilladt (f.eks. 6 grader hvor vi må tabe 5)
+                // så er vandet for koldt -> Øg flowet!
+                if (currentDrop > targetDrop) {
+                    // Beregn korrektionsfaktor: Faktisk fald / Ønsket fald
+                    // F.eks. 6 / 5 = 1.2 (Vi skal bruge 20% mere vand)
+                    const correction = currentDrop / targetDrop;
+                    
+                    // Vi booster flowet. 
+                    // Vi bruger en dæmpet opdatering for ikke at overreagere
+                    const newFlow = l.circ_flow * correction;
+                    l.circ_flow = (l.circ_flow * 0.5) + (newFlow * 0.5);
+                } 
+                // Hvis vandet er for varmt (currentDrop < targetDrop), gør vi ingenting.
+                // Andelsprincippet har allerede sat "minimumsflowet" for at dække varmetabet.
+                // At det er varmere end 50 grader er kun godt (og uundgåeligt i korte strenge).
+            }
+        });
+
+        // E. Opdater dimensioner (hvis auto)
         if (config.isAuto) {
             dimensionRetur(model, config);
         }
-        console.groupEnd();
     }
     
-    console.groupEnd();
+    // En sidste aggregering til visning
+    calculateCirculationFlowsAggregation(model);
+    
     return model;
 }
+
 function calculateCirculationFlowsAggregation(model) {
     model.circFlows = new Map();
     model.loops.forEach(l => {
