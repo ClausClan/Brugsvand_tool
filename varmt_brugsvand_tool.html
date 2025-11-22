@@ -944,26 +944,27 @@ const VALVE_TYPES = {
     "Frese ALPHA Sanitary": {
         type: 'dynamic',
         data: [
-            { valveName: '47-20120', vvsNr: '406782.020', maxFlowLH: 20, deltaP_Pa: 9000 },
-            { valveName: '47-20170', vvsNr: '406782.040', maxFlowLH: 40, deltaP_Pa: 9000 },
-            { valveName: '47-20200', vvsNr: '406782.060', maxFlowLH: 60, deltaP_Pa: 12000 },
-            { valveName: '47-20230', vvsNr: '406782.080', maxFlowLH: 80, deltaP_Pa: 13000 },
-            { valveName: '47-20260', vvsNr: '406782.105', maxFlowLH: 105, deltaP_Pa: 14000 },
-            { valveName: '47-20300', vvsNr: '406782.135', maxFlowLH: 135, deltaP_Pa: 14000 },
-            { valveName: '47-20350', vvsNr: '406782.180', maxFlowLH: 180, deltaP_Pa: 14000 },
-            { valveName: '47-20400', vvsNr: '406782.240', maxFlowLH: 240, deltaP_Pa: 14000 },
-            { valveName: '47-20460', vvsNr: '406782.310', maxFlowLH: 310, deltaP_Pa: 14000 },
-            { valveName: '47-20510', vvsNr: '406782.410', maxFlowLH: 410, deltaP_Pa: 15000 },
-            { valveName: '47-20530', vvsNr: '406782.450', maxFlowLH: 450, deltaP_Pa: 16000 },
-            { valveName: '47-20570', vvsNr: '406782.500', maxFlowLH: 500, deltaP_Pa: 17000 },
-            { valveName: '47-20590', vvsNr: '406782.550', maxFlowLH: 550, deltaP_Pa: 18000 },
-            { valveName: '47-20620', vvsNr: '406782.600', maxFlowLH: 600, deltaP_Pa: 19000 },
-            { valveName: '47-20680', vvsNr: '406782.700', maxFlowLH: 700, deltaP_Pa: 20000 },
-            { valveName: '47-20740', vvsNr: '406782.800', maxFlowLH: 800, deltaP_Pa: 20000 }
+            // minDp = DeltaDP (Minimums differenstryk for at ventilen virker)
+            { valveName: '47-20120', vvsNr: '406782.020', maxFlowLH: 20, minDp: 9000 },
+            { valveName: '47-20170', vvsNr: '406782.040', maxFlowLH: 40, minDp: 9000 },
+            { valveName: '47-20200', vvsNr: '406782.060', maxFlowLH: 60, minDp: 12000 },
+            { valveName: '47-20230', vvsNr: '406782.080', maxFlowLH: 80, minDp: 13000 },
+            { valveName: '47-20260', vvsNr: '406782.105', maxFlowLH: 105, minDp: 14000 },
+            { valveName: '47-20300', vvsNr: '406782.135', maxFlowLH: 135, minDp: 14000 },
+            { valveName: '47-20350', vvsNr: '406782.180', maxFlowLH: 180, minDp: 14000 },
+            { valveName: '47-20400', vvsNr: '406782.240', maxFlowLH: 240, minDp: 14000 },
+            { valveName: '47-20460', vvsNr: '406782.310', maxFlowLH: 310, minDp: 14000 },
+            { valveName: '47-20510', vvsNr: '406782.410', maxFlowLH: 410, minDp: 15000 },
+            { valveName: '47-20530', vvsNr: '406782.450', maxFlowLH: 450, minDp: 16000 },
+            { valveName: '47-20570', vvsNr: '406782.500', maxFlowLH: 500, minDp: 17000 },
+            { valveName: '47-20590', vvsNr: '406782.550', maxFlowLH: 550, minDp: 18000 },
+            { valveName: '47-20620', vvsNr: '406782.600', maxFlowLH: 600, minDp: 19000 },
+            { valveName: '47-20680', vvsNr: '406782.700', maxFlowLH: 700, minDp: 20000 },
+            { valveName: '47-20740', vvsNr: '406782.800', maxFlowLH: 800, minDp: 20000 }
         ]
     },
     "IMI STAD-D": {
-        type: 'static', 
+        type: 'static',
         data: STATIC_VALVE_DATA["IMI STAD-D"]
     }
 };
@@ -3109,23 +3110,24 @@ function calculateCirculationDP(model, config) {
 
         // 2. Ventil Dimensionering
         const valveNode = l.path.map(id => model.nodes.get(id)).find(n => n?.type === 'valve');
-        let valveDp = 0;
+        let valveRequiredDp = 0; // Det tryk ventilen minimum kræver (eller er dimensioneret til)
 
         if (valveNode && valveNode.valveType && VALVE_TYPES[valveNode.valveType]) {
             const typeDef = VALVE_TYPES[valveNode.valveType];
             const flowLH = (l.circ_flow || 0) * 3600; 
             const flowLS = l.circ_flow || 0;          
 
-            // --- DYNAMISKE VENTILER ---
-            if (typeDef.type === 'dynamic' || !typeDef.type) { 
+            // --- DYNAMISKE VENTILER (Frese) ---
+            if (typeDef.type === 'dynamic') { 
                 const valveData = typeDef.data;
                 const selectedValveData = valveData.find(v => v.maxFlowLH >= flowLH);
                 if (selectedValveData) {
                     l.selectedValve = selectedValveData;
-                    valveDp = selectedValveData.deltaP_Pa;
+                    // Her bruger vi minDp (DeltaDP) som kravet
+                    valveRequiredDp = selectedValveData.minDp || selectedValveData.deltaP_Pa; 
                 }
             } 
-            // --- STATISKE VENTILER ---
+            // --- STATISKE VENTILER (STAD) ---
             else if (typeDef.type === 'static') {
                 const valveData = typeDef.data; 
                 let bestValve = null;
@@ -3134,46 +3136,54 @@ function calculateCirculationDP(model, config) {
                     const kv = valve.kv_2_5;
                     if (kv <= 0) continue;
                     
+                    // Beregn tryktab ved indstilling 2.5
                     const dp_kPa = Math.pow((36 * flowLS) / kv, 2);
                     const dp_Pa = dp_kPa * 1000;
 
+                    // Kriterier: Min 3 kPa (autoritet), Max 25 kPa (støj)
                     if (dp_kPa < 25) { 
                         bestValve = { 
-                            valveName: `DN ${valve.dn} (STAD)`, // ÆNDRET: valveName
+                            valveName: `DN ${valve.dn} (STAD)`, 
                             vvsNr: valve.vvs,
                             kvs: valve.kvs,
                             kv_setting: kv, 
-                            deltaP_Pa: dp_Pa, 
+                            minDp: dp_Pa, // For statiske er "minDp" det nominelle tab ved design-indstillingen
                             isStatic: true
                         };
                         break; 
                     }
                 }
                 
+                // Fallback (største ventil)
                 if (!bestValve && valveData.length > 0) {
                     const largest = valveData[valveData.length - 1];
                     const dp_Pa = Math.pow((36 * flowLS) / largest.kv_2_5, 2) * 1000;
                     bestValve = {
-                        valveName: `DN ${largest.dn} (STAD)`, // ÆNDRET: valveName
+                        valveName: `DN ${largest.dn} (STAD)`,
                         vvsNr: largest.vvs,
                         kvs: largest.kvs,
                         kv_setting: largest.kv_2_5,
-                        deltaP_Pa: dp_Pa,
+                        minDp: dp_Pa,
                         isStatic: true
                     };
                 }
 
                 if (bestValve) {
                     l.selectedValve = bestValve;
-                    valveDp = bestValve.deltaP_Pa;
+                    valveRequiredDp = bestValve.minDp;
                 }
             }
         } else {
-             valveDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0);
+             // Ingen ventil valgt: Brug et standard Zeta-tab
+             valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0);
         }
         
-        if (valveNode) valveNode.dp_circ = valveDp;
-        l.dp_circ_total += valveDp;
+        // Gem trykket på noden
+        if (valveNode) valveNode.dp_circ = valveRequiredDp;
+        
+        // Læg ventilens krav til strengens totale modstand
+        // Dette sikrer, at pumpen dimensioneres til at kunne levere dette tryk
+        l.dp_circ_total += valveRequiredDp;
 
         if (l.dp_circ_total > model.max_dp_circ) model.max_dp_circ = l.dp_circ_total;
     });
@@ -4166,12 +4176,16 @@ function generateDetailedResults(model, config) {
         Streng_ID: l.id,
         Start_Node: l.startNodeId,
         Slut_Node: l.endNodeId,
-        // ÆNDRET: Bruger valveName
         Ventil_Type: l.selectedValve ? (l.selectedValve.valveName || l.selectedValve.freseNr) : 'Ingen/Manuel',
         Total_Varmetab_W: (l.q_tab_tot || 0).toFixed(1),
         Cirkulationsflow_lh: ((l.circ_flow || 0) * 3600).toFixed(1),
-        Tryktab_Streng_Pa: (l.dp_circ_total || 0).toFixed(0),
-        Tryktab_Ventil_Pa: Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)
+        Tryktab_Streng_Total_Pa: (l.dp_circ_total || 0).toFixed(0),
+        // For dynamisk er minDp vigtigst, for statisk er det resttrykket
+        Ventil_Data: l.selectedValve ? {
+            Type: l.selectedValve.isStatic ? 'Statisk' : 'Dynamisk',
+            Min_DP_Pa: l.selectedValve.minDp || 0,
+            VVS_Nr: l.selectedValve.vvsNr
+        } : null
     }));
 
     return {
@@ -4339,19 +4353,18 @@ function displayResults(model, config) {
 
     model.loops.forEach(l => {
         const flowLH = (l.circ_flow || 0) * 3600;
-        totalCircFlowLH += flowLH;
         
         let valveText = '-';
         let settingText = '-';
         let valveDpDisplay = 0;
+        let dpLabel = "Ventil Δp";
         
         if (l.selectedValve) {
-            // Brug valveName (nyt) eller freseNr (gammelt fallback)
-            valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-'; 
+            valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-';
             
             if (l.selectedValve.isStatic) {
-                // Statisk: Beregn Kv-indstilling
-                const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.deltaP_Pa));
+                // Statisk: Vis hvor meget den skal drosle
+                const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
                 valveDpDisplay = requiredValveDrop;
                 
                 const dp_kPa = requiredValveDrop / 1000;
@@ -4361,10 +4374,15 @@ function displayResults(model, config) {
                 } else {
                     settingText = "Åben";
                 }
+                dpLabel = "Indreg. Δp";
+                
             } else {
-                // Dynamisk: "Auto"
-                valveDpDisplay = Math.max(0, model.max_dp_circ - l.dp_circ_total); 
+                // Dynamisk: Vis Minimums trykket (DeltaDP)
+                // Bemærk: Det faktiske tryk over ventilen vil være højere på ikke-kritiske strenge,
+                // men "Min dP" er det vigtige tal for pumpen og valg af ventil.
+                valveDpDisplay = l.selectedValve.minDp || 0;
                 settingText = "Auto";
+                dpLabel = "Min. Δp";
             }
         }
 
@@ -4375,11 +4393,11 @@ function displayResults(model, config) {
                       <td>${flowLH.toFixed(1)}</td>
                       <td>${(l.dp_circ_total || 0).toFixed(0)}</td>
                       <td>
-                        <b>${valveDpDisplay.toFixed(0)}</b>
+                        <b>${valveDpDisplay.toFixed(0)}</b> <span class="text-muted" style="font-size:0.7em">(${dpLabel})</span>
                         <br><small>${settingText}</small>
                       </td>
                     </tr>`;
-    });
+    }); 
 
     // Total række i bunden af cirkulations-tabellen
     const totalCircFlowM3H = totalCircFlowLH / 1000;
