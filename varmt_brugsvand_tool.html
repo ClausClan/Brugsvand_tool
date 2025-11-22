@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
     <meta charset="UTF-8">
-    <title>Varmt brugsvand dimensionering v0.16_development - DS 439:2024 + Rør isolering DS452 </title>
+    <title>Varmt brugsvand dimensionering v0.20_beta - DS 439:2024 + Rør isolering DS452 </title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -517,194 +517,196 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+    
+    <div class="text-center mb-4 pb-3 border-bottom">
+        <h5 class="mb-1">Varmt Brugsvand Dimensioneringsværktøj</h5>
+        <p class="text-muted mb-1">Version 0.20 Beta</p>
+        <p class="small text-muted mb-0">Beregning jf. DS 439:2024 & DS 452</p>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="helpTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="help-legend-tab" data-bs-toggle="tab" data-bs-target="#help-legend" type="button">Signatur</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="help-calc-tab" data-bs-toggle="tab" data-bs-target="#help-calc" type="button">Beregningsmetoder</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="help-input-tab" data-bs-toggle="tab" data-bs-target="#help-input" type="button">Input & Tillæg</button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="helpTabContent">
+        
+        <div class="tab-pane fade show active" id="help-legend" role="tabpanel">
+            <h6 class="text-primary mb-3">Rørtyper & Farver (Model B)</h6>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <strong class="small text-uppercase text-danger">Varmt Brugsvand (Rød)</strong>
+                    <ul class="list-group list-group-flush small mt-2">
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="legend-box" style="background-color: #8b0000;"></span>
+                            <div><b>Hovedledning</b> (Frem)<br><span class="text-muted">Forsyner flere streng-sektioner.</span></div>
+                        </li>
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="legend-box" style="background-color: #dc3545;"></span>
+                            <div><b>Fordelingsledning</b> (Frem)<br><span class="text-muted">Forsyner >1 tapsted i en streng.</span></div>
+                        </li>
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="legend-box" style="background-color: #f08080;"></span>
+                            <div><b>Koblingsledning</b> (Frem)<br><span class="text-muted">Forsyner 1 tapsted. (Kan ofte være uisoleret).</span></div>
+                        </li>
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="legend-line" style="border-color: #a71d2a; border-style: dashed;"></span>
+                            <div><b>Cirkulation</b> (Retur)<br><span class="text-muted">Returløb til beholder.</span></div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <strong class="small text-uppercase text-secondary">Komponenter</strong>
+                    <ul class="list-group list-group-flush small mt-2">
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="dot" style="background-color:#198754; width:12px; height:12px; border-radius:50%; margin-right:10px;"></span>
+                            <div><b>Tapsted</b><br><span class="text-muted">Forbrugssted (f.eks. Brus, Håndvask).</span></div>
+                        </li>
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="dot" style="background-color:#6f42c1; width:12px; height:12px; transform:rotate(45deg); margin-right:10px;"></span>
+                            <div><b>Ventil</b><br><span class="text-muted">Strengreguleringsventil (Statisk/Dynamisk).</span></div>
+                        </li>
+                        <li class="list-group-item d-flex align-items-center px-0">
+                            <span class="dot" style="background-color:#333; width:14px; height:14px; border-radius:50%; margin-right:10px;"></span>
+                            <div><b>Beholder</b><br><span class="text-muted">Varmekilde / Startpunkt.</span></div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="help-calc" role="tabpanel">
+            <div class="accordion accordion-flush" id="calcAccordion">
                 
-                <div class="text-center mb-4 pb-3 border-bottom">
-                    <h5 class="mb-1">Varmt Brugsvand Dimensioneringsværktøj</h5>
-                    <p class="text-muted mb-1">Version 0.16 Development</p>
-                    <p class="small text-muted mb-0">© Copyright 2025 NIRAS. Alle rettigheder forbeholdes.</p>
-                </div>
-
-                <h6 class="border-bottom pb-2 text-primary">1. Signaturforklaring (Model B)</h6>
-                <p class="small text-muted mb-3">Farver indikerer temperatur (Varmt/Koldt). Stregtype indikerer funktion (Forsyning/Cirkulation).</p>
-                
-                <div class="row g-3 mb-4">
-                    <div class="col-md-6">
-                        <strong class="small text-uppercase text-danger">Varmt Brugsvand (Rød)</strong>
-                        <ul class="list-group list-group-flush small">
-                            <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-box" style="background-color: #8b0000;"></span>
-                                <div><b>Hovedledning</b> (Solid)<br><span class="text-muted">Forsyner flere strenge.</span></div>
-                            </li>
-                            <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-box" style="background-color: #dc3545;"></span>
-                                <div><b>Fordelingsledning</b> (Solid)<br><span class="text-muted">Forsyner >1 tapsted.</span></div>
-                            </li>
-                            <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #dc3545; border-style: dashed;"></span>
-                                <div><b>Cirkulation</b> (Stiplet)<br><span class="text-muted">Returløb til beholder.</span></div>
-                            </li>
-                        </ul>
-                    </div>
-
-                    <div class="col-md-6">
-                        <strong class="small text-uppercase text-primary">Koldt Brugsvand (Blå)</strong>
-                        <div class="alert alert-light border p-2 mb-2"><small><i>Kommer i næste version (Fase 5)</i></small></div>
-                        <ul class="list-group list-group-flush small opacity-50">
-                            <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-box" style="background-color: #0d6efd;"></span>
-                                <div><b>Forsyning</b> (Solid)<br><span class="text-muted">Koldtvandsforsyning.</span></div>
-                            </li>
-                            <li class="list-group-item d-flex align-items-center px-0">
-                                <span class="legend-line" style="border-color: #0d6efd; border-style: dotted;"></span>
-                                <div><b>Kold Cirkulation</b> (Prikket)<br><span class="text-muted">Sikring af lave temperaturer.</span></div>
-                            </li>
-                        </ul>
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCalcQd">
+                            💧 1. Spidslast (qd)
+                        </button>
+                    </h2>
+                    <div id="helpCalcQd" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
+                        <div class="accordion-body small bg-light">
+                            <p>Beregnes iht. <b>DS 439:2024</b> formel (1). Summen af normvandstrømme ($q_f$) konverteres til en dimensionsgivende vandstrøm ($q_d$) via den "bløde" kvadratrodsformel, der tager højde for samtidighed.</p>
+                        </div>
                     </div>
                 </div>
 
-                <h6 class="border-bottom pb-2 text-primary">2. Beregningsgrundlag & Formler</h6>
-                <div class="accordion accordion-flush" id="helpAccordion">
-                    
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpDesignMode">
-                                🛠️ Design Mode (Auto vs. Manuel)
-                            </button>
-                        </h2>
-                        <div id="helpDesignMode" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCalcDp">
+                            📉 2. Tryktab & Rørfriktion
+                        </button>
+                    </h2>
+                    <div id="helpCalcDp" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
+                        <div class="accordion-body small bg-light">
+                            <p><b>Rørfriktion:</b> Beregnes med <i>Darcy-Weisbach</i> ligningen. Friktionsfaktoren ($\lambda$) findes iterativt via <i>Colebrook-White</i> formlen.</p>
+                            <p><b>Fittings:</b> Hvis der ikke er indtastet specifikke Zeta-værdier, anvendes det generelle procenttillæg (se fanen Input).</p>
+                            <div class="alert alert-info p-2 mt-2">
+                                <strong>Tabelvisning:</strong> I resultattabellen er tryktabet opdelt:
                                 <ul>
-                                    <li><b>Design Mode Aktiv (Til):</b> Programmet beregner automatisk den optimale rørdimension for hvert rør baseret på det valgte <i>dimensioneringsprincip</i> (se pkt. 3).</li>
-                                    <li><b>Design Mode Inaktiv (Fra):</b> Du indtaster selv dimensionerne manuelt. Programmet beregner stadig tryktab og hastighed, så du kan kontrollere dit eget design.</li>
+                                    <li><b>Rørfriktion [Pa/m]:</b> Det rene rørtab (inkl. % tillæg). Det er dette tal, optimeringen styrer efter.</li>
+                                    <li><b>Fittings [Pa]:</b> Det absolutte tab i ventiler og enkeltmodstande.</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
-
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpQd">
-                                💧 Spidslast (qd) og Systematisk brug
-                            </button>
-                        </h2>
-                        <div id="helpQd" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
-                                <p>Beregningen følger <b>DS 439:2024, afsnit 6.3.4.2</b>. Den totale spidslast ($q_d$) består af to dele:</p>
-                                <ul>
-                                    <li><b>Tilfældigt brug ($q_{tilf}$):</b> Beregnes ud fra summen af normvandstrømme ($\Sigma q_f$) ved hjælp af formel (1):<br>
-                                    <div class="my-2 p-2 bg-white border rounded text-center" style="font-family: 'Times New Roman', serif; font-style: italic;">
-                                        q<sub>d</sub> = 2 · 0,075 + 0,011 · (Σq<sub>f</sub> - 2 · 0,075) + 3,1 · <span style="white-space: nowrap;">&radic;<span style="text-decoration:overline;">&nbsp;0,075 · 0,011&nbsp;</span></span> · <span style="white-space: nowrap;">&radic;<span style="text-decoration:overline;">&nbsp;Σq<sub>f</sub> - 2 · 0,075&nbsp;</span></span>
-                                    </div>
-                                    <div class="text-muted mb-2" style="font-size: 0.9em;">
-                                        (Programmet anvender standardens approksimation: <code>q<sub>d</sub> ≈ 0,15 + 0,011·(Σq<sub>f</sub> - 0,15) + 0,089·&radic;(Σq<sub>f</sub> - 0,15)</code>)
-                                    </div>
-                                    </li>
-                                    <li><b>Systematisk brug ($q_{syst}$):</b> Lægges direkte til resultatet (lineært).<br>
-                                    <code>Total q<sub>d</sub> = q<sub>d</sub>(tilfældig) + Σq<sub>f</sub>(systematisk)</code></li>
-                                </ul>
-                                <div class="alert alert-warning p-2 mb-0">
-                                    <strong>Tip:</strong> Du kan markere et tapsted som <b>"Systematisk"</b> ved at sætte flueben i feltet <i>"Syst."</i> i tabellen. Dette er nyttigt til f.eks. procesvand, industri eller udendørs haner, der forventes brugt samtidig med den øvrige spidslast.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpPressure">
-                                📉 Tryktab & Geodæti
-                            </button>
-                        </h2>
-                        <div id="helpPressure" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
-                                <ul>
-                                    <li><b>Rørfriktion:</b> Beregnes med <i>Darcy-Weisbach</i> ligningen. Friktionsfaktoren ($\lambda$) findes iterativt via <i>Colebrook-White</i> formlen (for turbulent strømning).</li>
-                                    <li><b>Enkeltmodstande:</b> Summen af Zeta-værdier ($\zeta$) for fittings og ventiler indregnes som: $\Delta p = \zeta \cdot \frac{1}{2} \rho v^2$.</li>
-                                    <li><b>Geodætisk tryktab (Løftehøjde):</b> Beregnes som forskellen mellem <i>Forsyningens kote</i> og tapstedets <i>Kote</i>. <br><code>Δp_geo = ρ · g · Δh</code>. (Husk at angive koter korrekt i meter).</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpIsol">
-                                🔥 Isolering (DS 452)
-                            </button>
-                        </h2>
-                        <div id="helpIsol" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
-                                <p>Isoleringstykkelsen beregnes dynamisk for at overholde varmetabskravene i <b>DS 452, Tabel 5.1</b>.</p>
-                                <ul>
-                                    <li><b>Auto-Klasse (Standard):</b> Systemet vælger automatisk klasse baseret på rørtype og placering (jf. Tabel 6.4):
-                                        <ul>
-                                            <li>Indendørs (Heated): <b>Klasse 4</b></li>
-                                            <li>Udendørs/Uopvarmet: <b>Klasse 6</b></li>
-                                            <li>Koblingsledning: Som udgangspunkt Klasse 4.</li>
-                                        </ul>
-                                    </li>
-                                    <li><b>Manuelt valg:</b> Du kan overstyre Auto-valget pr. rør. Vigtigt: Koblingsledninger i samme rum som tapstedet kan manuelt sættes til <b>Klasse 0</b> (ingen isolering) jf. normen.</li>
-                                    <li><b>Beregning:</b> Den nødvendige tykkelse findes ud fra kravet til U-værdi og den valgte lambda-værdi ($\lambda$), og rundes op til nærmeste handelsstørrelse (10, 20, 30... mm).</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCirc">
-                                🔄 Cirkulation & Flow
-                            </button>
-                        </h2>
-                        <div id="helpCirc" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                            <div class="accordion-body small bg-light">
-                                <p>Det nødvendige cirkulationsflow beregnes for at kompensere for varmetabet i fremløbs- og returledninger.</p>
-                                <ul>
-                                    <li><b>Formel:</b> <code>q_circ = Q_tab / (ρ · cp · ΔT)</code></li>
-                                    <li><b>ΔT:</b> Det ønskede temperaturfald (typisk 5°C) fra veksler til fjerneste punkt.</li>
-                                    <li><b>Indregulering:</b> Systemet beregner tryktabet i hver kreds, inklusive den valgte strengreguleringsventil (hvis valgt), for at sikre korrekt flowfordeling.</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
 
-                <h6 class="border-bottom pb-2 mt-4 text-primary">3. Optimeringsprincipper</h6>
-                <p class="small text-muted mb-2">Når "Design Mode" er aktiv, vælger systemet dimensioner ud fra et af følgende principper:</p>
-                <ul class="list-group list-group-flush small border rounded">
-                    <li class="list-group-item">
-                        <b>Kombineret (Standard):</b> Finder det mindste rør, der overholder BÅDE maks. hastighed ($v$) og maks. tryktab pr. meter (${\Delta}p/m$).
-                    </li>
-                    <li class="list-group-item">
-                        <b>Kun Tryktab:</b> Finder det mindste rør, der overholder maks. ${\Delta}p/m$. Ignorerer hastighed.
-                    </li>
-                    <li class="list-group-item">
-                        <b>Kun Hastighed:</b> Finder det mindste rør, der overholder maks. hastighed ($v$). Ignorerer tryktab.
-                    </li>
-                    <li class="list-group-item">
-                        <b>Mindste tryktab (m. min. hastighed):</b> Vælger det rør, der giver det lavest mulige tryktab, men som stadig overholder kravet til minimumshastighed (for at sikre selvrensning/turbulens).
-                    </li>
-                    <li class="list-group-item bg-light">
-                        <b>🚀 Global optimering:</b> En avanceret iterativ proces. Systemet starter med mindste rørdimension overalt. Derefter identificerer og opgraderer det kun de specifikke "flaskehalse" i hovedrørene, der er nødvendige for at sikre minimumstrykket ved det fjerneste tapsted. Dette giver typisk den mest økonomiske installation med mindst muligt materialeforbrug.
-                    </li>
-                </ul>
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed py-2 fw-bold text-primary" type="button" data-bs-toggle="collapse" data-bs-target="#helpCalcCirc">
+                            🔄 3. Cirkulation & Optimering (NY!)
+                        </button>
+                    </h2>
+                    <div id="helpCalcCirc" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
+                        <div class="accordion-body small bg-light">
+                            <p>Cirkulationssystemet beregnes via en avanceret <b>Iterativ Konvergens-algoritme</b>, der sikrer overholdelse af temperaturkravet i alle dele af anlægget.</p>
+                            <ol>
+                                <li><b>Varmetabs-analyse:</b> Varmetabet beregnes for hvert rør (inkl. kuldebrostillæg).</li>
+                                <li><b>Andelsprincippet:</b> Varmetabet i hovedledninger fordeles proportionalt ud på de strenge, der benytter dem.</li>
+                                <li><b>Termisk Feedback Loop:</b> 
+                                    <ul>
+                                        <li>Programmet simulerer temperaturen gennem hele anlægget.</li>
+                                        <li>Hvis returtemperaturen et sted falder under målet ($T_v - \Delta T$), <b>booster</b> programmet flowet i den pågældende streng.</li>
+                                    </ul>
+                                </li>
+                                <li><b>Integreret Dimensionering:</b> Når flowet stiger, tjekker programmet om rørstørrelsen i returløbet stadig overholder kravene til hastighed (maks 1.5 m/s) og tryktab (maks Pa/m). Hvis ikke, øges dimensionen automatisk, og beregningen gentages.</li>
+                            </ol>
+                            <p><b>Resultat:</b> En anlæg i balance, hvor ingen steder er for kolde, og ingen rør er overbelastede.</p>
+                        </div>
+                    </div>
+                </div>
 
-                <div class="alert alert-warning mt-4 mb-0">
-                    <div class="d-flex align-items-start">
-                        <span class="me-2 fs-4">💾</span>
-                        <div>
-                            <strong>VIGTIGT OM AT GEMME DIT ARBEJDE</strong><br>
-                            Programmet har en indbygget <b>lokal sikkerhedskopi</b> (Auto-gem), der gemmer dit arbejde i din browsers hukommelse hvert 5. minut for at beskytte mod nedbrud.
-                            <br><br>
-                            ⚠️ <b>Dette er IKKE en permanent lagring!</b> Hvis du rydder din browserhistorik eller skifter computer, forsvinder dataene.
-                            <br>
-                            For at gemme dit projekt permanent, skal du bruge knappen <b>"Eksport Projekt"</b> i menuen øverst til venstre. Dette downloader en fil til din computer, som du altid kan indlæse igen.
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCalcValve">
+                            ⚙️ 4. Ventil Dimensionering
+                        </button>
+                    </h2>
+                    <div id="helpCalcValve" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
+                        <div class="accordion-body small bg-light">
+                            <p>Programmet understøtter to typer ventiler:</p>
+                            <ul>
+                                <li><b>Dynamisk (fx Frese Alpha):</b> Ventilen vælges, så den kan klare det beregnede flow. Pumpen dimensioneres til at levere ventilens <i>Minimums Starttryk</i> (DeltaDP) til den kritiske streng. Indstillingen er "Auto".</li>
+                                <li><b>Statisk (fx IMI STAD):</b> Ventilen vælges, så den ved en "god" forindstilling (fx 2.5 omdr) har et tryktab mellem 3 kPa (for autoritet) og 25 kPa (for støj).
+                                    <br>I resultattabellen beregnes den nødvendige <b>Kv-værdi</b> (indstilling) for at fjerne strengens overskydende tryk.</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
 
             </div>
+        </div>
+
+        <div class="tab-pane fade" id="help-input" role="tabpanel">
+            <h6 class="text-primary">Sikkerhedsfaktorer & Tillæg</h6>
+            <p class="small text-muted">For at sikre en robust installation i praksis, anvendes to centrale tillæg:</p>
+            
+            <div class="list-group mb-3">
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">1. Generelt tillæg for fittings</h6>
+                        <small class="text-muted">Standard: +25%</small>
+                    </div>
+                    <p class="mb-1 small">Lægges oven i det beregnede rørfriktionstab. Dækker tryktab i bøjninger, T-stykker og muffer, som ikke er tegnet specifikt. Jf. DS 439 anbefales 25%, hvis detaljerede data mangler.</p>
+                </div>
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">2. Tillæg til varmetab (Kuldebroer)</h6>
+                        <small class="text-muted">Standard: +20%</small>
+                    </div>
+                    <p class="mb-1 small">Lægges oven i det teoretiske varmetab (U-værdi). Dækker varmetab gennem rørbæringer, uisolerede ventiler, flanger og samlinger, som bryder isoleringen. Dette sikrer, at cirkulationsflowet bliver stort nok i praksis. Jf. DS 452/SBI.</p>
+                </div>
+            </div>
+
+            <h6 class="text-primary mt-3">Isolering (DS 452)</h6>
+            <p class="small">Isoleringstykkelsen beregnes automatisk ("Auto") baseret på rørets <b>placering</b>:</p>
+            <ul class="small">
+                <li><b>Opvarmet rum:</b> Klasse 4 (Hoved- og fordelingsledninger).</li>
+                <li><b>Koblingsledninger:</b> Klasse 0 (Uisoleret) tillades i opvarmede rum jf. DS 452, hvis de er korte.</li>
+                <li><b>Udvendig / Uopvarmet:</b> Klasse 6 (Maksimal isolering).</li>
+            </ul>
+        </div>
+
+    </div>
+    
+    <div class="alert alert-warning mt-3 mb-0 p-2 small">
+        <div class="d-flex align-items-start">
+            <span class="me-2 fs-5">💾</span>
+            <div>
+                <strong>HUSK AT GEMME!</strong><br>
+                Dine data gemmes kun midlertidigt i browseren. Brug "Eksport Projekt" i menuen for at gemme en fil til din computer.
+            </div>
+        </div>
+    </div>
+</div>
             <div class="modal-footer bg-light justify-content-between">
                 <a href="mailto:cwa@niras.dk?subject=Feedback%20Varmt%20Brugsvand%20Tool%20v0.15" class="btn btn-outline-secondary btn-sm">
                     ✉️ Send Feedback
@@ -5215,7 +5217,7 @@ function generateReportHTML(model, config, svgTopo, svgTemp, svgCrit) {
 
             <div class="footer">
                 Beregning udført jf. DS 439:2024 (Vandinstallationer) og DS 452 (Teknisk Isolering).<br>
-                Genereret af Varmt Brugsvand Tool v0.16
+                Genereret af Varmt Brugsvand Tool v0.20_beta.
             </div>
         </body>
         </html>
