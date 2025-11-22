@@ -911,13 +911,13 @@ const RH = {
 // Data er fra brugerinput.
 // =================================================================================
 const ID = {
-    "Kobber": { 6: 4.4, 8: 6.4, 10: 8.4, 12: 10.0, 15: 13.0, 18: 16.0, 22: 20.0, 28: 25.6, 35: 32.0, 42: 39.0, 54: 51.0 },
     "Rustfri Press 316L": { 12: 10.0, 15: 13.0, 18: 16.0, 22: 19.6, 28: 25.6, 35: 32.0, 42: 39.0, 54: 51.0, 76.1: 72.1, 88.9: 84.9, 108: 104.0 },
     "Rustfri Svejse 316L": { 6: 4.0, 8: 6.0, 10: 8.0, 12: 10.0, 13.5: 8.9, 14: 12.0, 15: 13.0, 16: 14.0, 17.2: 14.0, 18: 16.0, 20: 18.0, 21.3: 17.3, 22: 20.0, 25: 22.0, 26.9: 22.9, 28: 25.0, 30: 27.0, 33.7: 29.7, 35: 31.0, 38: 35.0, 40: 36.0, 42.4: 38.4, 43: 40.0, 44.5: 40.5, 48.3: 44.3, 51: 47.0, 53: 50.0, 54: 50.0, 60.3: 56.3, 76.1: 68.9, 88.9: 80.9 },
     "Pex": { 10: 6.4, 12: 8.0, 15: 10.0, 18: 13.0, 22: 16.0, 28: 20.0, 32: 23.2, 40: 29.0, 50: 36.2, 63: 45.6, 75: 54.4, 90: 65.4, 110: 79.8 },
     "Alupex": { 16: 12.0, 20: 15.5, 25: 20.0, 32: 26.0, 40: 32.0, 50: 41.0, 63: 51.0 },
     "PE100": { 63: 55.4, 75: 66.0, 90: 79.2, 110: 96.8, 125: 110.2, 160: 141.0, 200: 176.2, 225: 198.2, 250: 220.4, 315: 277.6, 400: 352.6 },
-    "Geberit Mepla": { 16: 11.5, 20: 15.0, 26: 20.0, 32: 26.0, 40: 33.0, 50: 42.0, 63: 54.0, 75: 65.8 }
+    "Geberit Mepla": { 16: 11.5, 20: 15.0, 26: 20.0, 32: 26.0, 40: 33.0, 50: 42.0, 63: 54.0, 75: 65.8 },
+    "Kobber": { 6: 4.4, 8: 6.4, 10: 8.4, 12: 10.0, 15: 13.0, 18: 16.0, 22: 20.0, 28: 25.6, 35: 32.0, 42: 39.0, 54: 51.0 }
 };
 
 // =================================================================================
@@ -2787,33 +2787,27 @@ function dimensionRetur(model, config) {
     model.nodes.forEach(n => {
         if (n.type !== 'retur') return;
 
-        // Hent det aktuelle flow i røret (aggregeret)
         const flow = model.circFlows.get(n.id) || 0;
         n.circ_flow = flow;
         
         const mat = n.material;
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
         
-        // Start med største dimension som fallback
         let bestDim = sortedDims[sortedDims.length - 1];
 
-        // Find den mindste dimension, der overholder BÅDE hastighed OG tryktab
         for (const dim of sortedDims) {
             const d_i = ID[mat][dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             
-            // Beregn hastighed
             const v = (flow / 1000) / area;
             
-            // Beregn tryktab pr. meter (uden enkeltmodstande, kun rørfriktion + fittings-tillæg)
-            // Vi antager L=1m for at få Pa/m
-            const dp_m = getDP(flow, d_i, RH[mat] / 1000, 1, 0, config.fittings_pct);
-
-            // TJEK: Er hastighed OK? OG Er tryktab OK?
-            // Vi bruger max_dp_m (f.eks. 150 Pa/m) som grænse, ligesom på fremløb
-            if (v < config.max_v_c && dp_m < config.max_dp_m) {
+            // BEREGN RENT RØRTRYKTAB PR. METER (pct = 0)
+            // Dette er dimensioneringskriteriet jf. din anvisning
+            const dp_m_pure = getDP(flow, d_i, RH[mat] / 1000, 1, 0, 0); 
+            
+            if (v <= config.max_v_c && dp_m_pure <= config.max_dp_m) {
                 bestDim = dim;
-                break; // Vi har fundet den mindste brugbare dimension
+                break;
             }
         }
         n.nom_dim = bestDim;
@@ -2924,7 +2918,7 @@ function calculateHeatLoss(model, config) {
 
 
 // =============================================================================
-// == 4. VANDMÆNGDE & DIMENSIONERING (INTEGRERET FYSIK LOOP)
+// == 4. VANDMÆNGDE & DIMENSIONERING (OPTIMERING MED RENT RØRTAB)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
     if (config.dT <= 0) return model;
@@ -2932,15 +2926,14 @@ function calculateCirculationFlows(model, config) {
     const HEAT_CAPACITY_FACTOR = 4121; 
     const MIN_FLOW = 0.005; 
     const targetDrop = config.dT; 
-    const maxIterations = 100; // Vi giver den lidt mere snor til at finde balancen
+    const maxIterations = 100; 
     
-    console.group("🚀 DEBUG: Cirkulation Konvergens (Temp + Hydraulik)");
+    console.group("🚀 DEBUG: Cirkulation Konvergens");
 
     // TRIN 1: Initialt gæt
     calculateHeatLoss(model, config);
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
-        // Start med et fornuftigt gæt
         const totalQ = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
         l.circ_flow = Math.max(MIN_FLOW, totalQ / (HEAT_CAPACITY_FACTOR * targetDrop));
     });
@@ -2955,11 +2948,10 @@ function calculateCirculationFlows(model, config) {
         let maxTempDeviation = 0;
         let dimsChanged = false;
 
-        // A. Aggregering: Beregn totalt flow i alle rør baseret på nuværende gæt
+        // A. Aggregering
         calculateCirculationFlowsAggregation(model);
 
-        // B. DIMENSIONERING (Hydraulisk Tjek)
-        // Vi tjekker om de nuværende rør kan bære det nuværende flow
+        // B. DIMENSIONERING (Baseret på RENT rørtab)
         if (config.isAuto) {
             model.nodes.forEach(n => {
                 if (n.type !== 'retur') return;
@@ -2967,56 +2959,43 @@ function calculateCirculationFlows(model, config) {
                 const flow = model.circFlows.get(n.id) || 0;
                 const mat = n.material;
                 const currentDim = n.nom_dim;
-                
-                // Sorter dimensioner
                 const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
                 
-                // Find den mindste dimension, der overholder kravene
                 let bestDim = null;
 
                 for (const dim of sortedDims) {
                     const d_i = ID[mat][dim] / 1000;
                     const area = Math.PI * (d_i / 2) ** 2;
-                    
-                    // Beregn hastighed
                     const v = (flow / 1000) / area;
                     
-                    // Beregn tryktab pr. meter (inkl. fittings tillæg)
-                    const dp_m = getDP(flow, d_i, RH[mat] / 1000, 1, 0, config.fittings_pct);
+                    // Tjek: Rent friktionstab (pct = 0, zeta = 0)
+                    const dp_m_pure = getDP(flow, d_i, RH[mat] / 1000, 1, 0, 0);
                     
-                    // KRAV: Hastighed < Max OG Tryktab < Max
-                    if (v <= config.max_v_c && dp_m <= config.max_dp_m) {
+                    if (v <= config.max_v_c && dp_m_pure <= config.max_dp_m) {
                         bestDim = dim;
-                        break; // Fundet den mindste gyldige
+                        break; 
                     }
                 }
 
-                // Hvis ingen passer (for stort flow), tag den største
                 if (bestDim === null) bestDim = sortedDims[sortedDims.length - 1];
 
-                // Hvis dimensionen skal ændres
                 if (bestDim !== currentDim) {
-                    // Tving opdatering. 
-                    // Bemærk: Vi tillader både op- og nedskalering for at finde optimum.
                     n.nom_dim = bestDim;
                     dimsChanged = true;
                     changesMade = true;
                 }
             });
 
-            // Hvis vi har ændret rørstørrelser, SKAL vi genberegne varmetabet
-            // (Større rør = mere varmetab = behov for mere flow i næste trin)
             if (dimsChanged) {
                 calculateInsulation(model, config);
                 calculateHeatLoss(model, config);
             }
         }
 
-        // C. TEMPERATUR TJEK (Termisk Tjek)
+        // C. TEMPERATUR TJEK
         model.loops.forEach(l => {
             let actualPathDrop = 0;
 
-            // Beregn det fysiske temperaturfald gennem hele ruten
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
                 if (node && (node.type === 'ror' || node.type === 'retur')) {
@@ -3027,26 +3006,17 @@ function calculateCirculationFlows(model, config) {
                     }
                 }
             });
-            
-            // Gem til visning
-            l._debugDrop = actualPathDrop;
 
-            // Beregn afvigelse fra målet (f.eks. 5 grader)
+            l._debugDrop = actualPathDrop;
             const diff = actualPathDrop - targetDrop;
             if (Math.abs(diff) > maxTempDeviation) maxTempDeviation = Math.abs(diff);
 
-            // Juster flowet
-            // Vi accepterer en lille tolerance på 0.05 grader før vi justerer
             if (Math.abs(diff) > 0.05) {
                 let correction = actualPathDrop / targetDrop;
-                
-                // Begræns spring for at undgå oscillering
                 if (correction > 1.5) correction = 1.5;
                 if (correction < 0.8) correction = 0.8;
 
                 const newFlow = l.circ_flow * correction;
-                
-                // Dæmpet opdatering (Vigtigt for stabilitet)
                 l.circ_flow = (l.circ_flow * 0.7) + (newFlow * 0.3);
                 
                 if (l.circ_flow < MIN_FLOW) l.circ_flow = MIN_FLOW;
@@ -3055,28 +3025,21 @@ function calculateCirculationFlows(model, config) {
             }
         });
 
-        // D. Stop-kriterie
-        // Vi stopper KUN, hvis hverken dimensioner eller flow har ændret sig væsentligt
         if (!changesMade && maxTempDeviation < 0.05) {
             converged = true;
         }
         
-        // Log hver 10. gang for at følge med
         if (iteration % 10 === 0) {
-             console.log(`Iter ${iteration}: Max Temp Afvigelse ${maxTempDeviation.toFixed(3)} K. Dims Changed: ${dimsChanged}`);
+             console.log(`Iter ${iteration}: Max Temp Afvigelse ${maxTempDeviation.toFixed(3)} K.`);
         }
     }
 
-    // TRIN 3: AFSLUTNING & DATA TIL TABEL
-    // En sidste beregning for at sikre alt er synkroniseret
     calculateCirculationFlowsAggregation(model);
     
-    // Beregn det endelige varmetab til tabellen
     console.log("--- Slutresultater ---");
     model.loops.forEach(l => {
+        // Gem total varmetab til visning
         l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
-        
-        // Til debug:
         const returTemp = config.T_v - (l._debugDrop || 0);
         console.log(`Streng ${l.id}: Flow ${(l.circ_flow*3600).toFixed(1)} l/h | Retur: ${returTemp.toFixed(2)} °C`);
     });
@@ -4171,23 +4134,21 @@ function calcVelocity(n, model) {
     return n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
 }
 
-// --- DISPLAY ---
 function displayResults(model, config) {
     const advarslerDiv = document.getElementById('advarsler');
     advarslerDiv.innerHTML = '';
+    
     const resttryk = config.pln - model.max_dp_tapning;
     if (resttryk < config.min_tap_tryk) advarslerDiv.innerHTML += `<p class="alert alert-danger">ADVARSEL: Tryk ved fjerneste tapsted (${(resttryk / 1000).toFixed(0)} kPa) er for lavt.</p>`;
     else advarslerDiv.innerHTML += `<p class="alert alert-success">OK: Tryk ved fjerneste tapsted er tilstrækkeligt (${(resttryk / 1000).toFixed(0)} kPa).</p>`;
 
     if (config.isAuto) {
         model.nodes.forEach(n => {
-            if (n.type === 'ror' || n.type === 'retur') {
+            if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
                 const el = document.querySelector(`[data-id="${n.id}"]`);
                 if (el) {
                     const dimInput = el.querySelector('.dim');
-                    if (dimInput && n.nom_dim) {
-                        dimInput.value = n.nom_dim;
-                    }
+                    if (dimInput) dimInput.value = n.nom_dim;
                 }
             }
         });
@@ -4206,7 +4167,6 @@ function displayResults(model, config) {
             dp_friction = model.max_dp_tapning - dp_geo;
         }
     }
-
     const total_q_tab = model.loops.reduce((s, l) => s + (l.q_tab_tot || 0), 0);
     const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
 
@@ -4232,36 +4192,60 @@ function displayResults(model, config) {
     }
 
     const rørTable = document.getElementById('rørResultTable');
-    rørTable.querySelector('thead').innerHTML = `<tr><th>ID/Navn</th><th>Type</th><th>Dim.</th><th>Isolering</th><th>q [l/s]</th><th>v [m/s]</th><th>Δp/L [Pa/m]</th><th>Δp Total [Pa]</th><th>Varmetab [W]</th></tr>`;
+    rørTable.querySelector('thead').innerHTML = `<tr>
+        <th>ID/Navn</th>
+        <th>Type</th>
+        <th>Dim.</th>
+        <th>q [l/s]</th>
+        <th>v [m/s]</th>
+        <th>Rørfriktion [Pa/m]</th>
+        <th>Fittings [Pa]</th>
+        <th>Total [Pa]</th>
+        <th>Varmetab [W]</th>
+    </tr>`;
     
     let rørTbody = '';
     model.nodes.forEach(n => {
         if((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
-            
-            // ================================================================= //
-            // == KORRIGERET SEKTION: BEREGNING AF VÆRDIER TIL TABELLEN         == //
-            // ================================================================= //
             const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
-            const dp_total = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
-            const dp_pr_meter = n.L > 0 ? dp_total / n.L : 0;
             
+            // 1. Beregn RENT friktionstab (uden tillæg) til Pa/m kolonnen
+            // pct=0, zeta=0
+            const dp_pure_friction_total = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0);
+            const dp_pr_meter = (n.L > 0 && flow_ls > 0.000001) ? (dp_pure_friction_total / n.L) : 0;
+
+            // 2. Beregn Fittings Tab (Zeta + Tillæg)
+            // Tillægget beregnes af det rene friktionstab
+            const surcharge_loss = dp_pure_friction_total * (config.fittings_pct / 100);
+            
+            const dynamic_pressure = 985 * (velocity ** 2) / 2;
+            const zeta_loss = (n.zeta_sum || 0) * dynamic_pressure;
+            
+            const fittings_total = surcharge_loss + zeta_loss;
+
+            // 3. Total
+            const dp_total_calc = dp_pure_friction_total + fittings_total;
+            
+            // Advarsler
             let velocityWarning = '';
             if (n.type === 'ror' && velocity > config.max_v_f) velocityWarning = ' ⚠️';
             if (n.type === 'retur' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
-            // ================================================================= //
             
-			rørTbody += `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
+            let dpWarning = '';
+            if (dp_pr_meter > config.max_dp_m) dpWarning = ' ⚠️';
+
+            rørTbody += `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
                 <td><b>${getDisplayName(n.id)}</b></td>
                 <td>${n.type}</td>
                 <td>${n.nom_dim} mm</td>
-                <td>${n.insulationThickness || '-'} mm</td>
                 <td>${flow_ls.toFixed(3)}</td>
                 <td>${velocity.toFixed(2)}${velocityWarning}</td>
-                <td>${dp_pr_meter.toFixed(1)}</td>
-                <td>${dp_total.toFixed(0)}</td>
+                <td>${dp_pr_meter.toFixed(0)}${dpWarning}</td>
+                <td>${fittings_total.toFixed(0)}</td>
+                <td>${dp_total_calc.toFixed(0)}</td>
                 <td>${(n.q_tab||0).toFixed(1)}</td>
             </tr>`;
         }
@@ -4271,12 +4255,9 @@ function displayResults(model, config) {
     const cirkTable = document.getElementById('cirkResultTable');
     cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Δp [Pa]</th></tr>`;
 	let cirkTbody = '';
-    let totalCircFlowLH = 0; // Variabel til sum
-
+    
     model.loops.forEach(l => {
         const flowLH = (l.circ_flow || 0) * 3600;
-        totalCircFlowLH += flowLH; // Læg til sum
-
         cirkTbody += `<tr data-loop-id="${l.id}" onmouseenter="highlightLoop('${l.id}')" onmouseleave="clearHighlight()">
                       <td><b>${getDisplayName(l.id)}</b></td>
                       <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
@@ -4286,8 +4267,6 @@ function displayResults(model, config) {
                       <td>${Math.max(0, model.max_dp_circ - (l.dp_circ_total || 0)).toFixed(0)}</td>
                     </tr>`;
     });
-
-    // NYT: Tilføj Sum-linje og OBS
     const totalCircFlowM3H = totalCircFlowLH / 1000;
     cirkTbody += `
         <tr class="table-secondary" style="border-top: 2px solid #dee2e6;">
@@ -4295,14 +4274,11 @@ function displayResults(model, config) {
             <td><b>${totalCircFlowLH.toFixed(1)} l/h</b><br><small>(${totalCircFlowM3H.toFixed(3)} m³/h)</small></td>
             <td colspan="2"></td>
         </tr>
-        <tr>
-            <td colspan="6" class="text-muted small">
-                <em>OBS: Husk at sammenholde beholdervolumen med cirkulationsflow. (Se Beholder-fanen)</em>
-            </td>
-        </tr>`;
+        <tr><td colspan="6" class="text-muted small"><em>OBS: Husk at sammenholde beholdervolumen med cirkulationsflow.</em></td></tr>`;
 
     cirkTable.querySelector('tbody').innerHTML = cirkTbody;
 }
+
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
