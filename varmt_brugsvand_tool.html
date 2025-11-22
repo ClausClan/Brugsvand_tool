@@ -978,7 +978,50 @@ const DS452_THICKNESS = { 15: 40, 18: 40, 22: 50, 28: 50, 35: 50, 42: 50, 54: 60
 const STANDARD_INSULATION_THICKNESS = [10, 20, 30, 40, 50, 60, 70, 80, 100];
 // Justeringsfaktorer baseret på placering. Værdier er vejledende.
 const DS452_ADJUSTMENT = { "heated": 1.0, "unheated": 1.2, "outside": 1.2 };
-const RHO=985, C=4184, MU=0.0005, G=9.82;
+
+// =============================================================================
+// == FYSISKE KONSTANTER & FUNKTIONER (Temperaturafhængige)                   ==
+// =============================================================================
+const G = 9.82; // Tyngdeacceleration (m/s²)
+
+/**
+ * Beregner vandets densitet (rho) [kg/m³] som funktion af temperatur [°C].
+ * Baseret på Tanaka's formel (standard for vand 0-100°C).
+ */
+function getWaterDensity(t) {
+    // Simpel men præcis approksimation (maks fejl 0.001% i området 0-100°C)
+    if (t < 0) t = 0; 
+    if (t > 100) t = 100;
+    return 1000 * (1 - Math.pow((t + 288.9414) / (508929.2 * (t + 68.12963)), 1) * Math.pow(t - 3.9863, 2));
+}
+
+/**
+ * Beregner vandets dynamiske viskositet (mu) [Pa·s] som funktion af temperatur [°C].
+ * Baseret på Vogel-Fulcher-Tammann ligningen.
+ */
+function getWaterViscosity(t) {
+    if (t < 0) t = 0;
+    // Resultat i Pa·s (N·s/m²).  Eks: 20°C -> 0.001002 Pa·s
+    return 0.00002414 * Math.pow(10, 247.8 / (t + 273.15 - 140));
+}
+
+/**
+ * Beregner vandets specifikke varmekapacitet (cp) [J/(kg·K)] som funktion af temperatur [°C].
+ * Vand er ret stabilt omkring 4180-4200, men vi tager det med for præcision.
+ */
+function getWaterSpecificHeat(t) {
+    // Polynomisk tilnærmelse (4180 J/kgK ved 20°C, stiger let ved højere temp)
+    return 4217.4 - 3.72 * t + 0.141 * Math.pow(t, 2) - 0.0026 * Math.pow(t, 3);
+}
+
+/**
+ * Hjælper: Beregner varmekapacitets-faktor (rho * cp) [J/(m³·K)] for en given temp.
+ * Bruges til flow-beregninger.
+ */
+function getHeatCapacityFactor(t) {
+    return getWaterDensity(t) * getWaterSpecificHeat(t); // Resultat ca. 4.120.000 - 4.180.000
+}
+
 const state = { sC: 0, rC: 0, tC: 0, nodes: [{id: "Beholder", type: "beholder"}], links: [], sim: null, reparentingNode: null, connectingNodeInfo: null, selectedNodes: new Set(), lastModel: null, lastConfig: null, useNames: false, customTapsteder: {}, names: new Map(), clipboard: null, movingBranch: null };
 
 // Global "Dirty Flag" til auto-gem
@@ -2753,7 +2796,7 @@ function dimensionFremløb(model, config) {
                 // Trin 1: Tjek om hastighedskravet er overholdt
                 if (v >= config.min_v_f) {
                     const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
-                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter, config.fittings_pct);
+                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter, config.fittings_pct, config.T_v);
 
                     // Trin 2: Find det rør, der giver det laveste tryktab
                     if (dp_m < bestPaM) {
@@ -2801,6 +2844,8 @@ function dimensionFremløb(model, config) {
 }
 
 function dimensionRetur(model, config) {
+    const meanTemp = config.T_v - (config.dT / 2);
+
     model.nodes.forEach(n => {
         if (n.type !== 'retur') return;
 
@@ -2820,7 +2865,7 @@ function dimensionRetur(model, config) {
             
             // BEREGN RENT RØRTRYKTAB PR. METER (pct = 0)
             // Dette er dimensioneringskriteriet jf. din anvisning
-            const dp_m_pure = getDP(flow, d_i, RH[mat] / 1000, 1, 0, 0); 
+            const dp_m_pure = getDP(flow, d_i, RH[mat] / 1000, 1, 0, 0, meanTemp);
             
             if (v <= config.max_v_c && dp_m_pure <= config.max_dp_m) {
                 bestDim = dim;
@@ -2835,41 +2880,43 @@ function dimensionRetur(model, config) {
 function calculatePressureDrop(startNode, dp_prop, flow_prop, config) {
     if ((startNode.type === 'ror' || startNode.type === 'retur') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
-        // Hent fittings tillæg
-        const pct = config && config.fittings_pct !== undefined ? config.fittings_pct : 0;
-        
-        startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct);
+        const pct = config && config.fittings_pct ? config.fittings_pct : 0;
+        // Send config.T_v med
+        startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, config.T_v);
     }
     startNode.children.forEach(c => calculatePressureDrop(c, dp_prop, flow_prop, config));
     return startNode;
 }
 
-function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0) {
+function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0, temp = 55) {
     if(!flow_ls || flow_ls < 0.0001) return 0;
     
-    const v = (flow_ls/1000)/(Math.PI*(d_inner/2)**2); 
-    const Re = RHO*v*d_inner/MU;
+    // Hent fysiske værdier for den aktuelle temperatur
+    const rho = getWaterDensity(temp);
+    const mu = getWaterViscosity(temp);
+
+    // Beregn hastighed og Reynolds tal
+    const v = (flow_ls/1000)/(Math.PI*Math.pow(d_inner/2, 2)); 
+    const Re = (rho * v * d_inner) / mu;
     
+    // Beregn lambda (friktionskoefficient)
     let lambda = 0.02;
     if (Re < 2300) { 
         lambda = 64 / Re;
     } else { 
+        // Colebrook-White iteration
         for(let i=0; i<10; i++) { 
-            let f=1/Math.sqrt(lambda); 
-            f=-2*Math.log10(roughness/(3.7*d_inner)+2.51/(Re*f)); 
-            lambda=1/(f*f); 
+            let f = 1 / Math.sqrt(lambda); 
+            f = -2 * Math.log10(roughness / (3.7 * d_inner) + 2.51 / (Re * f)); 
+            lambda = 1 / (f * f); 
         } 
     }
 
-    const dynamic_pressure = RHO * v**2 / 2;
+    const dynamic_pressure = rho * Math.pow(v, 2) / 2;
     
-    // 1. Rent rørtab
+    // Beregn friktionstab
     const pipe_friction_loss = lambda * (L / d_inner) * dynamic_pressure;
-    
-    // 2. Tillæg for fittings (Procent af rørtab)
     const pipe_friction_with_allowance = pipe_friction_loss * (1 + (fittings_pct / 100));
-    
-    // 3. Enkeltmodstande (Zeta)
     const fittings_loss = zeta * dynamic_pressure;
 
     return pipe_friction_with_allowance + fittings_loss;
@@ -2938,12 +2985,29 @@ function calculateHeatLoss(model, config) {
 // == 4. VANDMÆNGDE & DIMENSIONERING (OPTIMERING MED RENT RØRTAB)
 // =============================================================================
 function calculateCirculationFlows(model, config) {
-    if (config.dT <= 0) return model;
+if (config.dT <= 0) return model;
 
-    const HEAT_CAPACITY_FACTOR = 4121; 
+    // Beregn dynamisk faktor baseret på gennemsnitstemperatur (rho * cp)
+    // Vi dividerer med 1000 for at passe til formlen (W -> l/s) hvis densitet er i kg/m3
+    // Formel: q [l/s] = P [W] / (rho[kg/m3] * cp[J/kgK] * dT) * 1000 [l/m3]
+    // => q = P / ((rho*cp)/1000 * dT)
+    
+    const meanTemp = config.T_v - (config.dT / 2);
+    
+    // Hent præcise værdier
+    const rho = getWaterDensity(meanTemp);
+    const cp = getWaterSpecificHeat(meanTemp);
+    
+    // Kombineret faktor til formlen (svarer til det gamle 4121, men nu dynamisk)
+    // 4184 * 985 / 1000 = 4121.
+    const HEAT_CAPACITY_FACTOR = (rho * cp) / 1000; // J / (L·K)
+    
+    // Debug: Se hvad den nye faktor er (f.eks. ved 60 grader er den lavere end ved 40)
+    console.log(`Dynamisk Varmekapacitet ved ${meanTemp.toFixed(1)}°C: ${HEAT_CAPACITY_FACTOR.toFixed(1)} J/L·K`);
+
     const MIN_FLOW = 0.005; 
     const targetDrop = config.dT; 
-    const maxIterations = 100; 
+    const maxIterations = 1000; 
     
     console.group("🚀 DEBUG: Cirkulation Konvergens");
 
@@ -3084,8 +3148,13 @@ function calculateCirculationFlowsAggregation(model) {
 }
 
 function calculateCirculationDP(model, config) {
+    // Beregn middeltemperatur for cirkulationen (f.eks. 55 - 5/2 = 52.5 grader)
+    const meanTemp = config.T_v - (config.dT / 2);
+    
     model.max_dp_circ = 0;
     
+    
+
     model.nodes.forEach(n => { 
         if (n.type === 'retur' || n.type === 'ror' || n.type === 'valve') n.dp_circ = 0; 
     });
@@ -3104,7 +3173,7 @@ function calculateCirculationDP(model, config) {
             if (n.type === 'ror' || n.type === 'retur') {
                 if (n.nom_dim) {
                     const d_i = ID[n.material][n.nom_dim] / 1000;
-                    const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct);
+                    const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct, meanTemp);
                     n.dp_circ = (n.dp_circ || 0) + segment_dp;
                     l.dp_circ_total += segment_dp;
                 }
@@ -3178,7 +3247,7 @@ function calculateCirculationDP(model, config) {
             }
         } else {
              // Ingen ventil valgt: Brug et standard Zeta-tab
-             valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0);
+             valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0, meanTemp);
         }
         
         // Gem trykket på noden
@@ -4215,8 +4284,9 @@ function calcVelocity(n, model) {
     return n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
 }
 
+
 // =============================================================================
-// == VISNING AF RESULTATER (TABELLER)
+// == VISNING AF RESULTATER (Med Temperaturafhængig Fysik)
 // =============================================================================
 function displayResults(model, config) {
     const advarslerDiv = document.getElementById('advarsler');
@@ -4246,6 +4316,10 @@ function displayResults(model, config) {
     // 3. BEREGN OPSUMMERINGSTAL
     let dp_friction = model.max_dp_tapning;
     let dp_geo = 0;
+
+    // Hent densitet for varmt vand (Fremløb) til geodætisk beregning
+    // getWaterDensity(t) skal være defineret i din hjælpe-sektion
+    const rho_supply = getWaterDensity(config.T_v);
     
     if (model.criticalPath && model.criticalPath.size > 0) {
         const criticalPathArray = Array.from(model.criticalPath);
@@ -4254,13 +4328,18 @@ function displayResults(model, config) {
 
         if (endTapstedNode && endTapstedNode.type === 'tapsted') {
             const h = (endTapstedNode.kote || 0) - (config.forsyningens_kote || 0);
-            dp_geo = RHO * G * h;
+            // Beregn løftehøjde-tryk med den korrekte temperatur-afhængige densitet
+            dp_geo = rho_supply * G * h;
             dp_friction = model.max_dp_tapning - dp_geo;
         }
     }
     
-    // Beregn total cirkulation til opsummeringsboksen
     const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
+
+    // Beregn pumpe mVs med gennemsnitlig densitet for cirkulationsvandet
+    // Da returvandet er koldere, er densiteten lidt højere
+    const meanTemp = config.T_v - (config.dT / 2);
+    const rho_circ = getWaterDensity(meanTemp);
 
     // 4. OPSUMMERINGSTABEL
     document.getElementById('summaryTableBody').innerHTML = `
@@ -4269,9 +4348,9 @@ function displayResults(model, config) {
         <tr><td><b>Samlet tryktab (kritisk streng)</b></td><td><b>${model.max_dp_tapning.toFixed(0)} Pa</b></td></tr>
         <tr class="table-group-divider"><td colspan="2" class="bg-light"><b>Pumpe Dimensionering</b></td></tr>
         <tr><td>Pumpeflow (total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
-        <tr><td>Pumpetryk (løftehøjde)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (RHO * G)).toFixed(2)} mVs)</td></tr>`;
+        <tr><td>Pumpetryk (løftehøjde)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>`;
 
-    // 5. BEHOLDER INFO
+    // 5. BEHOLDER INFO (METODE A)
     const metodeA_div = document.getElementById('metodeA_content');
     if (model.N > 0) {
         metodeA_div.innerHTML = `
@@ -4307,19 +4386,30 @@ function displayResults(model, config) {
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
             
-            // Rent friktionstab
-            const dp_pure_friction_total = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0);
+            // VÆLG DEN KORREKTE TEMPERATUR TIL BEREGNINGEN
+            // Fremløb = T_v, Retur = Middeltemperatur (T_v - dT/2)
+            const temp = n.type === 'ror' ? config.T_v : meanTemp;
+            const rho = getWaterDensity(temp);
+
+            // 1. Beregn RENT friktionstab pr. meter (uden tillæg) - Send temp med!
+            // getDP(flow, d, rughed, L, zeta, pct, temp) -> Vi sætter zeta=0 og pct=0
+            const dp_pure_friction_total = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0, temp);
             const dp_pr_meter = (n.L > 0 && flow_ls > 0.000001) ? (dp_pure_friction_total / n.L) : 0;
 
-            // Fittings tab
+            // 2. Beregn Fittings Tab (Zeta + %-Tillæg)
+            // Tillægget (fx 25%) beregnes af det rene rørfriktionstab
             const surcharge_loss = dp_pure_friction_total * (config.fittings_pct / 100);
-            const dynamic_pressure = 985 * (velocity ** 2) / 2;
+            
+            // Beregn dynamisk tryk til Zeta-tab (bruger nu den korrekte densitet)
+            const dynamic_pressure = rho * (velocity ** 2) / 2;
             const zeta_loss = (n.zeta_sum || 0) * dynamic_pressure;
+            
             const fittings_total = surcharge_loss + zeta_loss;
 
-            // Total
+            // 3. Total Tryktab
             const dp_total_calc = dp_pure_friction_total + fittings_total;
             
+            // Advarsler (Rød trekant hvis over grænsen)
             let velocityWarning = '';
             if (n.type === 'ror' && velocity > config.max_v_f) velocityWarning = ' ⚠️';
             if (n.type === 'retur' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
@@ -4342,17 +4432,15 @@ function displayResults(model, config) {
     });
     rørTable.querySelector('tbody').innerHTML = rørTbody;
     
-    // 7. CIRKULATION TABEL (MED TOTAL)
+    // 7. CIRKULATION TABEL
     const cirkTable = document.getElementById('cirkResultTable');
-    cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Data</th></tr>`;
+    cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Δp [Pa]</th></tr>`;
     let cirkTbody = '';
-    
-    // Variabel til at summere totalt flow
     let grandTotalFlowLH = 0;
 
     model.loops.forEach(l => {
         const flowLH = (l.circ_flow || 0) * 3600;
-        grandTotalFlowLH += flowLH; // Læg til summen her
+        grandTotalFlowLH += flowLH; 
         
         let valveText = '-';
         let settingText = '-';
@@ -4360,7 +4448,7 @@ function displayResults(model, config) {
         let dpLabel = "Ventil Δp";
         
         if (l.selectedValve) {
-            valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-';
+            valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-'; 
             
             if (l.selectedValve.isStatic) {
                 const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
@@ -4394,7 +4482,6 @@ function displayResults(model, config) {
                     </tr>`;
     });
 
-    // HER ER DEN MANGLENDE TOTAL-LINJE
     const totalCircFlowM3H = grandTotalFlowLH / 1000;
     cirkTbody += `
         <tr class="table-secondary" style="border-top: 2px solid #dee2e6;">
@@ -4765,7 +4852,7 @@ function findLocalFailures(model, config) {
             const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
             const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
             
-            const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, zeta_pr_meter, config.fittings_pct || 0);
+            const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, zeta_pr_meter, config.fittings_pct, config.T_v || 0);
 
             if (config.globalConstraintType === 'velocity' && v > config.max_v_f) {
                 failures.push({ id: n.id, value: v, type: 'velocity' });
