@@ -2784,21 +2784,23 @@ function dimensionFremløb(model, config) {
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
         let bestDim = sortedDims[sortedDims.length - 1]; // Default til største rør
 
+        // Hent temperatur (hvis de nye fysiske funktioner er implementeret, ellers ignoreres den)
+        const temp = config.T_v || 55;
+
         if (config.dimPrinciple === 'min_velocity_pressure') {
-            // NY LOGIK: Find mindste tryktab, der overholder min. hastighed
+            // Princip: Mindste tryktab overholdt min. hastighed
             let bestPaM = Infinity;
             let foundDim = false;
 
             for (const dim of sortedDims) {
                 const d_i = ID[mat][dim] / 1000;
-                const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
+                const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
 
-                // Trin 1: Tjek om hastighedskravet er overholdt
                 if (v >= config.min_v_f) {
-                    const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
-                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter, config.fittings_pct, config.T_v);
+                    // BEREGN RENT RØRTRYKTAB PR. METER (zeta=0, pct=0)
+                    // Vi bruger kun rørets friktion til at vælge dimensionen
+                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
 
-                    // Trin 2: Find det rør, der giver det laveste tryktab
                     if (dp_m < bestPaM) {
                         bestPaM = dp_m;
                         bestDim = dim;
@@ -2806,18 +2808,17 @@ function dimensionFremløb(model, config) {
                     }
                 }
             }
-            // Hvis intet rør overholdt min. hastighed, vælg det mindste for at opnå højest mulig hastighed
-            if (!foundDim) {
-                bestDim = sortedDims[0];
-            }
+            if (!foundDim) bestDim = sortedDims[0];
 
         } else {
-            // Gammel, velfungerende logik for de andre principper
+            // Standard principper (Kombineret, Tryktab, Hastighed)
             for (const dim of sortedDims) {
                 const d_i = ID[mat][dim] / 1000;
-                const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
-                const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
-                const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, zeta_pr_meter);
+                const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+                
+                // BEREGN RENT RØRTRYKTAB PR. METER (zeta=0, pct=0)
+                const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
+                
                 let criteriaMet = false;
 
                 switch (config.dimPrinciple) {
@@ -2842,6 +2843,7 @@ function dimensionFremløb(model, config) {
     });
     return model;
 }
+
 
 function dimensionRetur(model, config) {
     const meanTemp = config.T_v - (config.dT / 2);
@@ -4846,13 +4848,17 @@ function beregnGlobalOptimering(config) {
 
 function findLocalFailures(model, config) {
     const failures = [];
+    // Hent temperatur (hvis tilgængelig)
+    const temp = config.T_v || 55;
+
     model.nodes.forEach(n => {
         if (n.type === 'ror' && n.nom_dim && n.qd > 0) {
             const d_i = ID[n.material][n.nom_dim] / 1000;
-            const v = (n.qd / 1000) / (Math.PI * (d_i / 2) ** 2);
-            const zeta_pr_meter = n.L > 0 ? n.zeta_sum / n.L : 0;
+            const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
             
-            const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, zeta_pr_meter, config.fittings_pct, config.T_v || 0);
+            // BEREGN RENT RØRTRYKTAB PR. METER (zeta=0, pct=0)
+            // Fejlfinding skal baseres på rørets egenskaber, ikke komponenter
+            const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, 0, 0, temp);
 
             if (config.globalConstraintType === 'velocity' && v > config.max_v_f) {
                 failures.push({ id: n.id, value: v, type: 'velocity' });
@@ -4861,7 +4867,7 @@ function findLocalFailures(model, config) {
             }
         }
     });
-    return failures.sort((a, b) => b.value - a.value); // Sorter med den værste først
+    return failures.sort((a, b) => b.value - a.value);
 }
 
 // --- Hjælpefunktioner til Global Optimering ---
