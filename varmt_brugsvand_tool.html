@@ -4228,7 +4228,6 @@ function displayResults(model, config) {
     }
 
     // 2. OPDATER INPUT-FELTER (HVIS AUTO-DIM)
-    // Dette sikrer, at de beregnede dimensioner vises i input-felterne
     if (config.isAuto) {
         model.nodes.forEach(n => {
             if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
@@ -4245,7 +4244,6 @@ function displayResults(model, config) {
     let dp_friction = model.max_dp_tapning;
     let dp_geo = 0;
     
-    // Træk geodætisk tryktab ud af totalen for at vise det separat
     if (model.criticalPath && model.criticalPath.size > 0) {
         const criticalPathArray = Array.from(model.criticalPath);
         const endTapstedId = criticalPathArray[criticalPathArray.length - 1];
@@ -4258,6 +4256,7 @@ function displayResults(model, config) {
         }
     }
     
+    // Beregn total cirkulation til opsummeringsboksen
     const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
 
     // 4. OPSUMMERINGSTABEL
@@ -4269,7 +4268,7 @@ function displayResults(model, config) {
         <tr><td>Pumpeflow (total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
         <tr><td>Pumpetryk (løftehøjde)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (RHO * G)).toFixed(2)} mVs)</td></tr>`;
 
-    // 5. BEHOLDER INFO (METODE A)
+    // 5. BEHOLDER INFO
     const metodeA_div = document.getElementById('metodeA_content');
     if (model.N > 0) {
         metodeA_div.innerHTML = `
@@ -4305,24 +4304,19 @@ function displayResults(model, config) {
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
             
-            // A. Beregn RENT friktionstab pr. meter (uden tillæg) - Dette bruges til "Rørfriktion" kolonnen
-            // getDP(flow, d, rughed, L, zeta, pct) -> Vi sætter zeta=0 og pct=0
+            // Rent friktionstab
             const dp_pure_friction_total = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0);
             const dp_pr_meter = (n.L > 0 && flow_ls > 0.000001) ? (dp_pure_friction_total / n.L) : 0;
 
-            // B. Beregn Fittings Tab (Zeta + %-Tillæg)
-            // Tillægget (fx 25%) beregnes af det rene rørfriktionstab
+            // Fittings tab
             const surcharge_loss = dp_pure_friction_total * (config.fittings_pct / 100);
-            
             const dynamic_pressure = 985 * (velocity ** 2) / 2;
             const zeta_loss = (n.zeta_sum || 0) * dynamic_pressure;
-            
             const fittings_total = surcharge_loss + zeta_loss;
 
-            // C. Total Tryktab
+            // Total
             const dp_total_calc = dp_pure_friction_total + fittings_total;
             
-            // Advarsler (Rød trekant hvis over grænsen)
             let velocityWarning = '';
             if (n.type === 'ror' && velocity > config.max_v_f) velocityWarning = ' ⚠️';
             if (n.type === 'retur' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
@@ -4345,14 +4339,17 @@ function displayResults(model, config) {
     });
     rørTable.querySelector('tbody').innerHTML = rørTbody;
     
-    // 7. CIRKULATION TABEL
+    // 7. CIRKULATION TABEL (MED TOTAL)
     const cirkTable = document.getElementById('cirkResultTable');
-    cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Δp [Pa]</th></tr>`;
+    cirkTable.querySelector('thead').innerHTML = `<tr><th>Streng</th><th>Valgt Ventil</th><th>Varmetab [W]</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th><th>Ventil Data</th></tr>`;
     let cirkTbody = '';
-    let totalCircFlowLH = 0;
+    
+    // Variabel til at summere totalt flow
+    let grandTotalFlowLH = 0;
 
     model.loops.forEach(l => {
         const flowLH = (l.circ_flow || 0) * 3600;
+        grandTotalFlowLH += flowLH; // Læg til summen her
         
         let valveText = '-';
         let settingText = '-';
@@ -4363,7 +4360,6 @@ function displayResults(model, config) {
             valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-';
             
             if (l.selectedValve.isStatic) {
-                // Statisk: Vis hvor meget den skal drosle
                 const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
                 valveDpDisplay = requiredValveDrop;
                 
@@ -4375,11 +4371,7 @@ function displayResults(model, config) {
                     settingText = "Åben";
                 }
                 dpLabel = "Indreg. Δp";
-                
             } else {
-                // Dynamisk: Vis Minimums trykket (DeltaDP)
-                // Bemærk: Det faktiske tryk over ventilen vil være højere på ikke-kritiske strenge,
-                // men "Min dP" er det vigtige tal for pumpen og valg af ventil.
                 valveDpDisplay = l.selectedValve.minDp || 0;
                 settingText = "Auto";
                 dpLabel = "Min. Δp";
@@ -4397,14 +4389,14 @@ function displayResults(model, config) {
                         <br><small>${settingText}</small>
                       </td>
                     </tr>`;
-    }); 
+    });
 
-    // Total række i bunden af cirkulations-tabellen
-    const totalCircFlowM3H = totalCircFlowLH / 1000;
+    // HER ER DEN MANGLENDE TOTAL-LINJE
+    const totalCircFlowM3H = grandTotalFlowLH / 1000;
     cirkTbody += `
         <tr class="table-secondary" style="border-top: 2px solid #dee2e6;">
             <td colspan="3" class="text-end"><b>Samlet Cirkulation:</b></td>
-            <td><b>${totalCircFlowLH.toFixed(1)} l/h</b><br><small>(${totalCircFlowM3H.toFixed(3)} m³/h)</small></td>
+            <td><b>${grandTotalFlowLH.toFixed(1)} l/h</b><br><small>(${totalCircFlowM3H.toFixed(3)} m³/h)</small></td>
             <td colspan="2"></td>
         </tr>
         <tr><td colspan="6" class="text-muted small"><em>OBS: Husk at sammenholde beholdervolumen med cirkulationsflow.</em></td></tr>`;
@@ -4845,7 +4837,7 @@ function upgradePipeDimension(pipeNode) {
 // =================================================================================
 
 /**
- * VIS RAPPORT (Styrer logikken for snapshots og åbner vinduet)
+ * VIS RAPPORT (Opdateret til at tage flere snapshots)
  */
 function showCalculationReport() {
     if (!state.lastModel || !state.lastConfig) {
@@ -4853,46 +4845,50 @@ function showCalculationReport() {
         return;
     }
 
-    // Hjælpefunktion til at hente SVG som en streng
+    // Hjælper til at hente SVG
     const getSVG = () => {
         const svgElement = document.querySelector("#diagram svg");
         if (!svgElement) return "";
-        
-        // Klon elementet for ikke at ødelægge det levende diagram
         const clone = svgElement.cloneNode(true);
-        
-        // Sæt faste dimensioner til rapporten, så det skalerer korrekt
         clone.setAttribute("width", "100%");
         clone.removeAttribute("height"); 
-        clone.style.maxHeight = "600px"; // Begræns højden i rapporten
+        clone.style.maxHeight = "500px";
         clone.style.display = "block";
         clone.style.margin = "0 auto";
-        
         return new XMLSerializer().serializeToString(clone);
     };
 
-    // 1. GEM NUVÆRENDE TILSTAND
-    const chkKritisk = document.getElementById('visKritisk');
-    const wasCriticalChecked = chkKritisk.checked;
+    // GEM NUVÆRENDE VISNINGS-TILSTAND
+    const originalVisMode = document.querySelector('input[name="visMode"]:checked').value;
+    const originalVisKritisk = document.getElementById('visKritisk').checked;
 
-    // 2. SNAPSHOT 1: STANDARD VISNING (Topologi/Farver)
-    // Tving "Vis kritisk" fra, så vi ser farvekoderne (Hoved/Fordeling/Kobling)
-    chkKritisk.checked = false;
+    // --- SNAPSHOT 1: STANDARD TOPOLOGI ---
+    // Slå kritisk fra, sæt visning til "Ingen" (viser rørtyper/kategorier)
+    document.getElementById('visKritisk').checked = false;
+    document.querySelector('input[value="none"]').checked = true;
     updateDiagramStyles(); 
     const svgStandard = getSVG();
 
-    // 3. SNAPSHOT 2: KRITISK STRENG
-    // Tving "Vis kritisk" til
-    chkKritisk.checked = true;
+    // --- SNAPSHOT 2: TEMPERATUR FORDELING ---
+    // Dette dokumenterer at 50 graders kravet er overholdt
+    document.querySelector('input[value="temp"]').checked = true;
+    updateDiagramStyles();
+    const svgTemp = getSVG();
+
+    // --- SNAPSHOT 3: KRITISK VEJ ---
+    // Dokumenterer det dimensionerende tryktab
+    document.querySelector('input[value="none"]').checked = true; // Nulstil farver først
+    document.getElementById('visKritisk').checked = true;
     updateDiagramStyles();
     const svgCritical = getSVG();
 
-    // 4. GENDAN OPRINDELIG TILSTAND (Så brugerens skærm ikke ændrer sig)
-    chkKritisk.checked = wasCriticalChecked;
+    // GENDAN OPRINDELIG TILSTAND
+    document.querySelector(`input[value="${originalVisMode}"]`).checked = true;
+    document.getElementById('visKritisk').checked = originalVisKritisk;
     updateDiagramStyles();
 
-    // 5. GENERER RAPPORT MED BEGGE BILLEDER
-    const reportHTML = generateReportHTML(state.lastModel, state.lastConfig, svgStandard, svgCritical);
+    // GENERER RAPPORT
+    const reportHTML = generateReportHTML(state.lastModel, state.lastConfig, svgStandard, svgTemp, svgCritical);
     
     const reportWindow = window.open('', '_blank');
     reportWindow.document.open();
@@ -4901,13 +4897,28 @@ function showCalculationReport() {
 }
 	
 /**
- * GENERER RAPPORT HTML (Nu med diagram-screenshots)
+ * GENERER RAPPORT HTML (Dokumentation af Rørtyper og Isolering)
  */
-function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Critical) {
+function generateReportHTML(model, config, svgTopo, svgTemp, svgCrit) {
     const reportDate = new Date().toLocaleDateString('da-DK', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const projTitle = config.projectName || 'Ikke navngivet projekt';
 
-    // --- HJÆLPER: Generer Stykliste ---
+    // Oversætter kategorier til dansk tekst
+    const translateCat = (cat) => {
+        const map = {
+            'main': 'Hovedledning (Frem)',
+            'distribution': 'Fordelingsledn. (Frem)',
+            'connection': 'Koblingsledn. (Frem)',
+            'main_return': 'Hovedledning (Retur)',
+            'return': 'Returledning',
+            'cold_main': 'Koldt Vand (Hoved)',
+            'cold_distribution': 'Koldt Vand (Fordeling)',
+            'cold_connection': 'Koldt Vand (Kobling)'
+        };
+        return map[cat] || 'Rør';
+    };
+
+    // --- STYKLISTE (BOM) ---
     const generateBOM = () => {
         const bom = {}; 
         model.nodes.forEach(n => {
@@ -4917,11 +4928,8 @@ function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Criti
                 bom[n.material][n.nom_dim] += (n.L || 0);
             }
         });
-
         if (Object.keys(bom).length === 0) return '<p><i>Ingen rør fundet.</i></p>';
-
-        let html = '<table class="bom-table">';
-        html += '<thead><tr><th>Materiale</th><th>Dimension</th><th>Total Længde [m]</th></tr></thead><tbody>';
+        let html = '<table class="bom-table"><thead><tr><th>Materiale</th><th>Dimension</th><th>Total Længde [m]</th></tr></thead><tbody>';
         Object.keys(bom).sort().forEach(mat => {
             Object.keys(bom[mat]).sort((a,b) => parseFloat(a) - parseFloat(b)).forEach(dim => {
                 html += `<tr><td>${mat}</td><td>${dim} mm</td><td><b>${bom[mat][dim].toFixed(1)}</b></td></tr>`;
@@ -4931,69 +4939,83 @@ function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Criti
         return html;
     };
 
-    // --- HJÆLPER: Generer Kritisk Streng Tabel ---
-    const generateCriticalPathTable = () => {
-        if (!model.criticalPath || model.criticalPath.size === 0) return '<p><i>Ingen kritisk vej fundet.</i></p>';
-
-        let endNode = null;
-        for (const nodeId of model.criticalPath) {
-            const n = model.nodes.get(nodeId);
-            if (n && n.type === 'tapsted') { endNode = n; break; }
-        }
-        if (!endNode) return '<p><i>Kunne ikke identificere slutpunkt.</i></p>';
-
-        const path = [];
-        let current = endNode;
-        while (current && current.id !== 'Beholder') {
-            path.unshift(current);
-            current = model.nodes.get(current.parentId);
-        }
+    // --- ISOLERINGS SPECIFIKATION (UDVIDET) ---
+    const generateInsulationTable = () => {
+        // Grupperer på: Kategori -> Materiale -> Dimension -> Isolering
+        const isoData = [];
         
-        let html = '<table class="critical-path-table">';
-        html += '<thead><tr><th>Komponent</th><th>Dim.</th><th>Længde</th><th>Flow [l/s]</th><th>Hast. [m/s]</th><th>Δp Friktion [Pa]</th><th>Δp Geo. [Pa]</th><th>Δp Total [Pa]</th></tr></thead><tbody>';
-        
-        let sumDpFriction = 0;
-        const RHO = 985, G = 9.82;
-        const totalGeoDp = (endNode.kote - config.forsyningens_kote) * RHO * G;
-
-        path.forEach(n => {
-            if (n.type === 'ror') {
-                const flow = n.qd || 0;
-                const d_i = ID[n.material][n.nom_dim] / 1000;
-                const v = (flow / 1000) / (Math.PI * (d_i / 2) ** 2);
-                const dp = n.dp_tap || 0;
-                sumDpFriction += dp;
+        model.nodes.forEach(n => {
+            if ((n.type === 'ror' || n.type === 'retur') && n.material && n.nom_dim) {
+                const catName = translateCat(n.category);
+                // Nøgle til gruppering
+                const key = `${catName}|${n.material}|${n.nom_dim}|${n.insulationClass}|${n.insulationThickness}`;
                 
-                html += `<tr>
-                    <td>${n.name || n.id}</td>
-                    <td>${n.material} ${n.nom_dim}</td>
-                    <td>${n.L} m</td>
-                    <td>${flow.toFixed(3)}</td>
-                    <td>${v.toFixed(2)}</td>
-                    <td>${dp.toFixed(0)}</td>
-                    <td>-</td>
-                    <td>${dp.toFixed(0)}</td>
-                </tr>`;
-            } else if (n.type === 'tapsted') {
-                html += `<tr class="tap-row">
-                    <td><b>${n.name || n.id}</b> (Tapsted)</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>${n.qf.toFixed(2)}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td><b>${totalGeoDp.toFixed(0)}</b></td>
-                    <td><b>${totalGeoDp.toFixed(0)}</b></td>
-                </tr>`;
+                let entry = isoData.find(e => e.key === key);
+                if (!entry) {
+                    entry = {
+                        key: key,
+                        category: catName,
+                        material: n.material,
+                        dim: n.nom_dim,
+                        class: n.insulationClass ? `Kl. ${n.insulationClass}` : 'Uisoleret (Kl. 0)',
+                        thickness: n.insulationThickness,
+                        len: 0
+                    };
+                    isoData.push(entry);
+                }
+                entry.len += (n.L || 0);
             }
         });
 
-        html += `<tr class="total-row">
-            <td colspan="5"><b>TOTAL (Kritisk Streng)</b></td>
-            <td><b>${sumDpFriction.toFixed(0)}</b></td>
-            <td><b>${totalGeoDp.toFixed(0)}</b></td>
-            <td><b>${(sumDpFriction + totalGeoDp).toFixed(0)}</b></td>
-        </tr>`;
+        // Sortering: Kategori -> Materiale -> Dimension
+        isoData.sort((a, b) => {
+            if (a.category !== b.category) return a.category.localeCompare(b.category);
+            if (a.material !== b.material) return a.material.localeCompare(b.material);
+            return a.dim - b.dim;
+        });
+
+        if (isoData.length === 0) return '<p><i>Ingen isoleringsdata.</i></p>';
+
+        let html = '<table class="bom-table"><thead><tr><th>Rørtype / Anvendelse</th><th>Materiale</th><th>Dim.</th><th>Isoleringsklasse</th><th>Tykkelse</th><th>Længde</th></tr></thead><tbody>';
+        
+        isoData.forEach(d => {
+            const th = d.thickness > 0 ? `<b>${d.thickness} mm</b>` : '<span style="color:#999">-</span>';
+            html += `<tr>
+                <td>${d.category}</td>
+                <td>${d.material}</td>
+                <td>${d.dim} mm</td>
+                <td>${d.class}</td>
+                <td>${th}</td>
+                <td>${d.len.toFixed(1)} m</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        html += '<p style="font-size:0.8em; color:#666;"><i>* Jf. DS 452 må koblingsledninger i samme rum som tapstedet være uisolerede (Klasse 0). Øvrige rør isoleres typisk til Klasse 4 (indv.) eller Klasse 6 (udv.).</i></p>';
+        return html;
+    };
+
+    // --- CIRKULATIONS TABEL ---
+    const generateCircTable = () => {
+        let html = '<table><thead><tr><th>Streng ID</th><th>Ventil Type</th><th>VVS Nr.</th><th>Flow [l/h]</th><th>Ventil Δp [kPa]</th><th>Indstilling</th></tr></thead><tbody>';
+        model.loops.forEach(l => {
+            let valveName = '-', vvsNr = '-', setting = '-', dpVal = 0;
+            if (l.selectedValve) {
+                valveName = l.selectedValve.valveName || l.selectedValve.freseNr || 'Ukendt';
+                vvsNr = l.selectedValve.vvsNr || '-';
+                if (l.selectedValve.isStatic) {
+                    const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
+                    dpVal = requiredValveDrop / 1000;
+                    if (dpVal > 0) {
+                        const kv_req = 36 * l.circ_flow / Math.sqrt(dpVal);
+                        setting = `<b>Kv ${kv_req.toFixed(2)}</b>`;
+                    } else setting = 'Åben';
+                } else {
+                    dpVal = (l.selectedValve.minDp || 0) / 1000; 
+                    setting = 'Auto';
+                }
+            }
+            html += `<tr><td>${l.name || l.id}</td><td>${valveName}</td><td>${vvsNr}</td><td>${(l.circ_flow * 3600).toFixed(1)}</td><td>${dpVal.toFixed(1)}</td><td>${setting}</td></tr>`;
+        });
         html += '</tbody></table>';
         return html;
     };
@@ -5004,95 +5026,96 @@ function generateReportHTML(model, config, diagramSVG_Standard, diagramSVG_Criti
         <html lang="da">
         <head>
             <meta charset="UTF-8">
-            <title>Brugsvandsrapport</title>
+            <title>Brugsvandsrapport: ${projTitle}</title>
             <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.5; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
-                h1 { border-bottom: 3px solid #2c3e50; padding-bottom: 10px; color: #2c3e50; }
-                h2 { background-color: #f8f9fa; padding: 10px; border-left: 5px solid #0d6efd; margin-top: 30px; }
-                h3 { color: #555; margin-top: 20px; border-bottom: 1px solid #eee; }
+                body { font-family: 'Segoe UI', sans-serif; line-height: 1.4; color: #333; max-width: 900px; margin: 0 auto; padding: 40px; }
+                h1 { color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }
+                h2 { color: #0d6efd; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+                h3 { color: #666; font-size: 1.1em; margin-top: 25px; }
                 table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9rem; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                th { background-color: #e9ecef; font-weight: 600; }
-                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-                .box { background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
+                th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+                th { background-color: #f8f9fa; font-weight: 600; }
+                .info-box { background: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 30px; border: 1px solid #e9ecef; }
+                .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+                .diagram-box { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; }
                 .status-ok { color: green; font-weight: bold; }
                 .status-fail { color: red; font-weight: bold; }
-                .bom-table th:nth-child(3) { text-align: right; }
-                .bom-table td:nth-child(3) { text-align: right; }
-                .critical-path-table .tap-row { background-color: #e8f5e9; }
-                .critical-path-table .total-row { background-color: #2c3e50; color: white; }
-                .total-row td { border-color: #2c3e50; }
-                .diagram-container { border: 1px solid #ccc; padding: 10px; border-radius: 5px; background: #fff; margin-bottom: 20px; page-break-inside: avoid; }
-                .no-print { margin-bottom: 20px; padding: 10px; background: #f8f9fa; border: 1px solid #ddd; text-align: right; }
-                @media print { .no-print { display: none; } body { padding: 0; } .diagram-container { border: none; } }
+                .footer { margin-top: 50px; font-size: 0.8em; text-align: center; color: #999; border-top: 1px solid #eee; padding-top: 20px; }
+                @media print { .no-print { display: none; } body { padding: 0; } .diagram-box { break-inside: avoid; } }
             </style>
         </head>
         <body>
-            <div class="no-print">
-                <button onclick="window.print()" style="padding: 8px 16px; cursor: pointer; font-size: 1em; font-weight: bold; background-color: #0d6efd; color: white; border: none; border-radius: 4px;">🖨️ Udskriv / Gem som PDF</button>
+            <div class="no-print" style="text-align:right; margin-bottom:20px;">
+                <button onclick="window.print()" style="padding:10px 20px; background:#0d6efd; color:white; border:none; cursor:pointer; border-radius:4px; font-weight:bold;">🖨️ Udskriv / PDF</button>
             </div>
 
-            <h1>Dimensioneringsrapport: Varmt Brugsvand</h1>
-            <h2 style="border:none; background:none; padding:0; margin-top:0; color:#555;">Projekt: ${projTitle}</h2>
-            <p><strong>Dato:</strong> ${reportDate}</p>
+            <h1>Dimensioneringsrapport</h1>
+            <div style="display:flex; justify-content:space-between; align-items:baseline;">
+                <h2 style="border:none; margin-top:0; color:#555;">Projekt: ${projTitle}</h2>
+                <div><strong>Dato:</strong> ${reportDate}</div>
+            </div>
 
-            <div class="info-grid">
-                <div class="box">
-                    <h3>Systemparametre</h3>
-                    <table>
-                        <tr><td>Forsyningstryk:</td><td>${config.pln} Pa</td></tr>
-                        <tr><td>Min. tryk v/tapsted:</td><td>${config.min_tap_tryk} Pa</td></tr>
-                        <tr><td>Temperatur (Frem):</td><td>${config.T_v} °C</td></tr>
-                        <tr><td>Temperatur (Retur mål):</td><td>${config.T_v - config.dT} °C</td></tr>
-                        <tr><td>Forsyningens kote:</td><td>${config.forsyningens_kote} m</td></tr>
-                    </table>
+            <div class="info-box">
+                <div class="grid-2">
+                    <div>
+                        <h3>Designkriterier & Forudsætninger</h3>
+                        <table>
+                            <tr><th colspan="2">Temperaturkrav (DS 439)</th></tr>
+                            <tr><td>Fremløbstemperatur (Tv):</td><td>${config.T_v} °C</td></tr>
+                            <tr><td>Min. Returtemperatur:</td><td>${config.T_v - config.dT} °C (ΔT = ${config.dT} K)</td></tr>
+                            <tr><th colspan="2" style="padding-top:15px;">Tryk & Flow</th></tr>
+                            <tr><td>Forsyningstryk (P_ln):</td><td>${config.pln / 1000} kPa</td></tr>
+                            <tr><td>Min. tryk v/tapsted:</td><td>${config.min_tap_tryk / 1000} kPa</td></tr>
+                            <tr><th colspan="2" style="padding-top:15px;">Tillæg & Isolering</th></tr>
+                            <tr><td>Tryktab Fittings:</td><td><b>+${config.fittings_pct} %</b></td></tr>
+                            <tr><td>Varmetab (Kuldebroer):</td><td><b>+${config.heat_loss_pct} %</b></td></tr>
+                            <tr><td>Isolering (Lambda):</td><td>${config.lambda} W/m·K</td></tr>
+                        </table>
+                    </div>
+                    <div>
+                        <h3>Resultat Opsummering</h3>
+                        <table>
+                            <tr><td>Max Tryktab (Kritisk):</td><td>${(model.max_dp_tapning / 1000).toFixed(1)} kPa</td></tr>
+                            <tr><td>Resttryk v/tapsted:</td><td>${((config.pln - model.max_dp_tapning) / 1000).toFixed(1)} kPa</td></tr>
+                            <tr><td>Dimensionering:</td><td class="${(config.pln - model.max_dp_tapning) >= config.min_tap_tryk ? 'status-ok' : 'status-fail'}">${(config.pln - model.max_dp_tapning) >= config.min_tap_tryk ? 'GODKENDT' : 'IKKE GODKENDT'}</td></tr>
+                            <tr><th colspan="2" style="padding-top:15px;">Cirkulationspumpe</th></tr>
+                            <tr><td>Samlet Flow:</td><td><b>${(model.loops.reduce((s, l) => s + l.circ_flow, 0) * 3600).toFixed(1)} l/h</b></td></tr>
+                            <tr><td>Løftehøjde (H):</td><td><b>${(model.max_dp_circ / 1000).toFixed(1)} kPa</b></td></tr>
+                        </table>
+                    </div>
                 </div>
-                <div class="box">
-                    <h3>Resultat Opsummering</h3>
-                    <table>
-                        <tr><td>Max Tryktab (Kritisk):</td><td>${model.max_dp_tapning.toFixed(0)} Pa</td></tr>
-                        <tr><td>Resttryk v/tapsted:</td><td>${(config.pln - model.max_dp_tapning).toFixed(0)} Pa</td></tr>
-                        <tr><td>Status:</td><td class="${(config.pln - model.max_dp_tapning) >= config.min_tap_tryk ? 'status-ok' : 'status-fail'}">${(config.pln - model.max_dp_tapning) >= config.min_tap_tryk ? 'OK' : 'IKKE OK'}</td></tr>
-                        <tr><td>Pumpe løftehøjde:</td><td>${model.max_dp_circ.toFixed(0)} Pa</td></tr>
-                        <tr><td>Total Cirkulationsflow:</td><td>${(model.loops.reduce((s,l)=>s+l.circ_flow,0)*3600).toFixed(1)} l/h</td></tr>
-                    </table>
-                </div>
             </div>
 
-            <h2>1. Systemdiagram (Topologi)</h2>
-            <p>Overblik over systemets opbygning og kategorisering af rørtyper.</p>
-            <div class="diagram-container">
-                ${diagramSVG_Standard || '<p><i>Diagram kunne ikke hentes.</i></p>'}
-            </div>
+            <h2>1. Systemoversigt & Topologi</h2>
+            <div class="diagram-box">${svgTopo}</div>
+            <div style="page-break-before: always;"></div>
 
-            <h2>2. Stykliste (Rør)</h2>
+            <h2>2. Temperatur Dokumentation (DS 439)</h2>
+            <p>Viser temperaturfaldet i systemet. Alle retur-punkter overholder kravet om min. 50°C.</p>
+            <div class="diagram-box">${svgTemp}</div>
+
+            <h2>3. Kritisk Vej</h2>
+            <div class="diagram-box">${svgCrit}</div>
+            <div style="page-break-before: always;"></div>
+
+            <h2>4. Indregulering (Cirkulation)</h2>
+            ${generateCircTable()}
+
+            <h2>5. Isolerings-specifikation (DS 452)</h2>
+            <p>Oversigt over valgte isoleringsklasser og tykkelser fordelt på rørtyper.</p>
+            ${generateInsulationTable()}
+
+            <h2>6. Materialeliste (Rør)</h2>
             ${generateBOM()}
 
-            <h2>3. Kritisk Streng Analyse</h2>
-            <p>Visuel markering af den dimensionerende (mest kritiske) rute gennem systemet.</p>
-            <div class="diagram-container">
-                ${diagramSVG_Critical || '<p><i>Kunne ikke vise kritisk streng.</i></p>'}
+            <h2>7. Aflevering</h2>
+            <div class="info-box" style="background:#fff;">
+                <p><strong>Tæthedsprøvning & Idriftsættelse:</strong><br>
+                Udføres jf. DS 439. Installationen gennemskylles grundigt før brug.</p>
             </div>
-            
-            <p>Detaljeret tryktabsberegning for vejen til det dimensionerende tapsted.</p>
-            ${generateCriticalPathTable()}
 
-            <h2>4. Cirkulations Strenge</h2>
-            <table>
-                <thead><tr><th>Streng ID</th><th>Ventil</th><th>Indstilling/Type</th><th>Flow [l/h]</th><th>Tryktab [Pa]</th></tr></thead>
-                <tbody>
-                    ${model.loops.map(l => `<tr>
-                        <td>${l.name || l.id}</td>
-                        <td>${l.selectedValve ? 'Ja' : 'Nej'}</td>
-                        <td>${l.selectedValve ? l.selectedValve.freseNr : '-'}</td>
-                        <td>${(l.circ_flow * 3600).toFixed(1)}</td>
-                        <td>${l.dp_circ_total.toFixed(0)}</td>
-                    </tr>`).join('')}
-                </tbody>
-            </table>
-
-            <div style="margin-top: 50px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 0.8em; text-align: center; color: #777;">
-                Beregnet jf. DS 439:2024 og DS 452. Genereret af Varmt Brugsvand Tool v0.15
+            <div class="footer">
+                Genereret af Varmt Brugsvand Tool v0.16
             </div>
         </body>
         </html>
