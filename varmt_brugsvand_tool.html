@@ -2831,19 +2831,22 @@ function analyzeSystemTopology(model) {
 // =============================================================================
 
 // 1. Beregn Spidslast (VV)
-function calculateQd(model) {
+function calculateQd_VV(model) {
     function traverse(node) {
         let downstream_qf_random = 0, downstream_qf_syst = 0;
         if (node.type === 'tapsted') {
-            if (node.isSyst) downstream_qf_syst = node.qf; else downstream_qf_random = node.qf;
+            if (node.isSyst) downstream_qf_syst = node.qf; 
+            else downstream_qf_random = node.qf;
         } else {
             node.children.forEach(child => {
                 const flows = traverse(child);
-                downstream_qf_random += flows.random; downstream_qf_syst += flows.syst;
+                downstream_qf_random += flows.random; 
+                downstream_qf_syst += flows.syst;
             });
         }
-        if(node.type === 'ror') {
-            node.sum_qf_random = downstream_qf_random; node.sum_qf_syst = downstream_qf_syst;
+        if(node.type === 'ror') { // Dette dækker pt. kun VV rør
+            node.sum_qf_random = downstream_qf_random; 
+            node.sum_qf_syst = downstream_qf_syst;
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
             node.qd = qd_random + downstream_qf_syst;
         }
