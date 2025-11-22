@@ -516,11 +516,11 @@
                 <h5 class="modal-title" id="helpModalLabel">ℹ️ Hjælp & Information</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
+<div class="modal-body">
     
     <div class="text-center mb-4 pb-3 border-bottom">
         <h5 class="mb-1">Varmt Brugsvand Dimensioneringsværktøj</h5>
-        <p class="text-muted mb-1">Version 0.20 Beta</p>
+        <p class="text-muted mb-1">Version 0.20 Beta (Integreret Fysisk Optimering)</p>
         <p class="small text-muted mb-0">Beregning jf. DS 439:2024 & DS 452</p>
     </div>
 
@@ -554,7 +554,7 @@
                         </li>
                         <li class="list-group-item d-flex align-items-center px-0">
                             <span class="legend-box" style="background-color: #f08080;"></span>
-                            <div><b>Koblingsledning</b> (Frem)<br><span class="text-muted">Forsyner 1 tapsted. (Kan ofte være uisoleret).</span></div>
+                            <div><b>Koblingsledning</b> (Frem)<br><span class="text-muted">Forsyner 1 tapsted. (Ofte uisoleret).</span></div>
                         </li>
                         <li class="list-group-item d-flex align-items-center px-0">
                             <span class="legend-line" style="border-color: #a71d2a; border-style: dashed;"></span>
@@ -601,18 +601,18 @@
                 <div class="accordion-item">
                     <h2 class="accordion-header">
                         <button class="accordion-button collapsed py-2 fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#helpCalcDp">
-                            📉 2. Tryktab & Rørfriktion
+                            📉 2. Tryktab & Tabelvisning
                         </button>
                     </h2>
                     <div id="helpCalcDp" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
                         <div class="accordion-body small bg-light">
                             <p><b>Rørfriktion:</b> Beregnes med <i>Darcy-Weisbach</i> ligningen. Friktionsfaktoren ($\lambda$) findes iterativt via <i>Colebrook-White</i> formlen.</p>
-                            <p><b>Fittings:</b> Hvis der ikke er indtastet specifikke Zeta-værdier, anvendes det generelle procenttillæg (se fanen Input).</p>
                             <div class="alert alert-info p-2 mt-2">
-                                <strong>Tabelvisning:</strong> I resultattabellen er tryktabet opdelt:
+                                <strong>Vigtigt om resultattabellen:</strong> For at give fuldt overblik er tryktabet splittet op:
                                 <ul>
-                                    <li><b>Rørfriktion [Pa/m]:</b> Det rene rørtab (inkl. % tillæg). Det er dette tal, optimeringen styrer efter.</li>
-                                    <li><b>Fittings [Pa]:</b> Det absolutte tab i ventiler og enkeltmodstande.</li>
+                                    <li><b>Rørfriktion [Pa/m]:</b> Det rene rørtab inkl. det generelle procenttillæg. <u>Det er dette tal, optimeringen styrer rørstørrelsen efter.</u></li>
+                                    <li><b>Fittings [Pa]:</b> Det absolutte tryktab fra specifikke ventiler, bøjninger (Zeta) samt det generelle procenttillæg.</li>
+                                    <li><b>Total [Pa]:</b> Summen af rørfriktion og fittings.</li>
                                 </ul>
                             </div>
                         </div>
@@ -627,19 +627,19 @@
                     </h2>
                     <div id="helpCalcCirc" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
                         <div class="accordion-body small bg-light">
-                            <p>Cirkulationssystemet beregnes via en avanceret <b>Iterativ Konvergens-algoritme</b>, der sikrer overholdelse af temperaturkravet i alle dele af anlægget.</p>
+                            <p>Cirkulationssystemet beregnes via en avanceret <b>Iterativ Konvergens-algoritme</b>, der sikrer overholdelse af temperaturkravet ($50^{\circ}C$) i alle dele af anlægget.</p>
                             <ol>
-                                <li><b>Varmetabs-analyse:</b> Varmetabet beregnes for hvert rør (inkl. kuldebrostillæg).</li>
+                                <li><b>Varmetabs-analyse:</b> Varmetabet beregnes for hvert rør (inkl. tillæg for kuldebroer).</li>
                                 <li><b>Andelsprincippet:</b> Varmetabet i hovedledninger fordeles proportionalt ud på de strenge, der benytter dem.</li>
                                 <li><b>Termisk Feedback Loop:</b> 
                                     <ul>
                                         <li>Programmet simulerer temperaturen gennem hele anlægget.</li>
-                                        <li>Hvis returtemperaturen et sted falder under målet ($T_v - \Delta T$), <b>booster</b> programmet flowet i den pågældende streng.</li>
+                                        <li>Hvis returtemperaturen ved beholderen for en streng falder under målet ($T_v - \Delta T$), <b>booster</b> programmet flowet i den pågældende streng, indtil målet er nået.</li>
                                     </ul>
                                 </li>
-                                <li><b>Integreret Dimensionering:</b> Når flowet stiger, tjekker programmet om rørstørrelsen i returløbet stadig overholder kravene til hastighed (maks 1.5 m/s) og tryktab (maks Pa/m). Hvis ikke, øges dimensionen automatisk, og beregningen gentages.</li>
+                                <li><b>Integreret Dimensionering:</b> Når flowet stiger, tjekker programmet i samme arbejdsgang, om rørstørrelsen i returløbet skal øges for at overholde kravene til hastighed og tryktab (Pa/m).</li>
                             </ol>
-                            <p><b>Resultat:</b> En anlæg i balance, hvor ingen steder er for kolde, og ingen rør er overbelastede.</p>
+                            <p><b>Resultat:</b> Et anlæg i fysisk balance, hvor flowet er præcis stort nok til at holde temperaturen, og rørene er store nok til at bære flowet.</p>
                         </div>
                     </div>
                 </div>
@@ -652,11 +652,12 @@
                     </h2>
                     <div id="helpCalcValve" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
                         <div class="accordion-body small bg-light">
-                            <p>Programmet understøtter to typer ventiler:</p>
+                            <p>Programmet vælger automatisk den optimale ventil baseret på typen:</p>
                             <ul>
-                                <li><b>Dynamisk (fx Frese Alpha):</b> Ventilen vælges, så den kan klare det beregnede flow. Pumpen dimensioneres til at levere ventilens <i>Minimums Starttryk</i> (DeltaDP) til den kritiske streng. Indstillingen er "Auto".</li>
-                                <li><b>Statisk (fx IMI STAD):</b> Ventilen vælges, så den ved en "god" forindstilling (fx 2.5 omdr) har et tryktab mellem 3 kPa (for autoritet) og 25 kPa (for støj).
-                                    <br>I resultattabellen beregnes den nødvendige <b>Kv-værdi</b> (indstilling) for at fjerne strengens overskydende tryk.</li>
+                                <li><b>Dynamisk (fx Frese Alpha):</b> Ventilen vælges ud fra max flow. 
+                                    <br>Pumpen dimensioneres til at levere ventilens <i>Minimums Starttryk</i> (Min. $\Delta p$) til den kritiske streng. Indstillingen er altid "Auto".</li>
+                                <li><b>Statisk (fx IMI STAD):</b> Ventilen vælges, så den ved en fornuftig forindstilling (2.5 omdr) har et tryktab på mellem 3 kPa (for autoritet) og 25 kPa (for at undgå støj).
+                                    <br>I resultattabellen beregnes og vises den nødvendige <b>Kv-værdi</b>, som installatøren skal indstille ventilen til for at fjerne overskydende tryk.</li>
                             </ul>
                         </div>
                     </div>
@@ -682,15 +683,15 @@
                         <h6 class="mb-1">2. Tillæg til varmetab (Kuldebroer)</h6>
                         <small class="text-muted">Standard: +20%</small>
                     </div>
-                    <p class="mb-1 small">Lægges oven i det teoretiske varmetab (U-værdi). Dækker varmetab gennem rørbæringer, uisolerede ventiler, flanger og samlinger, som bryder isoleringen. Dette sikrer, at cirkulationsflowet bliver stort nok i praksis. Jf. DS 452/SBI.</p>
+                    <p class="mb-1 small">Lægges oven i det teoretiske varmetab (U-værdi). Dækker varmetab gennem rørbæringer, uisolerede ventiler, flanger og samlinger, som bryder isoleringen. Dette sikrer, at cirkulationsflowet bliver stort nok i praksis til at dække det <i>reelle</i> tab. Jf. DS 452/SBI.</p>
                 </div>
             </div>
 
             <h6 class="text-primary mt-3">Isolering (DS 452)</h6>
-            <p class="small">Isoleringstykkelsen beregnes automatisk ("Auto") baseret på rørets <b>placering</b>:</p>
+            <p class="small">Isoleringstykkelsen beregnes automatisk ("Auto") baseret på rørets <b>kategori</b> og <b>placering</b>:</p>
             <ul class="small">
                 <li><b>Opvarmet rum:</b> Klasse 4 (Hoved- og fordelingsledninger).</li>
-                <li><b>Koblingsledninger:</b> Klasse 0 (Uisoleret) tillades i opvarmede rum jf. DS 452, hvis de er korte.</li>
+                <li><b>Koblingsledninger:</b> Klasse 4 foreslås som standard ("Sikker side"). Hvis røret er i samme rum som tapstedet, kan du manuelt ændre det til <b>Klasse 0</b> (Uisoleret) jf. DS 452.</li>
                 <li><b>Udvendig / Uopvarmet:</b> Klasse 6 (Maksimal isolering).</li>
             </ul>
         </div>
