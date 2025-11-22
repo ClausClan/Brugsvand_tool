@@ -860,37 +860,34 @@
 
 <script>
 // --- KONSTANTER OG DATA ---
+
 // Standard Tapsteder (ST) med normvandstrøm (qf) i l/s jf. DS 439:2024
-let ST = { 
-    "Lejlighed (standard)": 0.8, 
-    "Håndvask": 0.1, 
-    "Brusebad": 0.15, 
-    "Køkkenvask": 0.2, 
-    "Vaskemaskine": 0.2, 
-    "Opvaskemaskine": 0.2, 
-    "Badekar": 0.3,
-    "Slangevinde": 0.33,
-    "Rengøringsvask": 0.2,
-    "Udslagsvask": 0.2,
-    "Spulehane": 0.2
+// Struktur: { qf_hot: Varmt, qf_cold: Koldt, mode: 'both'|'cold_only'|'hot_only' }
+const ST = { 
+    "Lejlighed (standard)": { qf_hot: 0.8, qf_cold: 0.8, mode: 'both' },
+    "Håndvask":             { qf_hot: 0.1, qf_cold: 0.1, mode: 'both' },
+    "Brusebad":             { qf_hot: 0.15, qf_cold: 0.15, mode: 'both' },
+    "Køkkenvask":           { qf_hot: 0.2, qf_cold: 0.2, mode: 'both' },
+    "Vaskemaskine":         { qf_hot: 0.0, qf_cold: 0.2, mode: 'cold_only' }, // Koldt som standard i DK
+    "Opvaskemaskine":       { qf_hot: 0.2, qf_cold: 0.2, mode: 'both' },      // Kan ofte tilsluttes varmt
+    "Badekar":              { qf_hot: 0.3, qf_cold: 0.3, mode: 'both' },
+    "Slangevinde":          { qf_hot: 0.0, qf_cold: 0.33, mode: 'cold_only' },
+    "Rengøringsvask":       { qf_hot: 0.2, qf_cold: 0.2, mode: 'both' },
+    "Udslagsvask":          { qf_hot: 0.2, qf_cold: 0.2, mode: 'both' },
+    "Spulehane":            { qf_hot: 0.2, qf_cold: 0.2, mode: 'both' },
+    
+    // KUN KOLDT VAND
+    "WC":                   { qf_hot: 0.0, qf_cold: 0.1, mode: 'cold_only' },
+    "Urinal":               { qf_hot: 0.0, qf_cold: 0.4, mode: 'cold_only' },
+    "Udvendig Hane":        { qf_hot: 0.0, qf_cold: 0.2, mode: 'cold_only' }
 };
 
 // Forkortelser til diagrammet (Branchestandard)
 const TAP_ABBREVIATIONS = {
-    "Lejlighed (standard)": "LEJL",
-    "Håndvask": "HV",
-    "Brusebad": "BRUS",
-    "Køkkenvask": "KV",
-    "Vaskemaskine": "VM",
-    "Opvaskemaskine": "OM",
-    "Badekar": "KAR",
-    "Slangevinde": "SV",
-    "Rengøringsvask": "RV",
-    "Udslagsvask": "UV",
-    "Spulehane": "SH",
-    "WC": "WC",       
-    "Urinal": "UR",   
-    "Udvendig Hane": "UH" 
+    "Lejlighed (standard)": "LEJL", "Håndvask": "HV", "Brusebad": "BRUS", "Køkkenvask": "KV", 
+    "Vaskemaskine": "VM", "Opvaskemaskine": "OM", "Badekar": "KAR", "Slangevinde": "SV", 
+    "Rengøringsvask": "RV", "Udslagsvask": "UV", "Spulehane": "SH", "WC": "WC", 
+    "Urinal": "UR", "Udvendig Hane": "UH" 
 };
 
 // =================================================================================
@@ -1126,47 +1123,51 @@ function handleInputChange(e) {
     // Tjekker om ændringen skete i en dropdown for tapstedstyper
     if (e.target.classList.contains('tapType')) {
         const tr = e.target.closest('tr');
-        
-        // Opdater qf-inputfeltet med værdien fra den valgte tapstedstype
-        // Vi finder optionen baseret på dens værdi (som er qf)
         const selectedOption = e.target.options[e.target.selectedIndex];
-        const qfInput = tr.querySelector('.qf');
+        const typeName = selectedOption.text; // Navnet, fx "Håndvask"
         
-        if (qfInput && selectedOption.value) {
-            qfInput.value = selectedOption.value;
+        // Slå op i vores data (ST eller custom)
+        let data = ST[typeName] || state.customTapsteder[typeName];
+        
+        // Fallback hvis data mangler (sikkerhed)
+        if (!data) {
+            // Prøv at bruge value fra option som fallback flow
+            data = { qf_hot: parseFloat(selectedOption.value) || 0 };
+        }
+
+        // Opdater qf-inputfeltet (Lige nu bruger vi Varmt flow som standard)
+        const qfInput = tr.querySelector('.qf');
+        if (qfInput) {
+            qfInput.value = data.qf_hot;
         }
         
-        // Opdater om det er en lejlighed (for beholderberegning og Metode A-advarsel)
-        // Vi læser data-attributten fra optionen (som vi satte i addTapsted/importProject)
+        // Opdater isApartment
         const isApartment = selectedOption.dataset.isApartment === 'true';
         tr.dataset.isApartment = isApartment;
 
-        // Opdater noden i state, så diagrammet opdateres
+        // Opdater noden i state
         const nodeId = tr.dataset.id;
         const node = state.nodes.find(n => n.id === nodeId);
         if (node) {
-            node.tapType = selectedOption.text;
-            updateDiagram(); // Opdater diagrammet for at vise den nye forkortelse
+            node.tapType = typeName;
+            updateDiagram(); 
         }
         
-        // Hvis vi er i "Beholder"-fanen og har valgt Metode A, skal vi opdatere advarslen
         if (document.getElementById('metodeA').checked) {
             toggleBeholderMetode(); 
         }
     }
     
-    // Opdater resten af UI'en
-    // Bemærk: Vi kalder IKKE updateAllSelects() her, da det re-renderer diagrammet, 
-    // hvilket kan være tungt ved simple tastetryk. Vi kalder det kun hvis ID ændres.
     if (e.target.classList.contains('name-text')) {
         updateAllSelects();
     }
     
-    // Sæt "dirty flag" for auto-gem
     if (typeof setProjektErÆndret === 'function') {
         setProjektErÆndret();
     }
 }
+
+
 
 function toggleGlobalOptimizationInputs() {
     const principle = document.getElementById('dimPrinciple').value;
@@ -1809,10 +1810,21 @@ function addTapsted(btn) {
     const id = `${sId}-T${state.tC}`;
     const container = btn.closest('.card-body').querySelector('.tapsted-container');
     
+    // Byg options-listen. Vi gemmer nu qf_hot som value for bagudkompatibilitet i input-feltet
     let opts = ''; 
-    Object.keys(ST).forEach(k => opts += `<option value="${ST[k]}" ${k.includes('Lejlighed') ? 'data-is-apartment="true"' : ''}>${k}</option>`);
-    Object.entries(state.customTapsteder).forEach(([k, v]) => opts += `<option value="${v.qf}" data-is-apartment="${v.isApartment}">${k}</option>`);
-    const defaultQf = ST["Lejlighed (standard)"];
+    Object.keys(ST).forEach(k => {
+        const isApt = k.includes('Lejlighed');
+        // Vi sætter qf_hot som value, så den nuværende logik virker
+        opts += `<option value="${ST[k].qf_hot}" data-is-apartment="${isApt}">${k}</option>`;
+    });
+    
+    // Tilføj brugerdefinerede (hvis de findes)
+    Object.entries(state.customTapsteder).forEach(([k, v]) => {
+        opts += `<option value="${v.qf_hot}" data-is-apartment="${v.isApartment}">${k}</option>`;
+    });
+
+    const defaultType = "Lejlighed (standard)";
+    const defaultQf = ST[defaultType].qf_hot;
 
     const tr = document.createElement('tr');
     tr.dataset.id = id;
@@ -1826,15 +1838,24 @@ function addTapsted(btn) {
                 <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn">
             </span>
         </td>
-        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-        <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted (jf. DS 439)">${opts}</select></td>
-        <td><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf) i l/s. Udfyldes automatisk ved valg af type."></td>
-        <td><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote (m) (Geodætisk højde for tapsted)" aria-label="Kote (m)"></td>
-        <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug (fx tapning til proces/maskine)" aria-label="Systematisk brug"></td>
+        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
+        <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted">${opts}</select></td>
+        <td><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf)"></td>
+        <td><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote (m)" aria-label="Kote (m)"></td>
+        <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></td>
         <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
     `;
     
-    tr.querySelector('.tapType').value = defaultQf;
+    // Sæt dropdown til standardværdien
+    const typeSelect = tr.querySelector('.tapType');
+    // Find index for defaultType
+    for (let i = 0; i < typeSelect.options.length; i++) {
+        if (typeSelect.options[i].text === defaultType) {
+            typeSelect.selectedIndex = i;
+            break;
+        }
+    }
+
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
     container.appendChild(tr);
@@ -1843,12 +1864,13 @@ function addTapsted(btn) {
     const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror"]');
     if(rorInStreng.length > 0) pSel.value = rorInStreng[rorInStreng.length-1].dataset.id;
     
-// Opdater state-noden med den valgte type (standard)
+    // Opdater state-noden
     const newNode = state.nodes.find(n => n.id === id);
-    if (newNode) newNode.tapType = "Lejlighed (standard)"; // Standardvalget
+    if (newNode) newNode.tapType = defaultType;
 
     updateAllSelects();
 }
+
 
 let valveCounter = 0;
 function addValve() {
@@ -2017,20 +2039,42 @@ function addCustomTapsted() {
     const name = document.getElementById('newTapName').value.trim();
     const qf = parseFloat(document.getElementById('newTapQf').value);
     const isApartment = document.getElementById('newTapApartment').checked;
+    
     if (!name || isNaN(qf) || qf <= 0) return alert('Ugyldigt navn eller qf.');
-    ST[name] = qf;
-    state.customTapsteder[name] = { qf, isApartment };
+    
+    // Gem i den nye struktur (vi antager det er varmt vand brugeren indtaster lige nu)
+    state.customTapsteder[name] = { 
+        qf_hot: qf, 
+        qf_cold: 0, // Default 0 indtil vi har UI til koldt
+        mode: 'hot_only', // Antag hot_only for custom indtil videre
+        isApartment: isApartment 
+    };
+    
+    // Opdater UI listen over custom tapsteder
     const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
     clone.querySelector('.input-group-text').dataset.key = name;
     clone.querySelector('.input-group-text').textContent = name;
     clone.querySelector('.qf').value = qf;
     clone.querySelector('.is-apartment').checked = isApartment;
+    
     document.getElementById('customTapsteder').appendChild(clone);
+    
+    // Ryd felter
     document.getElementById('newTapName').value = '';
     document.getElementById('newTapQf').value = '';
     document.getElementById('newTapApartment').checked = false;
+    
     updateTapstedOptions();
-	setProjektErÆndret();
+    setProjektErÆndret();
+}
+
+function removeCustomTapsted(btn) {
+    const key = btn.closest('.input-group').querySelector('.input-group-text').dataset.key;
+    // Slet fra customTapsteder (ST skal ikke røres, da custom ligger separat nu)
+    delete state.customTapsteder[key];
+    btn.closest('.input-group').remove();
+    updateTapstedOptions();
+    setProjektErÆndret();
 }
 
 function removeCustomTapsted(btn) {
@@ -2044,14 +2088,39 @@ function removeCustomTapsted(btn) {
 
 function updateTapstedOptions() {
     document.querySelectorAll('.tapType').forEach(select => {
-        const val = select.value;
+        const currentVal = select.value; // Den nuværende valgte værdi (flowet)
+        const currentText = select.options[select.selectedIndex]?.text; // Det nuværende navn
+
         let opts = '';
+        
+        // 1. Standard Tapsteder
         Object.keys(ST).forEach(k => {
-            const isApt = state.customTapsteder[k] ? state.customTapsteder[k].isApartment : k.includes('Lejlighed');
-            opts += `<option value="${ST[k]}" data-is-apartment="${isApt}">${k}</option>`;
+            const isApt = k.includes('Lejlighed');
+            opts += `<option value="${ST[k].qf_hot}" data-is-apartment="${isApt}">${k}</option>`;
         });
+        
+        // 2. Custom Tapsteder
+        Object.entries(state.customTapsteder).forEach(([k, v]) => {
+            opts += `<option value="${v.qf_hot}" data-is-apartment="${v.isApartment}">${k}</option>`;
+        });
+        
         select.innerHTML = opts;
-        select.value = val;
+        
+        // Prøv at genskabe valget baseret på NAVN først (mere sikkert nu)
+        let foundIdx = -1;
+        for(let i=0; i<select.options.length; i++) {
+            if (select.options[i].text === currentText) {
+                foundIdx = i;
+                break;
+            }
+        }
+        
+        if (foundIdx !== -1) {
+            select.selectedIndex = foundIdx;
+        } else {
+            // Fallback til værdi
+            select.value = currentVal;
+        }
     });
 }
 
