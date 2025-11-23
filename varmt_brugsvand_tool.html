@@ -265,7 +265,7 @@
                             <div id="collapseFremløb" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
                                 <div class="accordion-body">
                                     <div id="strengeContainer"></div>
-                                    <button class="btn btn-danger mt-2" aria-label="Tilføj VV-streng" onclick="addStreng_vv_vv()">+ Tilføj VV-streng</button>
+                                    <button class="btn btn-danger mt-2" aria-label="Tilføj VV-streng" onclick="addStreng_vv()">+ Tilføj VV-streng</button>
                                 </div>
                             </div>
                         </div>
@@ -1070,7 +1070,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
         // 4. HVIS INTET PROJEKT BLEV INDLÆST -> OPRET STANDARD PROJEKT
         if (!projectLoaded) {
-        addStreng_vv_vv();
+        addStreng_vv();
         const btnRor = document.querySelector('.streng-card .btn-outline-secondary:last-of-type');
         addRorSektion(btnRor, 'ror_vv'); 
         addTapsted(btnRor);
