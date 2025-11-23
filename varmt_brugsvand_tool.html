@@ -188,7 +188,7 @@
                                         <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (Pa). Jf. DS 439:2024, afsnit 6.2.2.1.">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningens Kote" data-bs-content="Den geodætiske kote (højde i meter) for forsyningspunktet. Anvendes som reference for beregning af løftehøjde til tapsteder. Jf. DS 439:2024, afsnit 6.3.5.1.">(?)</a></label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 100.000 Pa / 1 bar). Jf. DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer.">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="T_v">Fremløbstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. DS 439:2024, afsnit 5.6.1 og 6.6.2.1.">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="T_v">Varmtvandstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. DS 439:2024, afsnit 5.6.1 og 6.6.2.1.">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6">
     <label class="form-label" for="T_omg">Omgivelsestemperatur (Indendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Indendørs)" data-bs-content="Den omgivende temperatur for rør placeret i opvarmede rum (rum > 5°C). Anvendes til beregning af varmetab. Jf. DS 452, afsnit 3.12 og 6.1.11.">(?)</a></label>
     <div class="input-group">
@@ -203,7 +203,7 @@
         <span class="input-group-text">°C</span>
     </div>
 </div>
-                                        <div class="col-md-6"><label class="form-label" for="dT">Ønsket ΔT for cirkulation <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Ønsket Delta-T (Cirkulation)" data-bs-content="Det acceptable temperaturtab (Delta-Temperatur) i cirkulationskredsen. Typisk 5 K (5°C). Et lavere dT kræver højere flow for at dække samme varmetab. Jf. DS 439:2024, afsnit 5.5.13.">(?)</a></label><div class="input-group"><input id="dT" type="number" min="0.1" class="form-control" value="5"><span class="input-group-text">K</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="dT"> Max ΔT for VV cirkulation <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Ønsket Delta-T (Cirkulation)" data-bs-content="Det acceptable temperaturtab (Delta-Temperatur) i cirkulationskredsen. Typisk 5 K (5°C). Et lavere dT kræver højere flow for at dække samme varmetab. Jf. DS 439:2024, afsnit 5.5.13.">(?)</a></label><div class="input-group"><input id="dT" type="number" min="0.1" class="form-control" value="5"><span class="input-group-text">K</span></div></div>
 <div class="col-md-6"><label class="form-label" for="lambda">Isoleringsevne (Lambda, λ) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Isoleringsevne (Lambda, λ)" data-bs-content="Varmeledningsevnen for det valgte isoleringsmateriale. 0.037 W/m·K er en typisk værdi for mineraluld. Bruges til beregning af varmetab jf. DS 452.">(?)</a></label><div class="input-group"><input id="lambda" type="number" min="0" step="0.001" class="form-control" value="0.037"><span class="input-group-text">W/m·K</span></div></div>
                                     <hr>
                                     <h6>Automatisk Dimensionering</h6>
@@ -261,16 +261,16 @@
                             </div>
                         </div>
                         <div class="accordion-item">
-                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseFremløb" aria-expanded="false">Fremløbsnetværk (Tapsteder)			</button></h2>
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseFremløb" aria-expanded="false">Varmtvands nætværk (Tapsteder)			</button></h2>
                             <div id="collapseFremløb" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
                                 <div class="accordion-body">
                                     <div id="strengeContainer"></div>
-                                    <button class="btn btn-danger mt-2" aria-label="Tilføj fremløbs-streng" onclick="addStreng_vv_vv()">+ Tilføj Fremløbs-streng</button>
+                                    <button class="btn btn-danger mt-2" aria-label="Tilføj VV-streng" onclick="addStreng_vv_vv()">+ Tilføj VV-streng</button>
                                 </div>
                             </div>
                         </div>
 							<div class="accordion-item">
-                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Retur Netværk</button></h2>
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Cirkulations Netværk</button></h2>
                             <div id="collapseRetur" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
                                 <div class="accordion-body">
 <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
@@ -748,7 +748,7 @@
                 <tbody class="ror-container">
                     </tbody>
             </table>
-            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj rør" onclick="addRorSektion(this, 'ror_vv')">+ Rør</button>
+            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj rør" onclick="addRorSektion(this, 'ror_vv')">+ Varmtvandsrør</button>
             
             <hr>
             
@@ -775,7 +775,7 @@
             <h6>Cirkulationskobling</h6>
             <div class="row gx-2">
                 <div class="col"><label class="form-label-sm" for="circ-start">Startpunkt</label><select class="form-select form-select-sm circ-start" id="circ-start" title="Startpunkt for cirkulation (ofte det fjerneste rør i strengen)"></select></div>
-                <div class="col"><label class="form-label-sm" for="circ-end">Tilsluttes Retur-rør</label><select class="form-select form-select-sm circ-end" id="circ-end" title="Tilslutningspunkt for cirkulation (skal være et retur-rør, en ventil eller Beholder)"><option value="">Ingen</option></select></div>
+                <div class="col"><label class="form-label-sm" for="circ-end">Tilsluttes cirkulationsrør</label><select class="form-select form-select-sm circ-end" id="circ-end" title="Tilslutningspunkt for cirkulation (skal være et retur-rør, en ventil eller Beholder)"><option value="">Ingen</option></select></div>
                 <div class="col"><label class="form-label-sm" for="circ-zeta">Zeta (kobling)</label><div class="input-group"><input type="number" min="0" class="form-control form-control-sm circ-zeta" value="0" title="Eventuel enkeltmodstand (zeta) i selve cirkulationskoblingen"><span class="input-group-text">ζ</span></div></div>
             </div>
         </div>
@@ -803,13 +803,13 @@
         </td>
         <td><select class="form-select form-select-sm parent" title="Vælg hvilket retur-rør, ventil eller Beholder dette rør starter fra"></select></td>
         <td><select class="form-select form-select-sm material" title="Vælg rørmateriale">
-            <option value="Kobber">Kobber</option>
             <option value="Rustfri Press 316L">Rustfri Press 316L</option>
             <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
             <option value="Pex">Pex</option>
             <option value="Alupex">Alupex</option>
             <option value="PE100">PE100</option>
             <option value="Geberit Mepla">Geberit Mepla</option>
+            <option value="Kobber">Kobber</option>
         </select></td>
         <td>
             <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
@@ -5679,7 +5679,7 @@ function handleNodeRightClick(event, d) {
         }));
     }
     if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('Forbind til retur...', () => {
+        menu.appendChild(createMenuItem('Forbind til cirkulation VV...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'return' };
             document.body.style.cursor = 'crosshair';
         }));
@@ -5701,7 +5701,7 @@ function handleNodeRightClick(event, d) {
     // Opdel Rør (Gælder både fremløb og retur)
     if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv') {
         menu.appendChild(createMenuItem('Opdel rør...', () => {
-            const segments = prompt("Antal segmenter rørstrekket skal opdeles i:", "2");
+            const segments = prompt("Antal segmenter rørstykket skal opdeles i:", "2");
             if (segments) {
                 const count = parseInt(segments, 10);
                 if (!isNaN(count) && count > 1) splitPipe(d.id, count);
@@ -5729,13 +5729,13 @@ function handleNodeRightClick(event, d) {
             
             const subItem1 = document.createElement('div');
             subItem1.className = 'menu-item';
-            subItem1.textContent = 'I denne streng';
+            subItem1.textContent = 'I denne VV-streng';
             subItem1.onclick = () => { pasteBranch(d.id, 'current'); removeContextMenu(); };
             submenu.appendChild(subItem1);
             
             const subItem2 = document.createElement('div');
             subItem2.className = 'menu-item';
-            subItem2.textContent = 'Som ny streng';
+            subItem2.textContent = 'Som ny VV-streng';
             subItem2.onclick = () => { pasteBranch(d.id, 'new'); removeContextMenu(); };
             submenu.appendChild(subItem2);
             
@@ -5754,7 +5754,7 @@ function handleNodeRightClick(event, d) {
         else if (nodeType === 'beholder') {
             if (isSupplyClip) {
                  // Fremløb på Beholder -> Altid ny streng
-                 menu.appendChild(createMenuItem('Indsæt som ny streng', () => {
+                 menu.appendChild(createMenuItem('Indsæt som ny VV-streng', () => {
                     pasteBranch(d.id, 'new'); 
                 }));
             } else if (isReturnClip) {
@@ -5774,7 +5774,7 @@ function handleNodeRightClick(event, d) {
     
     // Fremløb
     if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('Tilføj rør her', () => {
+        menu.appendChild(createMenuItem('Tilføj VV rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
             const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
