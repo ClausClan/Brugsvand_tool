@@ -50,7 +50,7 @@
         /* Standard: Varmt Fremløb (Rød, Solid) */
         .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
         /* Standard: Varm Cirkulation (Rød, Stiplet) */
-        .link-retur { stroke: #dc3545; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
+        .link-cirkulation_vv { stroke: #a71d2a; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
         .node circle { stroke: #333; stroke-width: 0.5px; cursor: move; }
         .node.reparenting circle { stroke: #ffc107; stroke-width: 3px; }
         .dim-input:disabled { background-color: #e9ecef; }
@@ -126,11 +126,7 @@
             display: block;
         }
 
-        /* Varmt Fremløb */
-        .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
 
-        /* Varm Cirkulation (Stiplet) */
-        .link-cirkulation_vv { stroke: #a71d2a; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
     </style>
 </head>
 <body>
@@ -5516,7 +5512,6 @@ function beregnBeholderMetodeC(T_v) {
 
 /**
  * Fremhæver en specifik cirkulationsstreng i D3-diagrammet.
- * @param {string} loopId - ID'et på den streng, der skal fremhæves (f.eks. "S1").
  */
 function highlightLoop(loopId) {
     if (!state.lastModel) return;
@@ -5525,13 +5520,14 @@ function highlightLoop(loopId) {
 
     const pathIds = new Set(loop.path);
 
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+    // RETTELSE: Inkluderer nu .link-cirkulation_vv i selektoren
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
         .each(function(d) {
             const link = d3.select(this);
             const isPartOfPath = pathIds.has(d.target.id);
 
             if (isPartOfPath) {
-                link.style('stroke', '#ff7f0e').style('stroke-width', '4px').style('opacity', 1.0); // RETTELSE: .attr -> .style
+                link.style('stroke', '#ff7f0e').style('stroke-width', '4px').style('opacity', 1.0);
             } else {
                 link.style('opacity', 0.1);
             }
@@ -5539,28 +5535,25 @@ function highlightLoop(loopId) {
 }
 
 /**
- * NY FUNKTION: Fremhæver en enkelt komponent (rør) i diagrammet.
- * Kaldes når man holder musen over en række i "Rørdata"-tabellen.
+ * Fremhæver en enkelt komponent (rør) i diagrammet.
  */
 function highlightComponent(id) {
     // Dæmp alle links
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+    // RETTELSE: Inkluderer nu .link-cirkulation_vv
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
         .style('opacity', 0.1);
 
-    // Find og fremhæv det specifikke link, hvor target er den valgte komponent
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+    // Find og fremhæv det specifikke link
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
         .filter(d => d.target.id === id)
-        .style('stroke', '#ff7f0e') // Samme orange farve som loop-highlight
+        .style('stroke', '#ff7f0e') 
         .style('stroke-width', '6px')
         .style('opacity', 1.0);
 }
 
-	
 function clearHighlight() {
-    updateDiagramStyles();
-
+    updateDiagramStyles(); // Nulstiller til normal visning
 }
-
 
 	
 /**
