@@ -126,6 +126,11 @@
             display: block;
         }
 
+        /* Varmt Fremløb */
+        .link-fremløb { stroke: #dc3545; stroke-width: 1.5px; }
+
+        /* Varm Cirkulation (Stiplet) */
+        .link-cirkulation_vv { stroke: #a71d2a; stroke-width: 1.5px; stroke-dasharray: 6, 4; }
     </style>
 </head>
 <body>
@@ -743,7 +748,7 @@
                 <tbody class="ror-container">
                     </tbody>
             </table>
-            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj rør" onclick="addRorSektion(this)">+ Rør</button>
+            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj rør" onclick="addRorSektion(this, 'ror_vv')">+ Rør</button>
             
             <hr>
             
@@ -789,7 +794,7 @@
 </datalist>
 
 <template id="returRorTRTemplate">
-    <tr data-type="retur">
+    <tr data-type="cirkulation_vv">
         <td>
             <span class="input-group input-group-sm">
                 <span class="input-group-text id-text"></span>
@@ -1238,12 +1243,13 @@ function addStreng() {
     addRorSektion(card.querySelector('.btn-outline-secondary'));
 }
 
-function addReturRor() {
+function addCirkulationRor() {
     state.rC++;
-    const id = `Retur${state.rC}`;
+    const id = `Cirk${state.rC}`;
     const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true); 
     const tr = clone.querySelector('tr'); 
     tr.dataset.id = id;
+    tr.dataset.type = 'cirkulation_vv';
     
     // Sæt unikke ID'er til datalist
     const datalistId = `list-${id}`;
@@ -1278,7 +1284,7 @@ function splitPipe(targetId, segments) {
     
     // Bestem typen (ror eller retur)
     const type = targetRow.dataset.type;
-    if (type !== 'ror' && type !== 'retur') {
+    if (type !== 'ror_vv' && type !== 'cirkulation_vv') {
         alert("Kun rør kan opdeles.");
         return;
     }
@@ -1317,11 +1323,11 @@ function splitPipe(targetId, segments) {
         let newId;
         
         // GENERER KORREKT ID BASERET PÅ TYPE
-        if (type === 'ror') {
+        if (type === 'ror_vv') {
             const sId = targetId.split('-')[0]; 
             state.tC++; 
             newId = `${sId}-R${state.tC}`;
-        } else { // type === 'retur'
+        } else { // type === 'cirkulation_vv'
             state.rC++;
             newId = `Retur${state.rC}`;
         }
@@ -1448,7 +1454,7 @@ function copyBranch(rootId) {
         
         const type = row.dataset.type;
         // Tillad nu også retur og valve
-        if (!['ror', 'tapsted', 'retur', 'valve'].includes(type)) return null;
+        if (!['ror_vv', 'tapsted', 'cirkulation_vv', 'valve'].includes(type)) return null;
 
         const node = state.nodes.find(n => n.id === id);
         const nX = getX(node);
@@ -1467,7 +1473,7 @@ function copyBranch(rootId) {
         if (nameInput) data.name = nameInput.value;
 
         // Data udtrækning
-        if (type === 'ror' || type === 'retur') {
+        if (type === 'ror_vv' || type === 'cirkulation_vv') {
             data.material = row.querySelector('.material').value;
             data.location = row.querySelector('.location').value;
             data.insulation = row.querySelector('.insulation-class').value;
@@ -1497,10 +1503,10 @@ function copyBranch(rootId) {
                     // Hvis vi er i en retur-gren (retur/valve), kopier kun retur.
                     // Dette forhindrer at vi "hopper" over i det andet netværk.
                     let shouldCopy = false;
-                    if (['ror', 'tapsted'].includes(type)) {
-                        if (['ror', 'tapsted'].includes(childType)) shouldCopy = true;
-                    } else if (['retur', 'valve'].includes(type)) {
-                        if (['retur', 'valve'].includes(childType)) shouldCopy = true;
+                    if (['ror_vv', 'tapsted'].includes(type)) {
+                        if (['ror_vv', 'tapsted'].includes(childType)) shouldCopy = true;
+                    } else if (['cirkulation_vv', 'valve'].includes(type)) {
+                        if (['cirkulation_vv', 'valve'].includes(childType)) shouldCopy = true;
                     }
 
                     if (shouldCopy) {
@@ -1551,13 +1557,13 @@ function pasteBranch(targetParentId, mode = 'current') {
 
     // TJEK KOMPATIBILITET
     const clipType = state.clipboard.type;
-    const isReturnClip = ['retur', 'valve'].includes(clipType);
-    const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
+    const isReturnClip = ['cirkulation_vv', 'valve'].includes(clipType);
+    const isSupplyClip = ['ror_vv', 'tapsted'].includes(clipType);
     const parentType = targetNode.type;
 
     let allowed = false;
-    if (isSupplyClip && (parentType === 'ror' || parentType === 'beholder')) allowed = true;
-    if (isReturnClip && (parentType === 'retur' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
+    if (isSupplyClip && (parentType === 'ror_vv' || parentType === 'beholder')) allowed = true;
+    if (isReturnClip && (parentType === 'cirkulation_vv' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
     
     if (!allowed) {
         alert(`Kan ikke indsætte ${clipType} på ${parentType}.`);
@@ -1596,10 +1602,10 @@ function pasteBranch(targetParentId, mode = 'current') {
     const buildNode = (nodeData, parentId) => {
         let newId;
         
-        if (nodeData.type === 'ror' || nodeData.type === 'tapsted') {
+        if (nodeData.type === 'ror_vv' || nodeData.type === 'tapsted') {
              state.tC++;
-             newId = `${targetStringId}-${nodeData.type === 'ror' ? 'R' : 'T'}${state.tC}`;
-        } else if (nodeData.type === 'retur') {
+             newId = `${targetStringId}-${nodeData.type === 'ror_vv' ? 'R' : 'T'}${state.tC}`;
+        } else if (nodeData.type === 'cirkulation_vv') {
              state.rC++;
              newId = `Retur${state.rC}`;
         } else if (nodeData.type === 'valve') {
@@ -1618,7 +1624,7 @@ function pasteBranch(targetParentId, mode = 'current') {
         tr.dataset.type = nodeData.type;
 
         // GENERER HTML BASERET PÅ TYPE
-        if (nodeData.type === 'ror') {
+        if (nodeData.type === 'ror_vv') {
             tr.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
@@ -1670,7 +1676,7 @@ function pasteBranch(targetParentId, mode = 'current') {
             
             document.querySelector(`.streng-card[data-id="${targetStringId}"] .tapsted-container`).appendChild(tr);
 
-        } else if (nodeData.type === 'retur') {
+        } else if (nodeData.type === 'cirkulation_vv') {
             tr.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
@@ -1751,7 +1757,7 @@ function addRorSektion(btn) {
     
     const tr = document.createElement('tr');
     tr.dataset.id = id;
-    tr.dataset.type = 'ror';
+    tr.dataset.type = 'ror_vv';
     
     const datalistId = `list-${id}`; // Unikt ID for datalist
     
@@ -1796,7 +1802,7 @@ function addRorSektion(btn) {
     container.appendChild(tr);
     
     const pSel = tr.querySelector('.parent');
-    const rorInStreng = container.querySelectorAll('[data-type="ror"]');
+    const rorInStreng = container.querySelectorAll('[data-type="ror_vv"]');
     pSel.value = rorInStreng.length > 1 ? rorInStreng[rorInStreng.length - 2].dataset.id : 'Beholder';
     
     updateDimOptions(materialSelect);
@@ -1861,7 +1867,7 @@ function addTapsted(btn) {
     container.appendChild(tr);
     
     const pSel = tr.querySelector('.parent');
-    const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror"]');
+    const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror_vv"]');
     if(rorInStreng.length > 0) pSel.value = rorInStreng[rorInStreng.length-1].dataset.id;
     
     // Opdater state-noden
@@ -1910,7 +1916,7 @@ function createInputElement(id, type) {
     div.className = 'input-group input-group-sm mb-2'; div.dataset.id = id; div.dataset.type = type;
     // Tilføjet title til name-input og parent-select
     div.innerHTML = `<span class="input-group-text"><span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span><select class="form-select parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select>`;
-    if (type === 'ror') {
+    if (type === 'ror_vv') {
         div.innerHTML += `<select class="form-select material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
             <select class="form-select location" title="Placering (ift. varmetabsberegning)">
                 <option value="heated" selected>Opvarmet rum</option>
@@ -1922,7 +1928,7 @@ function createInputElement(id, type) {
             <input type="number" min="0" class="form-control fittings" value="0" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)">`;
     }
     div.innerHTML += `<button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button>`;
-    if (type === 'ror') {
+    if (type === 'ror_vv') {
         div.querySelector('.material').onchange = handleMaterialChange;
     }
     return div;
@@ -1968,7 +1974,7 @@ function updateAllSelects() {
         const val = s.value; 
         
         // Sæt de korrekte valgmuligheder baseret på type
-        if (p.dataset.type === 'retur' || p.dataset.type === 'valve') {
+        if (p.dataset.type === 'cirkulation_vv' || p.dataset.type === 'valve') {
             s.innerHTML = returParentOptions;
         } else {
             s.innerHTML = fremløbOptions;
@@ -2131,7 +2137,6 @@ function buildNetworkAndRender() {
     state.nodes = [{id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy}]; 
     state.links = [];
     
-    // KORREKT SELECTOR: Leder nu efter <tr> i de nye <tbody> containere
     const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
     
     elements.forEach(el => {
@@ -2141,12 +2146,21 @@ function buildNetworkAndRender() {
     
     elements.forEach(el => {
         const p = el.querySelector('.parent')?.value; 
-        if(p) state.links.push({source: p, target: el.dataset.id, type: (el.dataset.type === 'ror' || el.dataset.type === 'tapsted') ? 'fremløb' : 'retur'});
+        // HER SKAL VI MAPPE TIL CSS KLASSER
+        if(p) {
+            let linkType = 'other';
+            if (el.dataset.type === 'ror_vv' || el.dataset.type === 'tapsted') linkType = 'fremløb'; // Rød
+            if (el.dataset.type === 'cirkulation_vv' || el.dataset.type === 'valve') linkType = 'cirkulation_vv'; // Stiplet Rød
+            
+            state.links.push({source: p, target: el.dataset.id, type: linkType});
+        }
     });
+    
     document.querySelectorAll('.streng-card').forEach(c => {
         const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
         const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
-        if(start && end) state.links.push({source: start, target: end, type: 'retur', zeta: zeta});
+        // Cirkulations-sløjfen er altid retur/cirkulation
+        if(start && end) state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
     });
     updateDiagram();
 }
@@ -2195,27 +2209,26 @@ function initDiagram() {
 function updateDiagram() {
     const svg = d3.select("#diagram svg");
     
-    // VIGTIG ÆNDRING: Vi fjerner IKKE containeren, vi tømmer den kun.
-    // På den måde bevares 'transform' (zoom/pan) på selve container-elementet.
+    // Sørg for at zoom-containeren findes (oprettet i initDiagram), men tøm indholdet
     let container = svg.select(".zoom-container");
     if (container.empty()) {
-        // Fallback hvis den mangler (bør ikke ske med ny initDiagram)
         container = svg.append("g").attr("class", "zoom-container");
     }
-    container.html(""); // Tøm indholdet, men behold containeren (og dermed zoom-niveauet)
+    container.html(""); // Ryd gammelt indhold, men behold zoom/pan state
 
-    // Opret linjerne (links)
+    // 1. TEGN LINJER (LINKS)
+    // Klassenavnet bliver nu dynamisk: 'link-fremløb' eller 'link-cirkulation_vv'
     const link = container.append("g").selectAll("line")
         .data(state.links).join("line")
         .attr("class", d => `link-${d.type}`);
 
-    // Opret tekst-elementerne
+    // 2. TEGN TEKST PÅ LINJER
     const linkText = container.append("g").selectAll("text")
         .data(state.links).join("text")
         .attr("class", "link-text")
         .attr("dy", -2);
 
-    // Opret punkterne (noder)
+    // 3. TEGN NODER (PUNKTER)
     const node = container.append("g").selectAll("g")
         .data(state.nodes, d => d.id).join("g")
         .attr("class", "node")
@@ -2223,40 +2236,42 @@ function updateDiagram() {
         .on('click', handleNodeClick)
         .on('contextmenu', handleNodeRightClick);
 
-    // Tilføj former til noderne (cirkel/rombe)
+    // Tilføj former og farver baseret på de nye typer
     node.each(function(d) {
         const group = d3.select(this);
+        
         if (d.type === 'valve') {
+            // Ventiler er lilla romber
             group.append('rect')
                 .attr('width', 14).attr('height', 14)
                 .attr('x', -7).attr('y', -7)
                 .attr('transform', 'rotate(45)')
                 .style('fill', '#6f42c1');
         } else {
+            // Andre er cirkler
             group.append("circle")
                 .attr("r", d => d.type === 'beholder' ? 10 : 5)
-                // ÆNDRET: Retur-noder er nu Mørkerøde (#a71d2a) i stedet for Blå (#0d6efd)
-                // Vi reserverer blå til Koldt Vand i fremtiden.
-                .attr("fill", d => (d.type || '').includes('ror') ? '#6c757d' : (d.type || '').includes('tapsted') ? '#198754' : (d.type || '').includes('retur') ? '#a71d2a' : '#343a40');
+                .attr("fill", d => {
+                    // NY NAVNGIVNINGS-LOGIK:
+                    if (d.type === 'ror_vv') return '#dc3545';        // Rød (Varmt Frem)
+                    if (d.type === 'cirkulation_vv') return '#a71d2a'; // Mørkerød (Varm Retur)
+                    if (d.type === 'tapsted') return '#198754';        // Grøn (Tapsted)
+                    if (d.type === 'beholder') return '#343a40';       // Mørkegrå (Beholder)
+                    return '#6c757d'; // Fallback grå
+                });
         }
     });
     
-    // Tilføj ID/Navn-tekst (med forkortelse for tapsteder)
+    // 4. TEKST LABELS PÅ NODER
     node.append("text")
         .text(d => {
             let label = getDisplayName(d.id);
             
-            // Hvis det er et tapsted, tilføj forkortelse
+            // Håndter forkortelser for tapsteder (LEJL, BRUS, etc.)
             if (d.type === 'tapsted') {
-                // Vi er nødt til at finde den oprindelige tapType-tekst. 
-                // I 'model' (beregnet) ligger den ofte på d.tapType.
-                // I 'state.nodes' (før beregning) ligger den måske kun i DOM'en eller customTapsteder.
-                // Vi henter den mest robuste måde:
-                
-                // 1. Prøv direkte fra data (hvis loadet/beregnet)
                 let typeName = d.tapType;
                 
-                // 2. Hvis ikke fundet, prøv at slå op i DOM'en (hvis vi redigerer live)
+                // Fallback: Find type i DOM hvis den ikke er på data-objektet
                 if (!typeName) {
                     const row = document.querySelector(`tr[data-id="${d.id}"]`);
                     if (row) {
@@ -2265,7 +2280,6 @@ function updateDiagram() {
                     }
                 }
 
-                // 3. Find forkortelsen
                 if (typeName && TAP_ABBREVIATIONS[typeName]) {
                     label += ` (${TAP_ABBREVIATIONS[typeName]})`;
                 }
@@ -2275,9 +2289,10 @@ function updateDiagram() {
         .attr("dy", "-1em")
         .attr("font-size", "8px")
         .attr("text-anchor", "middle")
-        .style("pointer-events", "none") // Sørg for at teksten ikke blokerer musen
-        .style("text-shadow", "0px 0px 3px white"); // Gør teksten læsbar oven på streger
+        .style("pointer-events", "none")
+        .style("text-shadow", "0px 0px 3px white");
 
+    // 5. OPDATER SIMULATION (TICK)
     state.sim.nodes(state.nodes).on("tick", () => {
         link
             .attr("x1", d => d.source.x)
@@ -2297,6 +2312,8 @@ function updateDiagram() {
     state.sim.alpha(0.3).restart();
 
     updateSelectionVisuals();
+    
+    // Opdater rørtykkelser og farver (hvis beregning er kørt)
     if (state.lastModel) {
         updateDiagramStyles();
     }
@@ -2501,21 +2518,24 @@ function buildModel(config) {
     const model = { tree: {id:'Beholder', children:[]}, nodes: new Map(), loops: [], isAuto: config.isAuto };
     model.nodes.set('Beholder', model.tree);
 
-    // KORREKT SELECTOR: Leder nu efter <tr> i de nye <tbody> containere
-    document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]').forEach(el => {
+    // KORREKT SELECTOR: Vi leder nu efter de nye typer
+    const selector = '.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]';
+    
+    document.querySelectorAll(selector).forEach(el => {
         const data = { 
             id: el.dataset.id, 
-            type: el.dataset.type, 
+            type: el.dataset.type, // Her henter den nu 'ror_vv' eller 'cirkulation_vv'
             children: [], 
             parentId: el.querySelector('.parent')?.value, 
             name: state.names.get(el.dataset.id) || '' 
         };
         
         if (el.dataset.type === 'valve') {
-            data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType; // Hent fra valgt dropdown
+            data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType;
         }
 
-        if (data.type === 'ror' || data.type === 'retur') {
+        // Tjek for DE NYE navne
+        if (data.type === 'ror_vv' || data.type === 'cirkulation_vv') {
             Object.assign(data, { 
                 L: parseFloat(el.querySelector('.len')?.value) || 0, 
                 zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
@@ -2523,16 +2543,18 @@ function buildModel(config) {
                 location: el.querySelector('.location')?.value || 'heated',
                 insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto'
             });
+            
+            if (!config.isAuto) {
+                data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
+            }
         }
+        
         if (data.type === 'tapsted') {
             data.qf = parseFloat(el.querySelector('.qf')?.value) || 0;
             data.isSyst = el.querySelector('.syst')?.checked || false;
             data.isApartment = el.dataset.isApartment === 'true';
             data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
         }
-         if (!config.isAuto && (data.type === 'ror' || data.type === 'retur')) {
-             data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0; // Hent fra tekst-input
-         }
         
         model.nodes.set(data.id, data);
     });
@@ -2549,19 +2571,21 @@ function buildModel(config) {
     return model;
 }
 
+
+
 // OPDATERET FUNKTION: Beregner isoleringstykkelse dynamisk
 function calculateInsulation(model, config) {
     const lambda = config.lambda; // f.eks. 0.037 W/mK
     
     model.nodes.forEach(n => {
-        if ((n.type !== 'ror' && n.type !== 'retur') || !n.nom_dim) return;
+        if ((n.type !== 'ror_vv' && n.type !== 'cirkulation_vv') || !n.nom_dim) return;
 
         // --- Trin A & B: Bestem Endelig Isoleringsklasse ---
         let autoKlasse = 0;
         
-        if (n.type === 'retur') { // "Cirkulationsledning"
+        if (n.type === 'cirkulation_vv') { // "Cirkulationsledning"
             autoKlasse = (n.location === 'heated') ? 4 : 6;
-        } else if (n.type === 'ror') { // "Fordelings-" eller "Koblingsledning"
+        } else if (n.type === 'ror_vv') { // "Fordelings-" eller "Koblingsledning"
             autoKlasse = (n.location === 'heated') ? 4 : 6;
         }
 
@@ -2775,7 +2799,7 @@ function analyzeSystemTopology(model) {
         });
 
         // Tildel kategori
-        if (node.type === 'ror') {
+        if (node.type === 'ror_vv') {
             if (feedsOther) {
                 node.category = 'main'; // Hovedledning (Mørkerød)
             } else if (totalTaps === 1) {
@@ -2802,7 +2826,7 @@ function analyzeSystemTopology(model) {
         if (!loop.path) return;
         loop.path.forEach(nodeId => {
             const node = model.nodes.get(nodeId);
-            if (node && node.type === 'retur') {
+            if (node && node.type === 'cirkulation_vv') {
                 if (!returnPipeLoops.has(nodeId)) {
                     returnPipeLoops.set(nodeId, new Set());
                 }
@@ -2813,7 +2837,7 @@ function analyzeSystemTopology(model) {
 
     // Tildel kategori til retur-rør
     model.nodes.forEach(n => {
-        if (n.type === 'retur') {
+        if (n.type === 'cirkulation_vv') {
             const loops = returnPipeLoops.get(n.id);
             // Hvis røret indgår i mere end ét unikt loop -> Hovedledning
             if (loops && loops.size > 1) {
@@ -2844,7 +2868,7 @@ function calculateQd_VV(model) {
                 downstream_qf_syst += flows.syst;
             });
         }
-        if(node.type === 'ror') { // Dette dækker pt. kun VV rør
+        if(node.type === 'ror_vv') { // Dette dækker pt. kun VV rør
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
@@ -2859,7 +2883,7 @@ function calculateQd_VV(model) {
 // 2. Dimensioner Fremløb (VV)
 function dimensionSupply_VV(model, config) {
     model.nodes.forEach(n => {
-        if (n.type !== 'ror' || !n.qd) return;
+        if (n.type !== 'ror_vv' || !n.qd) return;
 
         const mat = n.material;
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
@@ -2900,10 +2924,10 @@ function dimensionSupply_VV(model, config) {
 
 // 3. Beregn Tryktab (VV)
 function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
-    if ((startNode.type === 'ror' || startNode.type === 'retur') && startNode.nom_dim) {
+    if ((startNode.type === 'ror_vv' || startNode.type === 'cirkulation_vv') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
         const pct = config && config.fittings_pct ? config.fittings_pct : 0;
-        const temp = startNode.type === 'ror' ? config.T_v : (config.T_v - config.dT/2);
+        const temp = startNode.type === 'ror_vv' ? config.T_v : (config.T_v - config.dT/2);
         
         startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
@@ -2944,7 +2968,7 @@ function findMaxPathDp_VV(startNode, config) {
 function calculateHeatLoss_VV(model, config) {
     const allowance_factor = 1 + ((config.heat_loss_pct || 0) / 100);
     model.nodes.forEach(n => {
-        if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
+        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
             let T_ambient = (n.location === 'outside') ? config.T_omg_ude : config.T_omg_inde;
             const u_value = (typeof n.u_value_per_meter === 'number' && isFinite(n.u_value_per_meter)) ? n.u_value_per_meter : 0;
             const base_heat_loss = u_value * n.L * (config.T_v - T_ambient);
@@ -2958,7 +2982,7 @@ function calculateHeatLoss_VV(model, config) {
 function dimensionReturn_VV(model, config) {
     const meanTemp = config.T_v - (config.dT / 2);
     model.nodes.forEach(n => {
-        if (n.type !== 'retur') return;
+        if (n.type !== 'cirkulation_vv') return;
         const flow = model.circFlows.get(n.id) || 0;
         n.circ_flow = flow;
         const mat = n.material;
@@ -3056,7 +3080,7 @@ function calculateCirculationFlows_VV(model, config) {
         // B. DIMENSIONERING (Hydraulisk Tjek) - Brug dimensionReturn_VV logik (inline her for optimeringens skyld)
         if (config.isAuto) {
             model.nodes.forEach(n => {
-                if (n.type !== 'retur') return;
+                if (n.type !== 'cirkulation_vv') return;
                 
                 const flow = model.circFlows.get(n.id) || 0;
                 const mat = n.material;
@@ -3097,7 +3121,7 @@ function calculateCirculationFlows_VV(model, config) {
 
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
-                if (node && (node.type === 'ror' || node.type === 'retur')) {
+                if (node && (node.type === 'ror_vv' || node.type === 'cirkulation_vv')) {
                     const totalFlow = model.circFlows.get(nodeId);
                     if (totalFlow > 0.000001) {
                         // dT = Q / (m * c)
@@ -3164,7 +3188,7 @@ function calculateCirculationDP_VV(model, config) {
     model.max_dp_circ = 0;
     const meanTemp = config.T_v - (config.dT / 2);
 
-    model.nodes.forEach(n => { if (n.type === 'retur' || n.type === 'ror') n.dp_circ = 0; });
+    model.nodes.forEach(n => { if (n.type === 'cirkulation_vv' || n.type === 'ror_vv') n.dp_circ = 0; });
 
     model.loops.forEach(l => {
         l.dp_circ_total = 0;
@@ -3174,7 +3198,7 @@ function calculateCirculationDP_VV(model, config) {
             const n = model.nodes.get(id);
             if (!n || !n.nom_dim) return;
             const flow = model.circFlows.get(id) || 0;
-            if (n.type === 'ror' || n.type === 'retur') {
+            if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 // Brug meanTemp
                 const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct, meanTemp);
@@ -3288,7 +3312,7 @@ function calculateTemperatures_VV(model, config) {
         if (!node || !node.children) return;
 
         node.children.forEach(child => {
-            if (child.type === 'ror') {
+            if (child.type === 'ror_vv') {
                 const flow = model.circFlows.get(child.id) || 0;
                 let nextTemp = currentTemp;
                 if (flow > 0.00001) {
@@ -3312,7 +3336,7 @@ function calculateTemperatures_VV(model, config) {
         let t = model.nodeTemps.get(loop.startNodeId); 
         const returnNodes = loop.path.filter(id => {
             const n = model.nodes.get(id);
-            return n && (n.type === 'retur' || n.type === 'valve');
+            return n && (n.type === 'cirkulation_vv' || n.type === 'valve');
         });
         returnNodes.forEach(nodeId => {
             const n = model.nodes.get(nodeId);
@@ -3361,7 +3385,7 @@ function exportProject() {
         };
 
         // KORREKT SELECTOR: Leder nu efter <tr> i .ror-container
-        card.querySelectorAll('.ror-container > tr[data-type="ror"]').forEach(el => {
+        card.querySelectorAll('.ror-container > tr[data-type="ror_vv"]').forEach(el => {
             strengData.ror.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
@@ -3391,7 +3415,7 @@ function exportProject() {
     });
 
     // Indsaml retur-rør (denne var allerede korrekt)
-    document.querySelectorAll('#returContainerBody > tr[data-type="retur"]').forEach(el => {
+    document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]').forEach(el => {
         data.retur.push({
             id: el.dataset.id,
             parent: el.querySelector('.parent').value,
@@ -3692,7 +3716,7 @@ function autoSaveProject() {
         };
 
         // Indsaml ror fremløb
-        card.querySelectorAll('.ror-container > tr[data-type="ror"]').forEach(el => {
+        card.querySelectorAll('.ror-container > tr[data-type="ror_vv"]').forEach(el => {
             strengData.ror.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
@@ -3722,7 +3746,7 @@ function autoSaveProject() {
     });
 
     // Indsaml retur-rør
-    document.querySelectorAll('#returContainerBody > tr[data-type="retur"]').forEach(el => {
+    document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]').forEach(el => {
         data.retur.push({
             id: el.dataset.id,
             parent: el.querySelector('.parent').value,
@@ -3838,7 +3862,7 @@ function loadProjectData(data) {
         }
         if (data.retur) {
             data.retur.forEach(r => {
-                const rNum = parseInt(r.id.replace('Retur', ''), 10);
+                const rNum = parseInt(r.id.replace('cirkulation_vv', ''), 10);
                 if (!isNaN(rNum) && rNum > maxR) maxR = rNum;
             });
         }
@@ -3921,7 +3945,7 @@ function loadProjectData(data) {
                 const id = r.id;
                 const tr = document.createElement('tr');
                 tr.dataset.id = id;
-                tr.dataset.type = 'ror';
+                tr.dataset.type = 'ror_vv';
                 tr.dataset.tempParent = r.parent; 
                 const datalistId = `list-${id}`;
                 
@@ -4157,18 +4181,18 @@ function generateDetailedResults(model, config) {
             Forælder: n.parentId || 'Ingen'
         };
 
-        if (n.type === 'ror' || n.type === 'retur') {
+        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
             Object.assign(nodeData, {
                 Materiale: n.material,
                 Dimension: n.nom_dim + ' mm',
                 Længde: n.L + ' m',
                 Placering: n.location === 'outside' ? 'Udendørs' : (n.location === 'unheated' ? 'Uopvarmet' : 'Opvarmet'),
                 Kategori: translateCategory(n.category),
-                Flow_ls: n.type === 'ror' ? (n.qd || 0).toFixed(4) : (n.circ_flow || 0).toFixed(4),
+                Flow_ls: n.type === 'ror_vv' ? (n.qd || 0).toFixed(4) : (n.circ_flow || 0).toFixed(4),
                 Hastighed_ms: calcVelocity(n, model).toFixed(2),
                 Zeta_sum: n.zeta_sum,
-                Tryktab_Total_Pa: (n.type === 'ror' ? n.dp_tap : n.dp_circ || 0).toFixed(0),
-                Tryktab_pr_m_Pa: ((n.type === 'ror' ? n.dp_tap : n.dp_circ || 0) / (n.L || 1)).toFixed(1),
+                Tryktab_Total_Pa: (n.type === 'ror_vv' ? n.dp_tap : n.dp_circ || 0).toFixed(0),
+                Tryktab_pr_m_Pa: ((n.type === 'ror_vv' ? n.dp_tap : n.dp_circ || 0) / (n.L || 1)).toFixed(1),
                 Isolering_Klasse: n.insulationClass ? `Kl. ${n.insulationClass}` : 'Auto',
                 Isolering_Tykkelse: (n.insulationThickness || 0) + ' mm',
                 U_værdi_W_mK: (n.u_value_per_meter || 0).toFixed(3),
@@ -4229,7 +4253,7 @@ function generateDetailedResults(model, config) {
 // Lille hjælper til hastighedsberegning
 function calcVelocity(n, model) {
     if (!n.nom_dim) return 0;
-    const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+    const flow_ls = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
     const d_i = ID[n.material][n.nom_dim] / 1000;
     const area = Math.PI * (d_i / 2) ** 2;
     return n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
@@ -4254,7 +4278,7 @@ function displayResults(model, config) {
     // 2. OPDATER INPUT-FELTER (HVIS AUTO-DIM)
     if (config.isAuto) {
         model.nodes.forEach(n => {
-            if ((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
+            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
                 const el = document.querySelector(`[data-id="${n.id}"]`);
                 if (el) {
                     const dimInput = el.querySelector('.dim');
@@ -4331,15 +4355,15 @@ function displayResults(model, config) {
     
     let rørTbody = '';
     model.nodes.forEach(n => {
-        if((n.type === 'ror' || n.type === 'retur') && n.nom_dim) {
-            const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+        if((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
+            const flow_ls = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
             
             // VÆLG DEN KORREKTE TEMPERATUR TIL BEREGNINGEN
             // Fremløb = T_v, Retur = Middeltemperatur (T_v - dT/2)
-            const temp = n.type === 'ror' ? config.T_v : meanTemp;
+            const temp = n.type === 'ror_vv' ? config.T_v : meanTemp;
             const rho = getWaterDensity(temp);
 
             // 1. Beregn RENT friktionstab pr. meter (uden tillæg) - Send temp med!
@@ -4362,8 +4386,8 @@ function displayResults(model, config) {
             
             // Advarsler (Rød trekant hvis over grænsen)
             let velocityWarning = '';
-            if (n.type === 'ror' && velocity > config.max_v_f) velocityWarning = ' ⚠️';
-            if (n.type === 'retur' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
+            if (n.type === 'ror_vv' && velocity > config.max_v_f) velocityWarning = ' ⚠️';
+            if (n.type === 'cirkulation_vv' && velocity > config.max_v_c) velocityWarning = ' ⚠️';
             
             let dpWarning = '';
             if (dp_pr_meter > config.max_dp_m) dpWarning = ' ⚠️';
@@ -4453,10 +4477,10 @@ function updateDiagramStyles() {
     if (!state.lastModel) return;
     const model = state.lastModel;
 
-    const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur");
+    const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv");
     
     // Juster tykkelse baseret på dimension
-    const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror' || n.type === 'retur') && n.nom_dim);
+    const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim);
     if (pipeNodes.length > 0) {
         const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
         if (dimDomain[0] === dimDomain[1]) dimDomain[0] -= 1;
@@ -4533,10 +4557,10 @@ function updateDiagramStyles() {
 
     d3.select("#diagram svg").selectAll(".link-text").text(d => {
         const n = model.nodes.get(d.target.id);
-        if (!n || !(n.type === 'ror' || n.type === 'retur') || !n.nom_dim) return "";        
+        if (!n || !(n.type === 'ror_vv' || n.type === 'cirkulation_vv') || !n.nom_dim) return "";        
 
         const parts = [];
-        const flow_ls = n.type === 'ror' ? (n.qd || 0) : (model.circFlows ? (model.circFlows.get(n.id) || 0) : 0);
+        const flow_ls = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows ? (model.circFlows.get(n.id) || 0) : 0);
 
         if (showDim) parts.push(`${n.nom_dim}mm`);
         if (showLen) parts.push(`${n.L}m`);
@@ -4548,7 +4572,7 @@ function updateDiagramStyles() {
             parts.push(`${velocity.toFixed(2)} m/s`);
         }
         if (showDpM) {
-            const dp_total = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+            const dp_total = n.type === 'ror_vv' ? (n.dp_tap || 0) : (n.dp_circ || 0);
             const dp_pr_meter = n.L > 0 ? dp_total / n.L : 0;
             parts.push(`${dp_pr_meter.toFixed(1)} Pa/m`);
         }
@@ -4561,7 +4585,7 @@ function applyColorGradient(mode) {
     let values = [];
     
     model.nodes.forEach(n => {
-        if ((n.type === 'ror' || n.type === 'retur') && n.L > 0 && n.nom_dim) {
+        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.L > 0 && n.nom_dim) {
             let value;
             
             if (mode === 'temp') {
@@ -4588,11 +4612,11 @@ function applyColorGradient(mode) {
                 // ... (Eksisterende logik for velocity, pressure_drop, heat_loss) ...
                 if (mode === 'velocity') {
                     // ... (din eksisterende kode)
-                    const flow = n.type === 'ror' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+                    const flow = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
                     const d_i = ID[n.material][n.nom_dim];
                     value = (flow / 1000) / (Math.PI * (d_i / 2000) ** 2);
                 } else if (mode === 'pressure_drop') {
-                    const dp = n.type === 'ror' ? (n.dp_tap || 0) : (n.dp_circ || 0);
+                    const dp = n.type === 'ror_vv' ? (n.dp_tap || 0) : (n.dp_circ || 0);
                     value = dp / n.L;
                 } else if (mode === 'heat_loss') {
                     value = (n.q_tab || 0) / n.L;
@@ -4708,7 +4732,7 @@ function beregnGlobalOptimering(config) {
 
     // Nulstil til mindste dimensioner
     model.nodes.forEach(n => {
-        if (n.type === 'ror' || n.type === 'retur') {
+        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
             const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
             n.nom_dim = sortedDims[0];
         }
@@ -4785,7 +4809,7 @@ function findLocalFailures_VV(model, config) {
     const failures = [];
     const temp = config.T_v;
     model.nodes.forEach(n => {
-        if (n.type === 'ror' && n.nom_dim && n.qd > 0) {
+        if (n.type === 'ror_vv' && n.nom_dim && n.qd > 0) {
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
             const dp_m = getDP(n.qd, d_i, RH[n.material] / 1000, 1, 0, 0, temp); // Rent rørtab
@@ -4832,7 +4856,7 @@ function findWorstOffendingPipe_VV(model, path) {
     let maxPaPerMeter = -1;
     path.forEach(nodeId => {
         const n = model.nodes.get(nodeId);
-        if (n.type === 'ror' && n.L > 0) {
+        if (n.type === 'ror_vv' && n.L > 0) {
             const dp_pr_meter = (n.dp_tap || 0) / n.L;
             if (dp_pr_meter > maxPaPerMeter) {
                 maxPaPerMeter = dp_pr_meter;
@@ -5023,7 +5047,7 @@ function generateReportHTML(model, config, svgTopo, svgTemp, svgCrit) {
         let sumDpFriction = 0;
 
         path.forEach(n => {
-            if (n.type === 'ror') {
+            if (n.type === 'ror_vv') {
                 const flow = n.qd || 0;
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 const v = (flow / 1000) / (Math.PI * (d_i / 2) ** 2);
@@ -5068,7 +5092,7 @@ function generateReportHTML(model, config, svgTopo, svgTemp, svgCrit) {
     const generateBOM = () => {
         const bom = {}; 
         model.nodes.forEach(n => {
-            if ((n.type === 'ror' || n.type === 'retur') && n.material && n.nom_dim) {
+            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.material && n.nom_dim) {
                 if (!bom[n.material]) bom[n.material] = {};
                 if (!bom[n.material][n.nom_dim]) bom[n.material][n.nom_dim] = 0;
                 bom[n.material][n.nom_dim] += (n.L || 0);
@@ -5094,7 +5118,7 @@ function generateReportHTML(model, config, svgTopo, svgTemp, svgCrit) {
         };
 
         model.nodes.forEach(n => {
-            if ((n.type === 'ror' || n.type === 'retur') && n.material && n.nom_dim) {
+            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.material && n.nom_dim) {
                 const locKey = n.location || 'heated';
                 const catName = translateCat(n.category);
                 const key = `${catName}|${n.material}|${n.nom_dim}|${n.insulationClass}|${n.insulationThickness}`;
@@ -5642,9 +5666,9 @@ function handleNodeClick(event, d) {
         const sourceElement = document.querySelector(`tr[data-id="${sourceInfo.nodeData.id}"], div[data-id="${sourceInfo.nodeData.id}"]`);
 
         if (sourceInfo.type === 'parent' && sourceElement) {
-            const isSourceReturn = ['retur', 'valve'].includes(sourceInfo.nodeData.type);
-            const isTargetReturn = ['retur', 'valve', 'beholder'].includes(targetNodeData.type);
-            const isTargetSupply = ['ror', 'beholder'].includes(targetNodeData.type);
+            const isSourceReturn = ['cirkulation_vv', 'valve'].includes(sourceInfo.nodeData.type);
+            const isTargetReturn = ['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type);
+            const isTargetSupply = ['ror_vv', 'beholder'].includes(targetNodeData.type);
 
             // En forbindelse er gyldig hvis:
             // 1. Kilden er en retur-del OG målet er en retur-del.
@@ -5662,7 +5686,7 @@ function handleNodeClick(event, d) {
         
         if (sourceInfo.type === 'return') {
             // Denne logik håndterer "Forbind til retur..."
-            if (['retur', 'valve', 'beholder'].includes(targetNodeData.type)) {
+            if (['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type)) {
                 const strengId = sourceInfo.nodeData.id.split('-')[0];
                 const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
                 if (strengCard) {
@@ -5735,13 +5759,13 @@ function handleNodeRightClick(event, d) {
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
     // --- 1. FORBINDELSER & FLYTNING (Fælles) ---
-    if (nodeType === 'ror' || nodeType === 'retur' || nodeType === 'valve') {
+    if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
         }));
     }
-    if (nodeType === 'ror') {
+    if (nodeType === 'ror_vv') {
         menu.appendChild(createMenuItem('Forbind til retur...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'return' };
             document.body.style.cursor = 'crosshair';
@@ -5762,7 +5786,7 @@ function handleNodeRightClick(event, d) {
     // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
     
     // Opdel Rør (Gælder både fremløb og retur)
-    if (nodeType === 'ror' || nodeType === 'retur') {
+    if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv') {
         menu.appendChild(createMenuItem('Opdel rør...', () => {
             const segments = prompt("Antal segmenter rørstrekket skal opdeles i:", "2");
             if (segments) {
@@ -5780,11 +5804,11 @@ function handleNodeRightClick(event, d) {
     // --- 3. INDSÆT (Paste) LOGIK ---
     if (state.clipboard) {
         const clipType = state.clipboard.type;
-        const isSupplyClip = ['ror', 'tapsted'].includes(clipType);
-        const isReturnClip = ['retur', 'valve'].includes(clipType);
+        const isSupplyClip = ['ror_vv', 'tapsted'].includes(clipType);
+        const isReturnClip = ['cirkulation_vv', 'valve'].includes(clipType);
 
         // SCENARIE A: Indsæt på Fremløbsrør (Submenu: I denne / Ny streng)
-        if (nodeType === 'ror' && isSupplyClip) {
+        if (nodeType === 'ror_vv' && isSupplyClip) {
             const pasteItem = createMenuItem('Indsæt...', null, true);
             
             const submenu = document.createElement('div');
@@ -5807,7 +5831,7 @@ function handleNodeRightClick(event, d) {
         }
         
         // SCENARIE B: Indsæt på Retur/Ventil (Direkte: I denne streng)
-        else if ((nodeType === 'retur' || nodeType === 'valve') && isReturnClip) {
+        else if ((nodeType === 'cirkulation_vv' || nodeType === 'valve') && isReturnClip) {
              menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
                 pasteBranch(d.id, 'current');
             }));
@@ -5836,7 +5860,7 @@ function handleNodeRightClick(event, d) {
     // --- 4. TILFØJ KOMPONENTER MANUELT ---
     
     // Fremløb
-    if (nodeType === 'ror') {
+    if (nodeType === 'ror_vv') {
         menu.appendChild(createMenuItem('Tilføj rør her', () => {
             const parentId = d.id; 
             const strengId = parentId.split('-')[0];
@@ -5845,7 +5869,7 @@ function handleNodeRightClick(event, d) {
                 const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
                 if (addRorButton) {
                     addRorSektion(addRorButton);
-                    const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror"]:last-child');
+                    const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror_vv"]:last-child');
                     if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
                 }
             }
@@ -5866,22 +5890,22 @@ function handleNodeRightClick(event, d) {
     }
 
     // Ny Streng (Fra Beholder eller Rør)
-    if (nodeType === 'beholder' || nodeType === 'ror') {
+    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
         menu.appendChild(createMenuItem('Tilføj ny streng herfra', () => {
             addStreng();
             const newStreng = document.querySelector('.streng-card:last-child');
             if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror"]');
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
                 if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
         }));
     }
 
     // Retur komponenter
-    if (nodeType === 'beholder' || nodeType === 'retur' || nodeType === 'valve') {
+    if (nodeType === 'beholder' || nodeType === 'cirkulation_vv' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Tilføj retur-rør her', () => {
             addReturRor();
-            const newEl = document.querySelector('#returContainerBody > tr[data-type="retur"]:last-child');
+            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
             if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
         }));
         menu.appendChild(createMenuItem('Tilføj Cirkulationsventil her', () => {
