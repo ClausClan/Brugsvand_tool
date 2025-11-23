@@ -4555,7 +4555,7 @@ function applyColorGradient(mode) {
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
     }
     
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
       .style('stroke', d => {
           const node = model.nodes.get(d.target.id);
           return node && isFinite(node._visValue) ? colorScale(node._visValue) : '#ccc';
@@ -4566,7 +4566,7 @@ function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
     if (!criticalPath) return;
 
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-retur")
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
         .each(function(d) {
             const link = d3.select(this);
             const isCritical = criticalPath.has(d.source.id) && criticalPath.has(d.target.id);
