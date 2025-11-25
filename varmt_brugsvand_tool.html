@@ -2636,6 +2636,7 @@ function buildModel(config) {
             data.isSyst = el.querySelector('.syst')?.checked || false;
             data.isApartment = el.dataset.isApartment === 'true';
             data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
+            data.tapType = el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text;
         }
         
         model.nodes.set(data.id, data);
@@ -2655,61 +2656,107 @@ function buildModel(config) {
 
 
 
-// OPDATERET FUNKTION: Beregner isoleringstykkelse dynamisk
+// =============================================================================
+// == ISOLERINGS BEREGNING (DS 452)
+// =============================================================================
 function calculateInsulation(model, config) {
     const lambda = config.lambda; // f.eks. 0.037 W/mK
     
     model.nodes.forEach(n => {
-        if ((n.type !== 'ror_vv' && n.type !== 'cirkulation_vv') || !n.nom_dim) return;
+        // Vi isolerer kun rør (både VV og KV)
+        if ((n.type !== 'ror_vv' && n.type !== 'cirkulation_vv' && n.type !== 'ror_kv') || !n.nom_dim) return;
 
-        // --- Trin A & B: Bestem Endelig Isoleringsklasse ---
-        let autoKlasse = 0;
+        // --- Trin A: Bestem Automatisk Isoleringsklasse (DS 452) ---
+        let autoKlasse = 4; // Standard fallback
         
-        if (n.type === 'cirkulation_vv') { // "Cirkulationsledning"
-            autoKlasse = (n.location === 'heated') ? 4 : 6;
-        } else if (n.type === 'ror_vv') { // "Fordelings-" eller "Koblingsledning"
-            autoKlasse = (n.location === 'heated') ? 4 : 6;
+        // KOLDT VAND
+        if (n.type === 'ror_kv') {
+            if (n.location === 'heated') {
+                // Koldt vand i opvarmet rum = Kondensisolering
+                // DS 452 Tabel 6.1 / 6.4 kræver typisk Klasse 2 eller specifik kondens-tykkelse
+                autoKlasse = 2; 
+            } else {
+                // Koldt vand ude/uopvarmet = Frostsikring
+                // Kræver typisk tyk isolering (Klasse 6) + evt. el-tracing (tracing er ikke med her)
+                autoKlasse = 6; 
+            }
+        } 
+        // VARMT VAND (VV + Cirkulation)
+        else {
+            if (n.location === 'outside' || n.location === 'unheated') {
+                // Varmt vand i kolde omgivelser = Maksimal isolering
+                autoKlasse = 6;
+            } else {
+                // Varmt vand i opvarmet rum
+                // Hovedregel: Klasse 4
+                // Undtagelse: Koblingsledninger (connection) må være Klasse 0 (Uisoleret) jf. DS 452
+                if (n.category === 'connection') {
+                    autoKlasse = 0;
+                } else {
+                    autoKlasse = 4;
+                }
+            }
         }
 
+        // --- Trin B: Respekter Manuelt Valg ---
         let endeligKlasse = autoKlasse;
         if (n.insulationClassSelection && n.insulationClassSelection !== 'Auto') {
+            // Hent tallet fra strengen "Kl. 4" -> 4
             endeligKlasse = parseInt(n.insulationClassSelection.replace('Kl. ', ''), 10) || 0;
         }
         
+        // Gem den valgte klasse på noden (til rapporten)
         n.insulationClass = endeligKlasse;
         
-        // --- Trin C: Find U-værdi Krav (DS 452, Tabel 5.1) ---
+        // --- Trin C: Beregn Nødvendig Tykkelse ---
+        
+        // 1. Find kravet til lineær U-værdi (W/mK) for den valgte klasse
         const Ul_constants = getInsulationClassUl(endeligKlasse);
+        
+        // Hvis ingen klasse (Kl. 0), så ingen isolering
         if (!Ul_constants) {
             n.insulationThickness = 0; 
-            n.u_value_per_meter = 0; 
-            return; 
+            
+            // Beregn varmetab for uisoleret rør (til beregning)
+            // Dette er en approksimation for et nøgent rør (højt varmetab)
+            // U_nøgen = alpha_ydre * Omkreds. Alpha er ca 8-10 W/m2K indendørs.
+            const d_outer_m = n.nom_dim / 1000;
+            const alpha = 10; // W/m2K
+            n.u_value_per_meter = alpha * Math.PI * d_outer_m; 
+            
+            return; // Hop videre til næste rør
         }
 
-        const Dep_m = n.nom_dim / 1000; 
+        const Dep_m = n.nom_dim / 1000; // Udvendig rørdiameter i meter
         const Ul_krav = (Ul_constants.A * Dep_m) + Ul_constants.B;
         
-        // --- Trin D: Beregn Nødvendig Tykkelse (mm) ---
+        // 2. Beregn teoretisk tykkelse (mm)
+        // Formel fra DS 452 (omskrevet til at finde tykkelse ud fra U-krav)
         const exp_val = Math.exp((2 * Math.PI * lambda) / Ul_krav);
         const tykkelse_m = (Dep_m * (exp_val - 1)) / 2;
         const tykkelse_mm = tykkelse_m * 1000;
         
-        // --- Trin E: Gem Værdier (Rund op til nærmeste HANDELSSTØRRELSE) ---
-        // OPDATERET LINJE: Bruger den nye hjælpefunktion i stedet for "rund op til 5mm"
+        // --- Trin D: Rund op til Handelsstørrelse ---
+        // Vi finder den nærmeste standardtykkelse (10, 20, 30... mm) der er stor nok
         n.insulationThickness = findNextStandardThickness(tykkelse_mm);
 
-        // Beregn den *faktiske* U-værdi med den afrundede tykkelse (til 'calculateHeatLoss')
+        // --- Trin E: Beregn Faktisk U-værdi ---
+        // Nu beregner vi den REELLE U-værdi baseret på den valgte (afrundede) tykkelse.
+        // Det er denne værdi, der bruges til at beregne temperaturfald og energiforbrug.
+        
         const Di_isol_m = Dep_m;
         const Dy_isol_m = Dep_m + 2 * (n.insulationThickness / 1000);
         
-        if (Dy_isol_m <= Di_isol_m) {
-             n.u_value_per_meter = 0;
-        } else {
-             // U-værdi pr. meter [W/mK]. 1 / R_insulation
-             const R_insulation = Math.log(Dy_isol_m / Di_isol_m) / (2 * Math.PI * lambda);
-             n.u_value_per_meter = 1 / R_insulation;
-        }
+        // Formel for rørisolering: R = ln(D_y/D_i) / (2 * pi * lambda)
+        const R_insulation = Math.log(Dy_isol_m / Di_isol_m) / (2 * Math.PI * lambda);
+        
+        // Vi lægger en standard overgangsmodstand til (R_se), typisk 0.1 mK/W for isolerede rør
+        const R_se = 0.1; 
+        
+        n.u_value_per_meter = 1 / (R_insulation + R_se);
     });
+    
+    return model;
 }
 
 // NY HJÆLPEFUNKTION: Returnerer U-værdi formel-konstanter fra DS 452, Tabel 5.1
@@ -2797,7 +2844,23 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // 1. Beregn flow i fremløb (Spidslast) - VARMT VAND
+    // --- 1. KOLDT VAND BEREGNING ---
+    if (model.nodes.has('Vandstik')) {
+        calculateQd_KV(model);
+        model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId)); // Opdater stier (også KV hvis relevant senere)
+        // Analyser topologi (KV mangler måske her, men ok for nu)
+        
+        if (config.isAuto) dimensionSupply_KV(model, config);
+        
+        // Beregn tryktab fra Vandstik
+        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
+        
+        // Find kritisk vej for KV
+        const kvRes = findMaxPathDp_KV(model, config);
+        model.max_dp_kv = kvRes.max_dp;
+        // Vi kan gemme kritisk vej for KV separat hvis vi vil vise den
+    }
+    // 2. Beregn flow i fremløb (Spidslast) - VARMT VAND
     calculateQd_VV(model);
     
     // 2. Analyser systemet (find hovedrør/grenrør)
@@ -3043,6 +3106,145 @@ function findMaxPathDp_VV(startNode, config) {
         }
     }
     traverse(startNode, 0, []);
+    return { max_dp: max_dp, path: critical_path };
+}
+
+// =============================================================================
+// == BEREGNINGSKERNE: KOLDT VAND (KV)
+// =============================================================================
+
+// 1. Beregn Spidslast (KV)
+function calculateQd_KV(model) {
+    function traverse(node) {
+        let downstream_qf_random = 0, downstream_qf_syst = 0;
+        
+        if (node.type === 'tapsted') {
+            // Hent koldt flow. Hvis det ikke er defineret, er det 0.
+            // Vi bruger vores nye ST struktur eller custom data.
+            // Data er allerede gemt på noden som .qf (men det er måske hot?).
+            // I buildModel gemte vi kun .qf. Vi er nødt til at slå op i ST igen eller gemme begge i buildModel.
+            
+            // FIX: Vi slår op baseret på tapType navnet for at få den korrekte kold-værdi
+            let qf_cold = 0;
+            const tapName = node.tapType; // Gemt i buildModel
+            
+            if (tapName && ST[tapName]) {
+                qf_cold = ST[tapName].qf_cold || 0;
+            } else if (state.customTapsteder && state.customTapsteder[tapName]) {
+                qf_cold = state.customTapsteder[tapName].qf_cold || 0;
+            }
+            
+            if (node.isSyst) downstream_qf_syst = qf_cold; 
+            else downstream_qf_random = qf_cold;
+        } else {
+            node.children.forEach(child => {
+                const flows = traverse(child);
+                downstream_qf_random += flows.random; 
+                downstream_qf_syst += flows.syst;
+            });
+        }
+        
+        if(node.type === 'ror_kv') { 
+            node.sum_qf_random = downstream_qf_random; 
+            node.sum_qf_syst = downstream_qf_syst;
+            // Samme formel (1) jf. DS 439 gælder for både koldt og varmt
+            const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
+            node.qd = qd_random + downstream_qf_syst;
+        }
+        return { random: downstream_qf_random, syst: downstream_qf_syst };
+    }
+    
+    // Start traversering fra Vandstik (hvis det findes)
+    if (model.nodes.has('Vandstik')) {
+        traverse(model.nodes.get('Vandstik'));
+    }
+    return model;
+}
+
+// 2. Dimensioner Fremløb (KV)
+function dimensionSupply_KV(model, config) {
+    // Antag koldtvandstemperatur = 10 grader (eller hent fra config hvis vi laver det felt)
+    const temp = 10; 
+
+    model.nodes.forEach(n => {
+        if (n.type !== 'ror_kv' || !n.qd) return;
+
+        const mat = n.material;
+        const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+        let bestDim = sortedDims[sortedDims.length - 1]; 
+
+        for (const dim of sortedDims) {
+            const d_i = ID[mat][dim] / 1000;
+            const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+            
+            // Beregn tryktab ved 10 grader
+            const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
+            
+            let criteriaMet = false;
+            // Vi bruger samme grænser (max_dp_m, max_v_f) som VV indtil videre
+            switch (config.dimPrinciple) {
+                case 'pressure_drop': if (dp_m < config.max_dp_m) criteriaMet = true; break;
+                case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
+                case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
+            }
+            if (criteriaMet) { bestDim = dim; break; }
+        }
+        n.nom_dim = bestDim;
+    });
+    return model;
+}
+
+// 3. Beregn Tryktab (KV)
+function calculatePressureDrop_KV(startNode, config) {
+    if (startNode.type === 'ror_kv' && startNode.nom_dim) {
+        const d_i = ID[startNode.material][startNode.nom_dim]/1000;
+        const pct = config.fittings_pct || 0;
+        const temp = 10; // Koldt vand
+        
+        startNode.dp_tap = getDP(startNode.qd, d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
+    }
+    
+    if (startNode.children) {
+        startNode.children.forEach(c => calculatePressureDrop_KV(c, config));
+    }
+    return startNode;
+}
+
+// 4. Find Kritisk Vej (KV)
+function findMaxPathDp_KV(model, config) { 
+    let max_dp = 0;
+    let critical_path = []; 
+    const rho = getWaterDensity(10); // Densitet ved 10 grader
+
+    function traverse(node, current_dp, current_path) {
+        const new_dp = current_dp + (node.dp_tap || 0);
+        const new_path = [...current_path, node.id];
+
+        if (node.type === 'tapsted') {
+            // Er dette et tapsted koblet på KV? (Tjek forælder type eller id)
+            // Hvis vi er her, er vi kommet via KV rør, så det er OK.
+            
+            const forsyningsKote = config.forsyningens_kote || 0;
+            const tapstedsKote = node.kote || 0;
+            const h = tapstedsKote - forsyningsKote;
+            const delta_p_geo = rho * G * h;
+            const total_dp_for_path = new_dp + delta_p_geo;
+
+            if (total_dp_for_path > max_dp) {
+                max_dp = total_dp_for_path;
+                critical_path = new_path;
+            }
+        } else {
+            if (node.children) {
+                node.children.forEach(c => traverse(c, new_dp, new_path));
+            }
+        }
+    }
+    
+    if (model.nodes.has('Vandstik')) {
+        traverse(model.nodes.get('Vandstik'), 0, []);
+    }
+    
     return { max_dp: max_dp, path: critical_path };
 }
 
