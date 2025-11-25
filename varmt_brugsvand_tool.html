@@ -2597,16 +2597,25 @@ function getGlobalConfig() {
 }
 
 function buildModel(config) {
-    const model = { tree: {id:'Beholder', children:[]}, nodes: new Map(), loops: [], isAuto: config.isAuto };
+    const model = { 
+        tree: {id:'Beholder', children:[]}, 
+        kvTree: {id:'Vandstik', children:[]}, // NYT: Roden for Koldt Vand
+        nodes: new Map(), 
+        loops: [], 
+        isAuto: config.isAuto 
+    };
+    
+    // Opret start-noder
     model.nodes.set('Beholder', model.tree);
+    model.nodes.set('Vandstik', model.kvTree);
 
-    // KORREKT SELECTOR: Vi leder nu efter de nye typer
+    // Læs alle komponenter
     const selector = '.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]';
     
     document.querySelectorAll(selector).forEach(el => {
         const data = { 
             id: el.dataset.id, 
-            type: el.dataset.type, // Her henter den nu 'ror_vv' eller 'cirkulation_vv'
+            type: el.dataset.type, 
             children: [], 
             parentId: el.querySelector('.parent')?.value, 
             name: state.names.get(el.dataset.id) || '' 
@@ -2616,8 +2625,8 @@ function buildModel(config) {
             data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType;
         }
 
-        // Tjek for DE NYE navne
-        if (data.type === 'ror_vv' || data.type === 'cirkulation_vv') {
+        // Data for RØR (VV, KV og Cirkulation)
+        if (['ror_vv', 'cirkulation_vv', 'ror_kv'].includes(data.type)) {
             Object.assign(data, { 
                 L: parseFloat(el.querySelector('.len')?.value) || 0, 
                 zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
@@ -2631,31 +2640,45 @@ function buildModel(config) {
             }
         }
         
+        // Data for TAPSTEDER
         if (data.type === 'tapsted') {
             data.qf = parseFloat(el.querySelector('.qf')?.value) || 0;
             data.isSyst = el.querySelector('.syst')?.checked || false;
             data.isApartment = el.dataset.isApartment === 'true';
             data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
-            data.tapType = el.querySelector('.tapType').options[el.querySelector('.tapType').selectedIndex].text;
+            
+            // Gem typenavnet så vi kan slå koldt flow op senere
+            const tapSelect = el.querySelector('.tapType');
+            if (tapSelect && tapSelect.selectedIndex >= 0) {
+                data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
+            }
         }
         
         model.nodes.set(data.id, data);
     });
 
+    // Byg træstrukturen (Link børn til forældre)
     model.nodes.forEach(n => { 
-        if(n.parentId && model.nodes.has(n.parentId)) model.nodes.get(n.parentId).children.push(n); 
+        if(n.parentId && model.nodes.has(n.parentId)) {
+            model.nodes.get(n.parentId).children.push(n); 
+        }
     });
     
+    // Læs Cirkulations-loops (VV)
     document.querySelectorAll('.streng-card').forEach(c => {
-        const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
-        const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
-        if(start && end) model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id) || '', startNodeId: start, endNodeId: end, zeta });
+        // Kun VV strenge har cirkulation
+        if (!c.classList.contains('kv-card')) {
+            const start = c.querySelector('.circ-start').value;
+            const end = c.querySelector('.circ-end').value;
+            const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
+            if(start && end) {
+                model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id) || '', startNodeId: start, endNodeId: end, zeta });
+            }
+        }
     });
+    
     return model;
 }
-
-
-
 // =============================================================================
 // == ISOLERINGS BEREGNING (DS 452)
 // =============================================================================
@@ -2844,54 +2867,47 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // --- 1. KOLDT VAND BEREGNING ---
+    // ==========================
+    // 1. KOLDT VAND (KV)
+    // ==========================
     if (model.nodes.has('Vandstik')) {
         calculateQd_KV(model);
-        model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId)); // Opdater stier (også KV hvis relevant senere)
-        // Analyser topologi (KV mangler måske her, men ok for nu)
         
         if (config.isAuto) dimensionSupply_KV(model, config);
         
-        // Beregn tryktab fra Vandstik
         calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
         
-        // Find kritisk vej for KV
         const kvRes = findMaxPathDp_KV(model, config);
         model.max_dp_kv = kvRes.max_dp;
-        // Vi kan gemme kritisk vej for KV separat hvis vi vil vise den
+        model.criticalPathKV = new Set(kvRes.path); // Gem kritisk vej for KV
     }
-    // 2. Beregn flow i fremløb (Spidslast) - VARMT VAND
+
+    // ==========================
+    // 2. VARMT VAND (VV)
+    // ==========================
     calculateQd_VV(model);
     
-    // 2. Analyser systemet (find hovedrør/grenrør)
+    // Opdater stier for cirkulation
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model); 
 
-    // 3. Dimensioner fremløb (hvis auto) - VARMT VAND
     if (config.isAuto) dimensionSupply_VV(model, config);
     
-    // 4. Beregn tryktab i fremløb - VARMT VAND
     calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); 
     
-    // 5. Find kritisk vej (til resttryk) - VARMT VAND
     const pressureDropResult = findMaxPathDp_VV(model.tree, config);
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
     
-    // 6. CIRKULATIONS BEREGNING (Andelsprincippet + Fysik) - KUN relevant for VV
-    // a. Beregn isolering
+    // Cirkulation (Andelsprincip + Fysik)
     calculateInsulation(model, config);
-    
-    // b. Kør den store cirkulations-motor
     calculateCirculationFlows_VV(model, config);
     
-    // c. Opdater isolering og varmetab en sidste gang
     if (config.isAuto) {
         calculateInsulation(model, config);
         calculateHeatLoss_VV(model, config);
     }
 
-    // 7. Validering og afslutning
     if (!validateCirculationLoops(model, advarslerDiv)) return null;
     
     calculateCirculationDP_VV(model, config);
@@ -2899,8 +2915,6 @@ function beregnStandard(config) {
     
     return model;
 }
-
-
 	/**
  * NY FUNKTION (Fase 2): Analyserer systemets topologi og tildeler kategorier.
  * - Koblingsledning: Forsyner præcis 1 tapsted.
@@ -3113,20 +3127,15 @@ function findMaxPathDp_VV(startNode, config) {
 // == BEREGNINGSKERNE: KOLDT VAND (KV)
 // =============================================================================
 
-// 1. Beregn Spidslast (KV)
+// 1. Beregn Flow (KV Spidslast)
 function calculateQd_KV(model) {
     function traverse(node) {
         let downstream_qf_random = 0, downstream_qf_syst = 0;
         
         if (node.type === 'tapsted') {
-            // Hent koldt flow. Hvis det ikke er defineret, er det 0.
-            // Vi bruger vores nye ST struktur eller custom data.
-            // Data er allerede gemt på noden som .qf (men det er måske hot?).
-            // I buildModel gemte vi kun .qf. Vi er nødt til at slå op i ST igen eller gemme begge i buildModel.
-            
-            // FIX: Vi slår op baseret på tapType navnet for at få den korrekte kold-værdi
+            // Hent koldt flow fra ST eller Custom data
             let qf_cold = 0;
-            const tapName = node.tapType; // Gemt i buildModel
+            const tapName = node.tapType;
             
             if (tapName && ST[tapName]) {
                 qf_cold = ST[tapName].qf_cold || 0;
@@ -3134,6 +3143,9 @@ function calculateQd_KV(model) {
                 qf_cold = state.customTapsteder[tapName].qf_cold || 0;
             }
             
+            // Gem det kolde flow på noden til debugging
+            node.qf_kv_used = qf_cold;
+
             if (node.isSyst) downstream_qf_syst = qf_cold; 
             else downstream_qf_random = qf_cold;
         } else {
@@ -3147,24 +3159,24 @@ function calculateQd_KV(model) {
         if(node.type === 'ror_kv') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
-            // Samme formel (1) jf. DS 439 gælder for både koldt og varmt
+            
+            // DS 439 formel (samme som varmt)
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
             node.qd = qd_random + downstream_qf_syst;
         }
         return { random: downstream_qf_random, syst: downstream_qf_syst };
     }
     
-    // Start traversering fra Vandstik (hvis det findes)
+    // Start fra Vandstik
     if (model.nodes.has('Vandstik')) {
         traverse(model.nodes.get('Vandstik'));
     }
     return model;
 }
 
-// 2. Dimensioner Fremløb (KV)
+// 2. Dimensioner KV
 function dimensionSupply_KV(model, config) {
-    // Antag koldtvandstemperatur = 10 grader (eller hent fra config hvis vi laver det felt)
-    const temp = 10; 
+    const temp = 10; // Koldt vand = 10 grader
 
     model.nodes.forEach(n => {
         if (n.type !== 'ror_kv' || !n.qd) return;
@@ -3177,14 +3189,13 @@ function dimensionSupply_KV(model, config) {
             const d_i = ID[mat][dim] / 1000;
             const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
             
-            // Beregn tryktab ved 10 grader
+            // Rent rørtab ved 10 grader
             const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
             
             let criteriaMet = false;
-            // Vi bruger samme grænser (max_dp_m, max_v_f) som VV indtil videre
             switch (config.dimPrinciple) {
                 case 'pressure_drop': if (dp_m < config.max_dp_m) criteriaMet = true; break;
-                case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
+                case 'velocity': if (v < config.max_v_f) criteriaMet = true; break; // Vi bruger samme max-hastighed som VV indtil videre
                 case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
             }
             if (criteriaMet) { bestDim = dim; break; }
@@ -3194,12 +3205,12 @@ function dimensionSupply_KV(model, config) {
     return model;
 }
 
-// 3. Beregn Tryktab (KV)
+// 3. Beregn Tryktab KV
 function calculatePressureDrop_KV(startNode, config) {
     if (startNode.type === 'ror_kv' && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
         const pct = config.fittings_pct || 0;
-        const temp = 10; // Koldt vand
+        const temp = 10;
         
         startNode.dp_tap = getDP(startNode.qd, d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
@@ -3210,20 +3221,19 @@ function calculatePressureDrop_KV(startNode, config) {
     return startNode;
 }
 
-// 4. Find Kritisk Vej (KV)
+// 4. Kritisk Vej KV
 function findMaxPathDp_KV(model, config) { 
     let max_dp = 0;
     let critical_path = []; 
-    const rho = getWaterDensity(10); // Densitet ved 10 grader
+    const rho = getWaterDensity(10); 
 
     function traverse(node, current_dp, current_path) {
         const new_dp = current_dp + (node.dp_tap || 0);
         const new_path = [...current_path, node.id];
 
         if (node.type === 'tapsted') {
-            // Er dette et tapsted koblet på KV? (Tjek forælder type eller id)
-            // Hvis vi er her, er vi kommet via KV rør, så det er OK.
-            
+            // Tjek om dette tapsted har et koldt flow (ellers er det måske kun et varmt tapsted)
+            // Men hvis vi er nået her via KV-træet, er det relevant.
             const forsyningsKote = config.forsyningens_kote || 0;
             const tapstedsKote = node.kote || 0;
             const h = tapstedsKote - forsyningsKote;
