@@ -851,7 +851,7 @@
     <option value="Kl. 6"></option>
 </datalist>
 
-<template id="returRorTRTemplate">
+<template id="vvcirkulationTRTemplate">
     <tr data-type="cirkulation_vv">
         <td>
             <span class="input-group input-group-sm">
@@ -1322,13 +1322,14 @@ function addStreng_kv() {
 
 function addCirkulationRor() {
     state.rC++;
-    const id = `Cirk${state.rC}`;
-    const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true); 
+    const id = `Cirk${state.rC}`; 
+    
+    // RETTELSE HER: Bruger nu 'vvcirkulationTRTemplate'
+    const clone = document.getElementById('vvcirkulationTRTemplate').content.cloneNode(true); 
     const tr = clone.querySelector('tr'); 
     tr.dataset.id = id;
     tr.dataset.type = 'cirkulation_vv';
     
-    // Sæt unikke ID'er til datalist
     const datalistId = `list-${id}`;
     const dimInput = tr.querySelector('.dim-input');
     const datalist = tr.querySelector('datalist');
@@ -1343,11 +1344,19 @@ function addCirkulationRor() {
     
     document.getElementById('returContainerBody').appendChild(clone); 
     
-    // Initialiser datalist
+    // Sæt intelligent forælder
+    const allCirc = document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]');
+    const pSel = tr.querySelector('.parent');
+    if (allCirc.length > 1) {
+         pSel.value = allCirc[allCirc.length - 2].dataset.id;
+    } else {
+         pSel.value = 'Beholder';
+    }
+
     updateDimOptions(materialSelect);
-    
     updateAllSelects();
 }
+
 
 /**
  * Opdeler et eksisterende rør i flere segmenter.
@@ -1826,7 +1835,7 @@ function pasteBranch(targetParentId, mode = 'current') {
     if (typeof zoomToFit === 'function') setTimeout(zoomToFit, 100);
 }
 
-function addRorSektion(btn) {
+function addRorSektion(btn, type = 'ror_vv') {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
     const id = `${sId}-R${state.tC}`;
@@ -1834,42 +1843,20 @@ function addRorSektion(btn) {
     
     const tr = document.createElement('tr');
     tr.dataset.id = id;
-    tr.dataset.type = 'ror_vv';
+    tr.dataset.type = type; 
     
-    const datalistId = `list-${id}`; // Unikt ID for datalist
+    const datalistId = `list-${id}`; 
     
     tr.innerHTML = `
-        <td>
-            <span class="input-group input-group-sm">
-                <span class="input-group-text id-text">${id}</span>
-                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn">
-            </span>
-        </td>
-        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select></td>
-        <td><select class="form-select form-select-sm material" aria-label="Materiale" title="Vælg rørmateriale">
-            <option value="Kobber">Kobber</option>
-            <option value="Rustfri Press 316L">Rustfri Press 316L</option>
-            <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
-            <option value="Pex">Pex</option>
-            <option value="Alupex">Alupex</option>
-            <option value="PE100">PE100</option>
-            <option value="Geberit Mepla">Geberit Mepla</option>
-        </select></td>
-        <td>
-            <select class="form-select form-select-sm location" title="Placering (ift. varmetabsberegning)">
-                <option value="heated" selected>Opvarmet rum</option>
-                <option value="unheated">Uopvarmet rum</option>
-                <option value="outside">Udendørs</option>
-            </select>
-        </td>
-        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Vælg isoleringsklasse (Auto baseres på placering og DS 452, Tabel 6.4)"></td>
-        <td>
-            <input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Nominel diameter (mm)" list="${datalistId}">
-            <datalist id="${datalistId}"></datalist>
-        </td>
-        <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde (m)" aria-label="Længde (m)"></td>
-        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)"></td>
-        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
+        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+        <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+        <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+        <td><select class="form-select form-select-sm location" title="Placering"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
+        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Isol."></td>
+        <td><input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+        <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Zeta"></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
     `;
     
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
@@ -1878,12 +1865,19 @@ function addRorSektion(btn) {
     
     container.appendChild(tr);
     
+    // --- RETTELSE HER ---
     const pSel = tr.querySelector('.parent');
-    const rorInStreng = container.querySelectorAll('[data-type="ror_vv"]');
-    pSel.value = rorInStreng.length > 1 ? rorInStreng[rorInStreng.length - 2].dataset.id : 'Beholder';
+    const rorInStreng = container.querySelectorAll(`[data-type="${type}"]`);
+    
+    if (rorInStreng.length > 1) {
+        // Forbind til forrige rør i strengen
+        pSel.value = rorInStreng[rorInStreng.length - 2].dataset.id;
+    } else {
+        // Første rør: Vælg korrekt rod-komponent baseret på type
+        pSel.value = (type === 'ror_kv') ? 'Vandstik' : 'Beholder';
+    }
     
     updateDimOptions(materialSelect);
-    
     updateAllSelects();
 }
 
@@ -2033,20 +2027,18 @@ function toggleAutoDim(isAuto) {
 }
 
 function updateAllSelects() {
-    // 1. Find alle VV rør
+    // 1. Find rør og komponenter
     const rorVV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_vv"]'));
-    // 2. Find alle KV rør
     const rorKV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_kv"]'));
-    // 3. Find retur komponenter
     const returComps = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
-    // 4. Byg option-lister
+    // 2. Byg lister
     const optionsVV = '<option value="Beholder">Beholder</option>' + rorVV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
     const optionsKV = '<option value="Vandstik">Vandstik</option>' + rorKV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
     const optionsRetur = '<option value="">Ingen</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
     const optionsReturParent = '<option value="Beholder">Beholder</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
 
-    // 5. Opdater dropdowns baseret på kontekst
+    // 3. Opdater dropdowns
     document.querySelectorAll('.parent').forEach(s => {
         const p = s.closest('[data-id]');
         if (!p) return; 
@@ -2054,44 +2046,38 @@ function updateAllSelects() {
         const type = p.dataset.type;
         const currentVal = s.value; 
         
-        // LOGIK: Hvilket system tilhører jeg?
-        if (type === 'ror_vv') {
-            s.innerHTML = optionsVV;
-        } else if (type === 'ror_kv') {
-            s.innerHTML = optionsKV;
-        } else if (type === 'cirkulation_vv' || type === 'valve') {
-            s.innerHTML = optionsReturParent;
-        } else if (type === 'tapsted') {
-            // Tapsteder er tricky. De kan sidde på både VV og KV.
-            // Vi kigger på strengens ID. Starter den med 'S' er det VV, 'K' er det KV.
+        // Indhold
+        if (type === 'ror_vv') s.innerHTML = optionsVV;
+        else if (type === 'ror_kv') s.innerHTML = optionsKV;
+        else if (type === 'cirkulation_vv' || type === 'valve') s.innerHTML = optionsReturParent;
+        else if (type === 'tapsted') {
+            // Tjek streng-type
             const strengCard = p.closest('.streng-card');
-            if (strengCard && strengCard.dataset.id.startsWith('K')) {
-                s.innerHTML = optionsKV;
-            } else {
-                s.innerHTML = optionsVV;
-            }
+            if (strengCard && strengCard.dataset.id.startsWith('K')) s.innerHTML = optionsKV;
+            else s.innerHTML = optionsVV;
         }
         
-        // Fjern self-reference
+        // Fjern self
         const ownOpt = s.querySelector(`option[value="${p.dataset.id}"]`); 
         if(ownOpt) ownOpt.remove();
         
-        // Gendan værdi eller sæt standard
+        // Sæt værdi eller standard
         s.value = currentVal;
         if (s.value === "") {
-            // Sæt standard baseret på type
+            // --- RETTELSE HER: Eksplicit logik for standardværdier ---
             if (type === 'ror_kv' || (type === 'tapsted' && s.innerHTML.includes('Vandstik'))) {
                 s.value = "Vandstik";
-            } else if (type !== 'cirkulation_vv') {
-                s.value = "Beholder";
+            } else if (type === 'cirkulation_vv' || type === 'valve') {
+                s.value = "Beholder"; // Cirkulation skal hjem til Beholder som default
+            } else {
+                s.value = "Beholder"; // VV Rør default
             }
         }
     });
 
-    // Cirkulations-koblinger (kun relevant for VV strenge)
+    // 4. Cirkulations-koblinger på strenge
     document.querySelectorAll('.streng-card').forEach(c => {
-        // Kun hvis det er en VV streng (ID starter med S)
-        if (c.dataset.id.startsWith('S')) {
+        if (!c.classList.contains('kv-card')) { // Kun VV strenge har cirkulation
             const start = c.querySelector('.circ-start'); 
             const end = c.querySelector('.circ-end');
             if (start && end) {
@@ -2102,15 +2088,16 @@ function updateAllSelects() {
                 start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
                 end.innerHTML = optionsRetur; 
                 
+                // Default start = sidste rør, Default slut = Ingen (eller Beholder hvis ønsket, men ofte kobles den på et returrør)
                 start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
                 end.value = endVal || '';
             }
         }
     });
     
-    // Opdater diagram
     buildNetworkAndRender();
 }
+
 
 function getDisplayName(id) {
     if (state.useNames && state.names.has(id)) return state.names.get(id);
@@ -4092,7 +4079,7 @@ function loadProjectData(data) {
     if (cirkulationData) {
         cirkulationData.forEach(r => {
             const id = r.id;
-            const clone = document.getElementById('returRorTRTemplate').content.cloneNode(true);
+            const clone = document.getElementById('vvcirkulationTRTemplate').content.cloneNode(true);
             const tr = clone.querySelector('tr');
             
             tr.dataset.id = id;
