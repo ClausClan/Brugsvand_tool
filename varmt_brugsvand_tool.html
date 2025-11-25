@@ -10,7 +10,7 @@
 	<link rel="manifest" href="manifest.json">
 	<meta name="theme-color" content="#0d6efd">
 	<link rel="apple-touch-icon" href="icon-192.png">
-    
+
     <style>
         html, body {
             height: 100%;
@@ -61,6 +61,10 @@
         .dim-input:disabled { background-color: #e9ecef; }
         .link-text { font-size: 6px; fill: #333; }
         .name-input { font-size: 0.8rem; margin-left: 5px; }
+        /* Koldt Vand (Blå, Solid) */
+        .link-ror_kv { stroke: #0d6efd; stroke-width: 1.5px; }
+        /* Vandstik Node (Blå firkant eller cirkel) */
+        .node-vandstik circle { stroke: #000; stroke-width: 1px; }
 
 		.info-popover {
             font-weight: bold;
@@ -262,35 +266,41 @@
                             </div>
                         </div>
                         <div class="accordion-item">
-                            <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseFremløb" aria-expanded="false">Varmtvands nætværk (Tapsteder)			</button></h2>
-                            <div id="collapseFremløb" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
-                                <div class="accordion-body">
-                                    <div id="strengeContainer"></div>
-                                    <button class="btn btn-danger mt-2" aria-label="Tilføj VV-streng" onclick="addStreng_vv()">+ Tilføj VV-streng</button>
+                                <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseKoldt" aria-expanded="false">Koldtvands netværk (KV)</button></h2>
+                                <div id="collapseKoldt" class="accordion-collapse collapse" data-bs-parent="#inputAccordion">
+                                    <div class="accordion-body">
+                                        <div id="strengeContainerKV"></div>
+                                        <button class="btn btn-primary mt-2" aria-label="Tilføj KV-streng" onclick="addStreng_kv()">+ Tilføj KV-streng</button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                                <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseFremløb" aria-expanded="false">Varmtvands netværk (Tapsteder)</button></h2>
+                                <div id="collapseFremløb" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
+                                    <div class="accordion-body">
+                                        <div id="strengeContainerVV"></div>
+                                        <button class="btn btn-danger mt-2" aria-label="Tilføj VV-streng" onclick="addStreng_vv()">+ Tilføj VV-streng</button>
+                                    </div>
+                                </div>
+                            </div>
 							<div class="accordion-item">
                             <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseRetur" aria-expanded="false">Cirkulations Netværk</button></h2>
                             <div id="collapseRetur" class="accordion-collapse collapse show" data-bs-parent="#inputAccordion">
-                                <div class="accordion-body">
-<table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
-                    <thead>
-                        <tr>
-                            <th style="width: 20%;">ID/Navn</th>
-                            <th style="width: 18%;">Forælder</th>
-                            <th style="width: 22%;">Mat./Type</th>
-                            <th style="width: 10%;">Plac.</th>
-							<th style="width: 12%;">Isol. Klasse</th> 
-							<th style="width: 10%;">Dim [mm]</th>
-                            <th style="width: 8%;">Længde [m]</th>
-                            <th style="width: 7%;">Zeta [ζ]</th>
-                            <th style="width: 5%;"></th>
-                        </tr>
-                    </thead>
-                    <tbody id="returContainerBody">
-                        </tbody>
-                </table>
+                                <div class="accordion-body"><table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 20%;">ID/Navn</th>
+                                            <th style="width: 18%;">Forælder</th>
+                                            <th style="width: 22%;">Mat./Type</th>
+                                            <th style="width: 10%;">Plac.</th>
+                                            <th style="width: 12%;">Isol. Klasse</th> 
+                                            <th style="width: 10%;">Dim [mm]</th>
+                                            <th style="width: 8%;">Længde [m]</th>
+                                            <th style="width: 7%;">Zeta [ζ]</th>
+                                            <th style="width: 5%;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="returContainerBody"></tbody>
+                                </table>
 					<div class="d-flex gap-2 mt-2">
 				    <button class="btn btn-primary" style="white-space: nowrap;" aria-label="Tilføj retur-rør" onclick="addCirkulationRor()">+ Cirkulationsrør</button>
 				    <div class="vr"></div>
@@ -724,7 +734,54 @@
     </div>
 </div>
 
-<template id="strengTemplate">
+<template id="kvStrengTemplate">
+    <div class="card mb-3 streng-card kv-card" data-type="streng-card-kv" style="border-left: 4px solid #0d6efd;">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn"></h6>
+            <button class="btn btn-sm btn-outline-danger" aria-label="Fjern streng" onclick="removeElement(this)">&times; Fjern</button>
+        </div>
+        <div class="card-body">
+            <h6>Rør (Koldt)</h6>
+            <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
+                <thead>
+                    <tr>
+                        <th style="width: 18%;">ID/Navn</th>
+                        <th style="width: 15%;">Forælder</th>
+                        <th style="width: 12%;">Mat.</th>
+                        <th style="width: 13%;">Plac.</th>
+                        <th style="width: 12%;">Isol. Klasse</th> 
+                        <th style="width: 10%;">Dim [mm]</th>
+                        <th style="width: 10%;">Længde [m]</th>
+                        <th style="width: 7%;">Zeta [ζ]</th>
+                        <th style="width: 5%;"></th>
+                    </tr>
+                </thead>
+                <tbody class="ror-container"></tbody>
+            </table>
+            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj rør" onclick="addRorSektion(this, 'ror_kv')">+ Rør</button>
+            
+            <hr>
+            <h6 class="mt-3">Tapsteder</h6>
+            <table class="table table-sm table-borderless mb-0" style="table-layout: fixed;">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">ID/Navn</th>
+                        <th style="width: 18%;">Forælder</th>
+                        <th style="width: 32%;">Type</th>
+                        <th style="width: 10%;">qf [l/s]</th>
+                        <th style="width: 10%;">Kote [m]</th>
+                        <th style="width: 5%;">Syst.</th>
+                        <th style="width: 5%;"></th>
+                    </tr>
+                </thead>
+                <tbody class="tapsted-container"></tbody>
+            </table>
+            <button class="btn btn-sm btn-outline-secondary mt-1" aria-label="Tilføj tapsted" onclick="addTapsted(this)">+ Tapsted</button>
+        </div>
+    </div>
+</template>
+
+<template id="vvstrengTemplate">
     <div class="card mb-3 streng-card" data-type="streng-card">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv strengen et unikt navn"></h6>
@@ -1236,14 +1293,31 @@ function handleMaterialChange(e) {
 function addStreng_vv() {
     state.sC++;
     const id = `S${state.sC}`;
-    const clone = document.getElementById('strengTemplate').content.cloneNode(true);
+    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
     const card = clone.querySelector('.card');
     card.dataset.id = id;
     card.querySelector('.id-text').textContent = `VV-Streng ${id}`; 
     card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
-    document.getElementById('strengeContainer').appendChild(clone);
+    document.getElementById('strengeContainerVV').appendChild(clone);
     addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv');
+}
+
+function addStreng_kv() {
+    if (!state.sC_kv) state.sC_kv = 0;
+    state.sC_kv++;
+    
+    const id = `K${state.sC_kv}`;
+    const clone = document.getElementById('kvStrengTemplate').content.cloneNode(true);
+    const card = clone.querySelector('.card');
+    card.dataset.id = id;
+    card.querySelector('.id-text').textContent = `KV-Streng ${id}`;
+    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    
+    document.getElementById('strengeContainerKV').appendChild(clone);
+    
+    // Tilføj standardstart: Et rør (KV)
+    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_kv');
 }
 
 function addCirkulationRor() {
@@ -1959,76 +2033,82 @@ function toggleAutoDim(isAuto) {
 }
 
 function updateAllSelects() {
-    // 1. Find alle gyldige forældre-emner
-    const fremløbRør = Array.from(document.querySelectorAll('.ror-container > tr[data-id]'));
-    const returKomponenter = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
+    // 1. Find alle VV rør
+    const rorVV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_vv"]'));
+    // 2. Find alle KV rør
+    const rorKV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_kv"]'));
+    // 3. Find retur komponenter
+    const returComps = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
-    // 2. Byg option-strengene
-    const fremløbOptions = '<option value="Beholder">Beholder</option>' + fremløbRør.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-    const returOptions = '<option value="">Ingen</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-    const returParentOptions = '<option value="Beholder">Beholder</option>' + returKomponenter.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    // 4. Byg option-lister
+    const optionsVV = '<option value="Beholder">Beholder</option>' + rorVV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    const optionsKV = '<option value="Vandstik">Vandstik</option>' + rorKV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    const optionsRetur = '<option value="">Ingen</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    const optionsReturParent = '<option value="Beholder">Beholder</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
 
-    // 3. Opdater alle '.parent' dropdowns
+    // 5. Opdater dropdowns baseret på kontekst
     document.querySelectorAll('.parent').forEach(s => {
         const p = s.closest('[data-id]');
         if (!p) return; 
         
-        const ownId = p.dataset.id;
-        const val = s.value; 
+        const type = p.dataset.type;
+        const currentVal = s.value; 
         
-        // Sæt de korrekte valgmuligheder baseret på type
-        if (p.dataset.type === 'cirkulation_vv' || p.dataset.type === 'valve') {
-            s.innerHTML = returParentOptions;
-        } else {
-            s.innerHTML = fremløbOptions;
-        }
-        
-        const ownOpt = s.querySelector(`option[value="${ownId}"]`); 
-        if(ownOpt) ownOpt.remove();
-        
-        // --- NY ROBUST LOGIK ---
-        // Prøv at sætte den gemte værdi
-        s.value = val;
-        // Tjek om værdien *faktisk blev sat*. 
-        // Hvis 'val' ikke fandtes på den nye liste (f.eks. "S1-R1" fandtes ikke, da "S1-T2" blev tjekket),
-        // vil s.value nu være "" (eller den første option).
-        // Vi tvinger den til 'Beholder', hvis den er tom.
-        if (s.value === "") {
-            s.value = "Beholder";
-        }
-        // --- SLUT PÅ NY LOGIK ---
-    });
-
-    // 4. Opdater alle '.circ-end' (cirkulationskobling) dropdowns
-    document.querySelectorAll('.streng-card').forEach(c => {
-        const start = c.querySelector('.circ-start'); 
-        const end = c.querySelector('.circ-end');
-        const startVal = start.value, endVal = end.value;
-        
-        const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
-        start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-        
-        end.innerHTML = returOptions; 
-        
-        start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
-        end.value = endVal || '';
-    });
-    
-    // 5. Opdater diagram og navne-visning
-    document.querySelectorAll('[data-id]').forEach(el => {
-        const idText = el.querySelector('.id-text');
-        const nameText = el.querySelector('.name-text');
-        if (idText) {
-            if (el.dataset.type === 'valve') {
-                const type = el.dataset.valveType || "Vælg";
-                idText.textContent = `${el.dataset.id} (${type.substring(0, 10)}...)`;
-            } else if (!idText.textContent.includes(el.dataset.id)) { 
-                idText.textContent = el.dataset.id;
+        // LOGIK: Hvilket system tilhører jeg?
+        if (type === 'ror_vv') {
+            s.innerHTML = optionsVV;
+        } else if (type === 'ror_kv') {
+            s.innerHTML = optionsKV;
+        } else if (type === 'cirkulation_vv' || type === 'valve') {
+            s.innerHTML = optionsReturParent;
+        } else if (type === 'tapsted') {
+            // Tapsteder er tricky. De kan sidde på både VV og KV.
+            // Vi kigger på strengens ID. Starter den med 'S' er det VV, 'K' er det KV.
+            const strengCard = p.closest('.streng-card');
+            if (strengCard && strengCard.dataset.id.startsWith('K')) {
+                s.innerHTML = optionsKV;
+            } else {
+                s.innerHTML = optionsVV;
             }
         }
-        if (nameText) nameText.value = state.names.get(el.dataset.id) || '';
+        
+        // Fjern self-reference
+        const ownOpt = s.querySelector(`option[value="${p.dataset.id}"]`); 
+        if(ownOpt) ownOpt.remove();
+        
+        // Gendan værdi eller sæt standard
+        s.value = currentVal;
+        if (s.value === "") {
+            // Sæt standard baseret på type
+            if (type === 'ror_kv' || (type === 'tapsted' && s.innerHTML.includes('Vandstik'))) {
+                s.value = "Vandstik";
+            } else if (type !== 'cirkulation_vv') {
+                s.value = "Beholder";
+            }
+        }
     });
 
+    // Cirkulations-koblinger (kun relevant for VV strenge)
+    document.querySelectorAll('.streng-card').forEach(c => {
+        // Kun hvis det er en VV streng (ID starter med S)
+        if (c.dataset.id.startsWith('S')) {
+            const start = c.querySelector('.circ-start'); 
+            const end = c.querySelector('.circ-end');
+            if (start && end) {
+                const startVal = start.value;
+                const endVal = end.value;
+                const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
+                
+                start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+                end.innerHTML = optionsRetur; 
+                
+                start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
+                end.value = endVal || '';
+            }
+        }
+    });
+    
+    // Opdater diagram
     buildNetworkAndRender();
 }
 
@@ -2137,7 +2217,14 @@ function updateTapstedOptions() {
 // --- DIAGRAM FUNKTIONER ---
 function buildNetworkAndRender() {
     const oldNodes = new Map(state.nodes.map(n => [n.id, {fx: n.fx, fy: n.fy}]));
-    state.nodes = [{id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy}]; 
+    
+    // STARTPUNKTER: Nu har vi både Beholder og Vandstik
+    state.nodes = [
+        {id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy},
+        // Placer Vandstik lidt ved siden af som standard
+        {id:"Vandstik", type:"vandstik", fx: oldNodes.get('Vandstik')?.fx || 100, fy: oldNodes.get('Vandstik')?.fy || 100}
+    ]; 
+    
     state.links = [];
     
     const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
@@ -2149,21 +2236,24 @@ function buildNetworkAndRender() {
     
     elements.forEach(el => {
         const p = el.querySelector('.parent')?.value; 
-        // HER SKAL VI MAPPE TIL CSS KLASSER
         if(p) {
             let linkType = 'other';
-            if (el.dataset.type === 'ror_vv' || el.dataset.type === 'tapsted') linkType = 'fremløb'; // Rød
-            if (el.dataset.type === 'cirkulation_vv' || el.dataset.type === 'valve') linkType = 'cirkulation_vv'; // Stiplet Rød
+            if (el.dataset.type === 'ror_vv' || (el.dataset.type === 'tapsted' && !el.closest('.kv-card'))) linkType = 'fremløb';
+            if (el.dataset.type === 'cirkulation_vv' || el.dataset.type === 'valve') linkType = 'cirkulation_vv';
+            // NYT: Koldt vand
+            if (el.dataset.type === 'ror_kv' || (el.dataset.type === 'tapsted' && el.closest('.kv-card'))) linkType = 'ror_kv';
             
             state.links.push({source: p, target: el.dataset.id, type: linkType});
         }
     });
     
     document.querySelectorAll('.streng-card').forEach(c => {
-        const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
-        const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
-        // Cirkulations-sløjfen er altid retur/cirkulation
-        if(start && end) state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
+        // Kun VV strenge har cirkulation
+        if (!c.classList.contains('kv-card')) {
+            const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
+            const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
+            if(start && end) state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
+        }
     });
     updateDiagram();
 }
@@ -2260,6 +2350,8 @@ function updateDiagram() {
                     if (d.type === 'cirkulation_vv') return '#a71d2a'; // Mørkerød (Varm Retur)
                     if (d.type === 'tapsted') return '#198754';        // Grøn (Tapsted)
                     if (d.type === 'beholder') return '#343a40';       // Mørkegrå (Beholder)
+                    if (d.type === 'ror_kv') return '#0d6efd';        // Blå (Bootstrap Primary)
+                    if (d.type === 'vandstik') return '#0d6efd';       // Blå (Start)
                     return '#6c757d'; // Fallback grå
                 });
         }
@@ -3749,7 +3841,7 @@ function loadProjectData(data) {
     console.log("Starter indlæsning...", data);
     
     // Nulstil UI
-    document.getElementById('strengeContainer').innerHTML = '';
+    document.getElementById('strengeContainerVV').innerHTML = '';
     document.getElementById('returContainerBody').innerHTML = ''; 
     document.getElementById('customTapsteder').innerHTML = '';
     
@@ -3852,7 +3944,7 @@ function loadProjectData(data) {
     // A. INDLÆS STRENGE (Fremløb VV)
     if (strengeData) {
         strengeData.forEach(streng => {
-            const clone = document.getElementById('strengTemplate').content.cloneNode(true);
+            const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
             const card = clone.querySelector('.card');
             card.dataset.id = streng.id;
             card.querySelector('.id-text').textContent = `VV-Streng ${streng.id}`; // Opdateret label
@@ -3861,7 +3953,7 @@ function loadProjectData(data) {
             card.dataset.tempCircEnd = streng.circ_end;
             card.querySelector('.circ-zeta').value = streng.circ_zeta || 0;
 
-            document.getElementById('strengeContainer').appendChild(clone);
+            document.getElementById('strengeContainerVV').appendChild(clone);
             const rorContainer = card.querySelector('.ror-container');
             const tapstedContainer = card.querySelector('.tapsted-container');
             
