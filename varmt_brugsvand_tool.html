@@ -266,8 +266,8 @@
                             </div>
                         </div>
                         <div class="accordion-item">
-                                <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseKoldt" aria-expanded="false">Koldtvands netværk (KV)</button></h2>
-                                <div id="collapseKoldt" class="accordion-collapse collapse" data-bs-parent="#inputAccordion">
+                                 <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#collapseKoldt" aria-expanded="false">Koldtvands netværk (KV)</button></h2>
+                                 <div id="collapseKoldt" class="accordion-collapse collapse" data-bs-parent="#inputAccordion">
                                     <div class="accordion-body">
                                         <div id="strengeContainerKV"></div>
                                         <button class="btn btn-primary mt-2" aria-label="Tilføj KV-streng" onclick="addStreng_kv()">+ Tilføj KV-streng</button>
@@ -3460,27 +3460,37 @@ function interpolate(x, x_pts, y_pts) {
 function exportProject() {
     const data = {
         config: getGlobalConfig(),
-        strenge_vv: [],     // NYT: VV Strenge
-        cirkulation_vv: [], // NYT: VV Cirkulation
+        strenge_vv: [], 
+        strenge_kv: [], // NYT: Liste til koldt vand
+        cirkulation_vv: [], 
         valves: [],
         names: Array.from(state.names),
         nodePositions: state.nodes.map(n => ({ id: n.id, fx: n.fx, fy: n.fy })),
         customTapsteder: state.customTapsteder
     };
 
-    // Gennemgå streng-kort (Fremløb VV)
+    // Gennemgå ALLE streng-kort (Både VV og KV)
     document.querySelectorAll('.streng-card').forEach(card => {
+        const isKV = card.classList.contains('kv-card'); // Tjek typen
+        
         const strengData = {
             id: card.dataset.id,
-            ror: [],
-            tapsted: [],
-            circ_start: card.querySelector('.circ-start').value,
-            circ_end: card.querySelector('.circ-end').value,
-            circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
+            ror: [], 
+            tapsted: []
         };
 
-        // Søg efter ror_vv
-        card.querySelectorAll('.ror-container > tr[data-type="ror_vv"]').forEach(el => {
+        // Læs KUN cirkulationsdata hvis det er en VV streng
+        if (!isKV) {
+            strengData.circ_start = card.querySelector('.circ-start').value;
+            strengData.circ_end = card.querySelector('.circ-end').value;
+            strengData.circ_zeta = parseFloat(card.querySelector('.circ-zeta').value) || 0;
+        }
+
+        // Bestem hvilken rør-type vi skal lede efter
+        const pipeType = isKV ? 'ror_kv' : 'ror_vv';
+
+        // Indsaml Rør
+        card.querySelectorAll(`.ror-container > tr[data-type="${pipeType}"]`).forEach(el => {
             strengData.ror.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
@@ -3493,7 +3503,7 @@ function exportProject() {
             });
         });
 
-        // Tapsteder (uændret)
+        // Indsaml Tapsteder
         card.querySelectorAll('.tapsted-container > tr[data-type="tapsted"]').forEach(el => {
             strengData.tapsted.push({
                 id: el.dataset.id,
@@ -3506,10 +3516,15 @@ function exportProject() {
             });
         });
         
-        data.strenge_vv.push(strengData);
+        // Gem i den rigtige liste
+        if (isKV) {
+            data.strenge_kv.push(strengData);
+        } else {
+            data.strenge_vv.push(strengData);
+        }
     });
 
-    // Indsaml Cirkulation VV (tidl. Retur)
+    // Indsaml Cirkulation VV
     document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]').forEach(el => {
         data.cirkulation_vv.push({
             id: el.dataset.id,
@@ -3533,7 +3548,7 @@ function exportProject() {
     });
 
     // Filnavn og download
-    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_VV_Projekt';
+    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     const filename = `${projName}_${dateStr}.json`;
@@ -3694,10 +3709,10 @@ function renumberAndSortProject() {
  * Denne version matcher nu 100% logikken i exportProject.
  */
 function autoSaveProject() {
-    // Konstruer data-objektet præcis som i exportProject
     const data = {
         config: getGlobalConfig(),
         strenge_vv: [], 
+        strenge_kv: [], // NYT
         cirkulation_vv: [], 
         valves: [],
         names: Array.from(state.names),
@@ -3705,19 +3720,30 @@ function autoSaveProject() {
         customTapsteder: state.customTapsteder
     };
 
-    // Gennemgå streng-kort (Fremløb VV)
+    // Gennemgå ALLE streng-kort med sikkerhedstjek
     document.querySelectorAll('.streng-card').forEach(card => {
+        const isKV = card.classList.contains('kv-card');
+        
         const strengData = {
             id: card.dataset.id,
-            ror: [],
-            tapsted: [],
-            circ_start: card.querySelector('.circ-start').value,
-            circ_end: card.querySelector('.circ-end').value,
-            circ_zeta: parseFloat(card.querySelector('.circ-zeta').value) || 0
+            ror: [], 
+            tapsted: []
         };
 
-        // Søg efter ror_vv
-        card.querySelectorAll('.ror-container > tr[data-type="ror_vv"]').forEach(el => {
+        // Læs KUN cirkulationsdata fra VV kort
+        if (!isKV) {
+            const cStart = card.querySelector('.circ-start');
+            const cEnd = card.querySelector('.circ-end');
+            const cZeta = card.querySelector('.circ-zeta');
+            
+            strengData.circ_start = cStart ? cStart.value : '';
+            strengData.circ_end = cEnd ? cEnd.value : '';
+            strengData.circ_zeta = cZeta ? (parseFloat(cZeta.value) || 0) : 0;
+        }
+
+        const pipeType = isKV ? 'ror_kv' : 'ror_vv';
+
+        card.querySelectorAll(`.ror-container > tr[data-type="${pipeType}"]`).forEach(el => {
             strengData.ror.push({
                 id: el.dataset.id,
                 parent: el.querySelector('.parent').value,
@@ -3730,7 +3756,6 @@ function autoSaveProject() {
             });
         });
 
-        // Tapsteder (uændret)
         card.querySelectorAll('.tapsted-container > tr[data-type="tapsted"]').forEach(el => {
             strengData.tapsted.push({
                 id: el.dataset.id,
@@ -3743,10 +3768,14 @@ function autoSaveProject() {
             });
         });
         
-        data.strenge_vv.push(strengData);
+        if (isKV) {
+            data.strenge_kv.push(strengData);
+        } else {
+            data.strenge_vv.push(strengData);
+        }
     });
 
-    // Indsaml Cirkulation VV (tidl. Retur)
+    // Indsaml Cirkulation VV
     document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]').forEach(el => {
         data.cirkulation_vv.push({
             id: el.dataset.id,
@@ -3762,23 +3791,18 @@ function autoSaveProject() {
 
     // Indsaml Ventiler
     document.querySelectorAll('#returContainerBody > tr[data-type="valve"]').forEach(el => {
-        data.valves.push({
-            id: el.dataset.id,
-            parent: el.querySelector('.parent').value,
-            valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType
-        });
+        data.valves.push({ id: el.dataset.id, parent: el.querySelector('.parent').value, valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType });
     });
 
     // Gem til localStorage
     try {
         localStorage.setItem('varmtBrugsvandAutoSave', JSON.stringify(data));
         projektErÆndret = false; 
-        console.log("Projekt auto-gemt (VV format)."); 
+        // console.log("Projekt auto-gemt."); 
     } catch (err) {
         console.error("Fejl ved auto-gem:", err);
     }
 }
-
 
 /**
  * NY FUNKTION (TRIN 3): Sætter "dirty flag" for at indikere, at der er ændringer.
@@ -3840,29 +3864,51 @@ function loadProjectData(data) {
     if (!data) return;
     console.log("Starter indlæsning...", data);
     
-    // Nulstil UI
-    document.getElementById('strengeContainerVV').innerHTML = '';
+    // 1. Nulstil UI
+    document.getElementById('strengeContainer').innerHTML = '';
+    if (document.getElementById('strengeContainerKV')) {
+        document.getElementById('strengeContainerKV').innerHTML = ''; 
+    }
     document.getElementById('returContainerBody').innerHTML = ''; 
     document.getElementById('customTapsteder').innerHTML = '';
     
-    state.sC = 0; state.rC = 0; state.tC = 0; valveCounter = 0;
-    let maxS = 0, maxR = 0, maxT = 0, maxV = 0;
+    // 2. Nulstil Tællere
+    state.sC = 0; 
+    state.sC_kv = 0; 
+    state.rC = 0; 
+    state.tC = 0; 
+    valveCounter = 0;
+    
+    let maxS = 0, maxSkv = 0, maxR = 0, maxT = 0, maxV = 0;
 
-    // --- TRIN 0: DATA NORMALISERING (Bagudkompatibilitet) ---
-    // Vi samler data fra både nye (_vv) og gamle felter
+    // 3. Data Normalisering (Håndter både nyt og gammelt format)
     const strengeData = data.strenge_vv || data.strenge || [];
+    const strengeKVData = data.strenge_kv || []; 
     const cirkulationData = data.cirkulation_vv || data.retur || [];
     const valvesData = data.valves || [];
 
+    // 4. Find max ID-numre for at fortsætte tælling korrekt
     try {
-        // Find max ID-numre for at fortsætte tælling korrekt
         if (strengeData) {
             strengeData.forEach(streng => {
                 const sNum = parseInt(streng.id.replace('S', ''), 10);
                 if (!isNaN(sNum) && sNum > maxS) maxS = sNum;
+                
                 const components = [...(streng.ror || []), ...(streng.tapsted || [])];
                 components.forEach(comp => {
-                    // Håndter både gamle S1-R1 og nye S1-R1
+                    const idParts = comp.id.split(/[RT-]/); // Splitter ved R, T eller -
+                    const tNum = parseInt(idParts[idParts.length - 1], 10);
+                    if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
+                });
+            });
+        }
+        if (strengeKVData) {
+            strengeKVData.forEach(streng => {
+                const sNum = parseInt(streng.id.replace('K', ''), 10);
+                if (!isNaN(sNum) && sNum > maxSkv) maxSkv = sNum;
+                // Tjekker også komponenter i KV for at opdatere maxT hvis de deler tæller
+                const components = [...(streng.ror || []), ...(streng.tapsted || [])];
+                components.forEach(comp => {
                     const idParts = comp.id.split(/[RT-]/);
                     const tNum = parseInt(idParts[idParts.length - 1], 10);
                     if (!isNaN(tNum) && tNum > maxT) maxT = tNum;
@@ -3882,40 +3928,49 @@ function loadProjectData(data) {
             });
         }
         
-        state.sC = maxS; state.rC = maxR; state.tC = maxT; valveCounter = maxV;
+        state.sC = maxS; 
+        if (state.sC_kv !== undefined) state.sC_kv = maxSkv; 
+        state.rC = maxR; 
+        state.tC = maxT; 
+        valveCounter = maxV;
 
         state.names = new Map(data.names);
         if (data.nodePositions) state.nodes = data.nodePositions;
-        state.customTapsteder = data.customTapsteder || {}; 
         
-        // Indlæs tapsteder (Håndterer ny struktur med qf_hot)
-        Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot || v.qf])) : {});
+        // Indlæs Custom Tapsteder (Håndterer ny struktur med qf_hot)
+        state.customTapsteder = data.customTapsteder || {};
+        // Opdater ST med custom værdier for bagudkompatibilitet i dropdowns
+        Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v.qf_hot : v.qf])) : {});
         
-        if (data.config) {
-            Object.entries(data.config).forEach(([k, v]) => {
-                const el = document.getElementById(k);
-                if (el) el.value = v;
-                if (k === 'isAuto') document.getElementById('autoDimToggle').checked = v;
-            });
-            toggleAutoDim(data.config.isAuto);
-        }
-
         // Genskab custom tapsteder i UI
         Object.keys(state.customTapsteder).forEach(k => {
             const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
             clone.querySelector('.input-group-text').dataset.key = k;
             clone.querySelector('.input-group-text').textContent = k;
-            // Understøt både ny og gammel data-struktur
             const val = state.customTapsteder[k];
+            // Håndter både ny {qf_hot: ...} og gammel {qf: ...} struktur
             clone.querySelector('.qf').value = val.qf_hot !== undefined ? val.qf_hot : val.qf;
             clone.querySelector('.is-apartment').checked = val.isApartment;
             document.getElementById('customTapsteder').appendChild(clone);
         });
+
+        // Indlæs Config
+        if (data.config) {
+            Object.entries(data.config).forEach(([k, v]) => {
+                const el = document.getElementById(k);
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = v;
+                    else el.value = v;
+                }
+            });
+            toggleAutoDim(data.config.isAuto);
+        }
+
     } catch (e) {
-        console.error("Fejl i Trin 0 (Forberedelse):", e);
+        console.error("Fejl i Forberedelse:", e);
     }
 
-    // --- TRIN 1: OPRET ELEMENTER I DOM ---
+    // Hjælpefunktion til at sætte felter på en række
     const setCommonFields = (tr, item) => {
         if (tr.dataset.tempParent) tr.dataset.tempParent = item.parent || "Beholder";
         
@@ -3941,19 +3996,19 @@ function loadProjectData(data) {
         if (nameInput) nameInput.onchange = (e) => state.names.set(item.id, e.target.value);
     };
 
-    // A. INDLÆS STRENGE (Fremløb VV)
+    // --- A. INDLÆS VV STRENGE (Rød) ---
     if (strengeData) {
         strengeData.forEach(streng => {
             const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
             const card = clone.querySelector('.card');
             card.dataset.id = streng.id;
-            card.querySelector('.id-text').textContent = `VV-Streng ${streng.id}`; // Opdateret label
+            card.querySelector('.id-text').textContent = `VV-Streng ${streng.id}`;
             
             card.dataset.tempCircStart = streng.circ_start;
             card.dataset.tempCircEnd = streng.circ_end;
             card.querySelector('.circ-zeta').value = streng.circ_zeta || 0;
 
-            document.getElementById('strengeContainerVV').appendChild(clone);
+            document.getElementById('strengeContainer').appendChild(clone);
             const rorContainer = card.querySelector('.ror-container');
             const tapstedContainer = card.querySelector('.tapsted-container');
             
@@ -3997,12 +4052,12 @@ function loadProjectData(data) {
                 tr.dataset.tempParent = t.parent; 
 
                 let opts = '';
-                // Brug qf_hot til value
+                // Brug qf_hot til value for bagudkompatibilitet
                 const allTap = {...ST, ...Object.fromEntries(Object.entries(state.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}]))};
                 
                 Object.keys(allTap).forEach(k => {
                     const data = allTap[k];
-                    const val = data.qf_hot !== undefined ? data.qf_hot : data; // Håndter gammel/ny
+                    const val = data.qf_hot !== undefined ? data.qf_hot : data;
                     const isApt = data.isApartment !== undefined ? data.isApartment : k.includes('Lejlighed');
                     opts += `<option value="${val}" data-is-apartment="${isApt}">${k}</option>`;
                 });
@@ -4018,6 +4073,7 @@ function loadProjectData(data) {
                 `;
                 
                 const tapSelect = tr.querySelector('.tapType');
+                // Prøv at matche på navn først, ellers værdi
                 let foundIdx = Array.from(tapSelect.options).findIndex(opt => opt.text === t.tapType);
                 if (foundIdx === -1 && t.qf) { 
                      foundIdx = Array.from(tapSelect.options).findIndex(opt => parseFloat(opt.value) === parseFloat(t.qf));
@@ -4032,8 +4088,7 @@ function loadProjectData(data) {
         });
     }
 
-    // B. INDLÆS CIRKULATION (Retur VV)
-    // Vi bruger data fra 'cirkulation_vv' (eller 'retur' for gamle filer)
+    // --- B. INDLÆS CIRKULATION (Retur VV) ---
     if (cirkulationData) {
         cirkulationData.forEach(r => {
             const id = r.id;
@@ -4062,7 +4117,7 @@ function loadProjectData(data) {
         });
     }
     
-    // C. INDLÆS VENTILER
+    // --- C. INDLÆS VENTILER ---
     if (valvesData) {
         valvesData.forEach(v => {
             const id = v.id;
@@ -4081,7 +4136,8 @@ function loadProjectData(data) {
             valveSelect.value = v.valveType || ""; 
 
             const idText = tr.querySelector('.id-text');
-            idText.textContent = `${id} (${(v.valveType || 'Vælg').substring(0, 10)}...)`;
+            const typeName = v.valveType || 'Vælg';
+            idText.textContent = `${id} (${typeName.substring(0, 10)}...)`;
 
             valveSelect.onchange = (e) => {
                 const newType = e.target.value;
@@ -4094,38 +4150,60 @@ function loadProjectData(data) {
         });
     }
 
-    // --- TRIN 2-4: FORBINDELSER OG AFSLUTNING (Uændret logik) ---
+    // --- AFSLUTNING: GENDAN FORBINDELSER ---
     try {
         updateAllSelects();
-    } catch (e) { console.error("Fejl i updateAllSelects:", e); }
+    } catch (e) { console.error("Fejl i updateAllSelects (pre-link):", e); }
 
+    // 1. Gendan 'parent' værdier for alle rør/komponenter
     document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
         const parentSelect = tr.querySelector('.parent');
         const savedParent = tr.dataset.tempParent;
+        
         if (parentSelect && savedParent) {
             parentSelect.value = savedParent;
-            if (parentSelect.value !== savedParent) parentSelect.value = "Beholder";
+            
+            // Hvis parent ikke findes (f.eks. hvis den er slettet eller omdøbt eksternt), fallback til Beholder/Vandstik
+            if (parentSelect.value !== savedParent) {
+                // Tjek type for korrekt fallback
+                if (tr.dataset.type === 'ror_kv') parentSelect.value = "Vandstik";
+                else parentSelect.value = "Beholder";
+            }
         }
         delete tr.dataset.tempParent;
     });
 
+    // 2. Gendan Cirkulations-koblinger (Start/Slut)
     document.querySelectorAll('.streng-card').forEach(card => {
         const startSelect = card.querySelector('.circ-start');
         const endSelect = card.querySelector('.circ-end');
-        if (card.dataset.tempCircStart) startSelect.value = card.dataset.tempCircStart;
-        if (card.dataset.tempCircEnd) endSelect.value = card.dataset.tempCircEnd;
+        
+        if (startSelect && card.dataset.tempCircStart) {
+            startSelect.value = card.dataset.tempCircStart;
+        }
+        if (endSelect && card.dataset.tempCircEnd) {
+            endSelect.value = card.dataset.tempCircEnd;
+        }
+        
         delete card.dataset.tempCircStart;
         delete card.dataset.tempCircEnd;
     });
 
     try {
-        updateAllSelects();
+        updateAllSelects(); // Kør igen for at sikre alt er opdateret
         toggleDisplayNames(state.useNames);
-        setTimeout(() => { if (typeof zoomToFit === 'function') zoomToFit(); }, 100);
-    } catch (e) { console.error("Fejl i Afslutning:", e); }
+        
+        setTimeout(() => {
+            if (typeof zoomToFit === 'function') zoomToFit();
+        }, 100);
+        
+    } catch (e) { 
+        console.error("Fejl i Afslutning:", e); 
+    }
     
-    console.log("Projekt indlæst færdigt (VV Refactored).");
+    console.log("Projekt indlæst færdigt.");
 }
+
 
 /**
  * FUNKTION: Udløses af knappen "Eksport Detaljer (JSON)".
