@@ -192,6 +192,7 @@
                                     <div class="row g-3 mb-3">
                                         <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (Pa). Jf. DS 439:2024, afsnit 6.2.2.1.">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningens Kote" data-bs-content="Den geodætiske kote (højde i meter) for forsyningspunktet. Anvendes som reference for beregning af løftehøjde til tapsteder. Jf. DS 439:2024, afsnit 6.3.5.1.">(?)</a></label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="T_k">Vandtemperatur v/stik (Koldt Vand) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Koldtvandstemperatur" data-bs-content="Temperaturen på det kolde vand, når det kommer ind i bygningen (Vandstik). Standard er 10°C jf. DS 439.">(?)</a></label><div class="input-group"><input id="T_k" type="number" min="0" class="form-control" value="10"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 100.000 Pa / 1 bar). Jf. DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer.">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="T_v">Varmtvandstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. DS 439:2024, afsnit 5.6.1 og 6.6.2.1.">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6">
@@ -2576,6 +2577,7 @@ function getGlobalConfig() {
         projectName: document.getElementById('projectName')?.value || '',
         pln: getVal('pln', 400000),
         min_tap_tryk: getVal('min_tap_tryk', 100000),
+        T_k: getVal('T_k', 10),
         T_v: getVal('T_v', 55),
         T_omg_inde: getVal('T_omg', 20),
         T_omg_ude: getVal('T_omg_ude', 5),
@@ -2834,15 +2836,14 @@ function finishCalculation(model, config) {
         return;
     }
     
-    // VIGTIGT: Vi kalder nu den specifikke VV-funktion
+    // Kør begge temperatur-simulationer med de nye fysiske funktioner
     calculateTemperatures_VV(model, config);
+    calculateTemperatures_KV(model, config);
     
     syncModelToState(model);
     state.lastConfig = config;
     
-    // displayResults er generisk (indtil videre), da den bare viser data fra modellen
     displayResults(model, config);
-    
     updateDiagram();
 }
 
@@ -2923,91 +2924,93 @@ function beregnStandard(config) {
  * - Hovedledning (Retur): Bærer flow fra flere strenge.
  */
 function analyzeSystemTopology(model) {
-    // Helper: Find streng-ID fra node-ID (f.eks. "S1-R1" -> "S1")
     const getStringId = (nodeId) => {
-        if (!nodeId || nodeId === 'Beholder') return 'Beholder';
+        if (!nodeId) return null;
+        if (nodeId === 'Beholder') return 'Beholder';
+        if (nodeId === 'Vandstik') return 'Vandstik';
         return nodeId.split('-')[0]; 
     };
 
-    // Rekursiv analyse af fremløb
-    const analyzeNode = (nodeId) => {
-        const node = model.nodes.get(nodeId);
-        if (!node) return { tapCount: 0, feedsOtherString: false };
+    // Generisk analysefunktion (bruges til både VV og KV)
+    const analyzeTree = (rootId, systemType) => {
+        const analyzeNode = (nodeId) => {
+            const node = model.nodes.get(nodeId);
+            if (!node) return { tapCount: 0, feedsOtherString: false };
 
-        if (node.type === 'tapsted') {
-            return { tapCount: 1, feedsOtherString: false };
-        }
+            if (node.type === 'tapsted') {
+                return { tapCount: 1, feedsOtherString: false };
+            }
 
-        let totalTaps = 0;
-        let feedsOther = false;
-        const myString = getStringId(node.id);
+            let totalTaps = 0;
+            let feedsOther = false;
+            const myString = getStringId(node.id);
 
-        node.children.forEach(child => {
-            const childResult = analyzeNode(child.id);
-            totalTaps += childResult.tapCount;
+            if (node.children) {
+                node.children.forEach(child => {
+                    const childResult = analyzeNode(child.id);
+                    totalTaps += childResult.tapCount;
+                    
+                    const childString = getStringId(child.id);
+                    // Tjek om vi føder en ny streng (eller beholderen hvis vi er KV)
+                    if (childString !== myString && child.type !== 'tapsted') {
+                        feedsOther = true;
+                    }
+                    // Hvis vi er KV og føder Beholderen, er vi Hovedledning
+                    if (systemType === 'KV' && child.id === 'Beholder') {
+                        feedsOther = true;
+                    }
+                    
+                    if (childResult.feedsOtherString) feedsOther = true;
+                });
+            }
+
+            // Tildel Kategori
+            if (node.type === 'ror_vv' || node.type === 'ror_kv') {
+                const prefix = (systemType === 'KV') ? 'cold_' : '';
+                
+                if (feedsOther) {
+                    node.category = prefix + 'main'; // Hovedledning
+                } else if (totalTaps === 1) {
+                    node.category = prefix + 'connection'; // Koblingsledning
+                } else {
+                    node.category = prefix + 'distribution'; // Fordelingsledning
+                }
+            }
             
-            // Tjek om barnet hører til en anden streng
-            const childString = getStringId(child.id);
-            if (childString !== myString && child.type !== 'tapsted' && child.id !== 'Beholder') {
-                feedsOther = true;
-            }
-            // Hvis barnet føder en anden streng, gør jeg det også
-            if (childResult.feedsOtherString) {
-                feedsOther = true;
-            }
-        });
-
-        // Tildel kategori
-        if (node.type === 'ror_vv') {
-            if (feedsOther) {
-                node.category = 'main'; // Hovedledning (Mørkerød)
-            } else if (totalTaps === 1) {
-                node.category = 'connection'; // Koblingsledning (Lysrød)
-            } else {
-                node.category = 'distribution'; // Fordelingsledning (Rød)
-            }
-        }
+            return { tapCount: totalTaps, feedsOtherString: feedsOther };
+        };
         
-        return { tapCount: totalTaps, feedsOtherString: feedsOther };
+        if (model.nodes.has(rootId)) {
+            // Kør analysen for børnene af roden
+            model.nodes.get(rootId).children.forEach(child => analyzeNode(child.id));
+        }
     };
 
-    // Start analysen fra Beholderen
-    const beholder = model.nodes.get('Beholder');
-    if (beholder) {
-        beholder.children.forEach(child => analyzeNode(child.id));
-    }
+    // Kør for Varmt Vand
+    analyzeTree('Beholder', 'VV');
+    
+    // Kør for Koldt Vand (NYT)
+    analyzeTree('Vandstik', 'KV');
 
-    // Analyser Retur-netværk
-    // Kortlæg hvilke loops hvert retur-rør er en del af
-    const returnPipeLoops = new Map(); // Map<PipeID, Set<LoopID>>
-
+    // Retur-analyse (Uændret)
+    const returnPipeLoops = new Map();
     model.loops.forEach(loop => {
         if (!loop.path) return;
         loop.path.forEach(nodeId => {
             const node = model.nodes.get(nodeId);
-            if (node && node.type === 'cirkulation_vv') {
-                if (!returnPipeLoops.has(nodeId)) {
-                    returnPipeLoops.set(nodeId, new Set());
-                }
+            if (node && (node.type === 'cirkulation_vv' || node.type === 'retur')) { // Håndterer begge navne
+                if (!returnPipeLoops.has(nodeId)) returnPipeLoops.set(nodeId, new Set());
                 returnPipeLoops.get(nodeId).add(loop.id);
             }
         });
     });
-
-    // Tildel kategori til retur-rør
     model.nodes.forEach(n => {
-        if (n.type === 'cirkulation_vv') {
+        if (n.type === 'cirkulation_vv' || n.type === 'retur') {
             const loops = returnPipeLoops.get(n.id);
-            // Hvis røret indgår i mere end ét unikt loop -> Hovedledning
-            if (loops && loops.size > 1) {
-                n.category = 'main_return'; // Hovedretur (Mørkeblå)
-            } else {
-                n.category = 'return'; // Alm. retur (Blå)
-            }
+            n.category = (loops && loops.size > 1) ? 'main_return' : 'return';
         }
     });
 }
-
 
 // =============================================================================
 // == BEREGNINGSKERNE: VARMT VAND (VV)
@@ -3644,6 +3647,60 @@ function calculateTemperatures_VV(model, config) {
             }
         });
     });
+}
+
+function calculateTemperatures_KV(model, config) {
+    // Starttemperatur fra input
+    const T_start = config.T_k; 
+    
+    if (!model.nodeTemps) model.nodeTemps = new Map();
+    
+    function traverse(nodeId, currentTemp) {
+        model.nodeTemps.set(nodeId, currentTemp);
+        const node = model.nodes.get(nodeId);
+        if (!node || !node.children) return;
+
+        node.children.forEach(child => {
+            if (child.type === 'ror_kv') {
+                // 1. Bestem Omgivelsestemperatur
+                let T_env = config.T_omg_inde;
+                if (child.location === 'outside') T_env = config.T_omg_ude;
+                else if (child.location === 'unheated') T_env = config.T_omg_inde; // Eller et mix
+
+                // 2. Bestem Flow (Vi bruger Spidslast qd som "Drifts-tilstand")
+                const flow_ls = child.qd || 0.005; // Minimum flow for beregning
+                const flow_kg_s = (flow_ls / 1000) * getWaterDensity(currentTemp);
+                
+                // 3. Hent Fysiske data
+                const cp = getWaterSpecificHeat(currentTemp); // J/kgK
+                const U_val = child.u_value_per_meter || 100; // W/mK (hvis uisoleret er den høj)
+                const L = child.L || 0;
+
+                // 4. Beregn Temperaturstigning (Eksponentiel tilnærmelse mod rumtemp)
+                // Formel: T_out = T_env - (T_env - T_in) * exp( - (U*L) / (m*cp) )
+                
+                const mc = flow_kg_s * cp; // Varmekapacitetsflow (W/K)
+                let nextTemp = currentTemp;
+
+                if (mc > 0) {
+                    const exponent = - (U_val * L) / mc;
+                    // e^x funktionen sikrer, at vi aldrig overstiger T_env
+                    nextTemp = T_env - (T_env - currentTemp) * Math.exp(exponent);
+                } else {
+                    nextTemp = T_env; // Stillestående vand ender på rumtemp
+                }
+                
+                traverse(child.id, nextTemp);
+            } else {
+                // Tapsteder arver temp
+                traverse(child.id, currentTemp);
+            }
+        });
+    }
+    
+    if (model.nodes.has('Vandstik')) {
+        traverse('Vandstik', T_start);
+    }
 }
 
 
@@ -4760,14 +4817,19 @@ function updateDiagramStyles() {
     if (!state.lastModel) return;
     const model = state.lastModel;
 
-    const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv");
+    // 1. SELEKTER ALLE RØRTYPER (Inkl. KV)
+    const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv");
     
-    // Juster tykkelse baseret på dimension
-    const pipeNodes = Array.from(model.nodes.values()).filter(n => (n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim);
+    // 2. TYKKELSE (Baseret på dimension)
+    const pipeNodes = Array.from(model.nodes.values()).filter(n => 
+        (n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') && n.nom_dim
+    );
+    
     if (pipeNodes.length > 0) {
         const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
         if (dimDomain[0] === dimDomain[1]) dimDomain[0] -= 1;
         const thicknessScale = d3.scaleLinear().domain(dimDomain).range([1.5, 8]);
+        
         links.style('stroke-width', d => {
             const node = model.nodes.get(d.target.id);
             return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '1.5px';
@@ -4777,7 +4839,7 @@ function updateDiagramStyles() {
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
     
-    // Nulstil først (dette gør dem blå/røde efter CSS standard)
+    // Nulstil styles
     links.style('stroke', null).style('opacity', null).style('stroke-dasharray', null);
 
     if (showCritical) {
@@ -4785,81 +4847,84 @@ function updateDiagramStyles() {
     } else if (visMode !== 'none') {
         applyColorGradient(visMode);
     } else {
-        // --- HER ER DEN VIGTIGE MODEL B LOGIK ---
-        // Dette overskriver CSS-farverne med vores Topologi-farver
+        // 3. STANDARD FARVER (KATEGORIER)
         links.style('stroke', d => {
             const n = model.nodes.get(d.target.id);
-            if (!n) return '#ccc';
-            
-            // Hvis kategorien mangler (f.eks. hvis analyse ikke er kørt), falder vi tilbage til CSS (null)
-            if (!n.category) return null;
+            if (!n || !n.category) return '#ccc';
 
             switch (n.category) {
-                // VARMT VAND (RØD)
-                case 'main': return '#8b0000';          // Mørkerød
-                case 'distribution': return '#dc3545';  // Rød
-                case 'connection': return '#f08080';    // Lysrød
+                // VARMT
+                case 'main': return '#8b0000';          
+                case 'distribution': return '#dc3545';  
+                case 'connection': return '#f08080';    
+                case 'main_return': return '#8b0000';   
+                case 'return': return '#dc3545';        
                 
-                // VARM CIRKULATION (RØD)
-                case 'main_return': return '#8b0000';   // Mørkerød
-                case 'return': return '#dc3545';        // Rød
+                // KOLDT (NYT)
+                case 'cold_main': return '#00008b';       // Mørkeblå
+                case 'cold_distribution': return '#0d6efd'; // Standard Blå
+                case 'cold_connection': return '#89cff0';   // Lyseblå
                 
-                // KOLDT VAND (BLÅ - Forberedt)
-                case 'cold_main': return '#00008b';         
-                case 'cold_distribution': return '#0d6efd'; 
-                case 'cold_connection': return '#89cff0';   
-                case 'cold_return': return '#0d6efd';       
-
                 default: return '#ccc';
             }
         })
         .style('stroke-dasharray', d => {
             const n = model.nodes.get(d.target.id);
             if (!n) return null;
-
-            // Stiplet linje for alle retur-typer (Varm og Kold)
-            if (['main_return', 'return', 'cold_return'].includes(n.category)) {
-                if (n.category === 'cold_return') {
-                    return '2, 4'; // Kold: Finprikket
-                } else {
-                    return '6, 4'; // Varm: Stiplet
-                }
-            }
-            return null; // Solid
+            if (['main_return', 'return'].includes(n.category)) return '6, 4'; // Varm retur
+            return null; 
         });
     }
     
     updateLegend();
+    updateLabels(model); // (Separeret for overskuelighed, se nedenfor)
+}
 
-    // Opdater labels (tekst på rør)
+// Hjælper til labels (indsæt denne eller hold den inline hvis du foretrækker)
+function updateLabels(model) {
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
     const showLen = document.getElementById('visLaengde').checked;
     const showFlow = document.getElementById('visFlow').checked;
+    // ... (Hent config for fittings pct til visning)
+    const config = state.lastConfig || {};
 
     d3.select("#diagram svg").selectAll(".link-text").text(d => {
         const n = model.nodes.get(d.target.id);
-        if (!n || !(n.type === 'ror_vv' || n.type === 'cirkulation_vv') || !n.nom_dim) return "";        
+        if (!n) return "";
 
-        const parts = [];
-        const flow_ls = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows ? (model.circFlows.get(n.id) || 0) : 0);
+        if (n.type === 'valve') {
+             if (showDpM) return `${(n.dp_circ||0).toFixed(0)} Pa (V)`;
+             return "";
+        }
 
-        if (showDim) parts.push(`${n.nom_dim}mm`);
-        if (showLen) parts.push(`${n.L}m`);
-        if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
-        if (showVel) {
-            const d_i = ID[n.material][n.nom_dim] / 1000;
-            const area = Math.PI * (d_i / 2) ** 2;
-            const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
-            parts.push(`${velocity.toFixed(2)} m/s`);
+        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') && n.nom_dim) {
+            const parts = [];
+            const flow_ls = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
+
+            if (showDim) parts.push(`${n.nom_dim}mm`);
+            if (showLen) parts.push(`${n.L}m`);
+            if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
+            
+            if (showVel || showDpM) {
+                const d_i = ID[n.material][n.nom_dim] / 1000;
+                // Brug korrekt temp
+                const temp = (n.type === 'ror_kv') ? 10 : (n.type === 'ror_vv' ? config.T_v : (config.T_v - config.dT/2));
+                
+                if (showVel) {
+                     const area = Math.PI * (d_i / 2) ** 2;
+                     const v = (flow_ls / 1000) / area;
+                     parts.push(`${v.toFixed(2)} m/s`);
+                }
+                if (showDpM) {
+                     const dp = getDP(flow_ls, d_i, RH[n.material]/1000, 1, 0, config.fittings_pct, temp);
+                     parts.push(`${dp.toFixed(0)} Pa/m`);
+                }
+            }
+            return parts.join(' | ');
         }
-        if (showDpM) {
-            const dp_total = n.type === 'ror_vv' ? (n.dp_tap || 0) : (n.dp_circ || 0);
-            const dp_pr_meter = n.L > 0 ? dp_total / n.L : 0;
-            parts.push(`${dp_pr_meter.toFixed(1)} Pa/m`);
-        }
-        return parts.join(' | ');
+        return "";
     });
 }
 
@@ -6038,6 +6103,43 @@ function handleNodeRightClick(event, d) {
 
     const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
 
+    // --- FUNKTIONER FOR KV (KOLDT VAND) ---
+    if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
+        // 1. Tilføj KV Streng
+        menu.appendChild(createMenuItem('Tilføj ny KV-streng herfra', () => {
+            addStreng_kv();
+            const newStreng = document.querySelector('#strengeContainerKV .streng-card:last-child');
+            if (newStreng) {
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_kv"]');
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
+        }));
+
+        // 2. Tilføj Rør/Tapsted direkte (hvis det er et rør)
+        if (nodeType === 'ror_kv') {
+             menu.appendChild(document.createElement('hr'));
+             menu.appendChild(createMenuItem('Tilføj KV-rør her', () => {
+                const parentId = d.id;
+                const strengCard = document.querySelector(`tr[data-id="${parentId}"]`).closest('.streng-card');
+                if (strengCard) {
+                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv');
+                    const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
+                    if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
+                }
+            }));
+            menu.appendChild(createMenuItem('Tilføj Tapsted her', () => {
+                 // Samme logik som rør...
+                 const parentId = d.id;
+                 const strengCard = document.querySelector(`tr[data-id="${parentId}"]`).closest('.streng-card');
+                 if (strengCard) {
+                     addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
+                     const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
+                     if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
+                 }
+            }));
+        }
+    }
+
     // --- 1. FORBINDELSER & FLYTNING (Fælles) ---
     if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv' || nodeType === 'valve') {
         menu.appendChild(createMenuItem('Forbind til...', () => {
@@ -6196,17 +6298,14 @@ function handleNodeRightClick(event, d) {
     }
 
     // --- 5. SLET (Alle undtagen Beholder) ---
-    if (nodeType !== 'beholder') {
-        if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
-             menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
-        }
+    if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
+        menu.appendChild(document.createElement('hr'));
         menu.appendChild(createMenuItem('Slet Komponent', () => {
-            const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
-            if (element) {
-                // Vi leder efter knappen med aria-label "Fjern..."
-                const uiDeleteButton = element.querySelector('button[aria-label*="Fjern"]');
-                if (uiDeleteButton) uiDeleteButton.click();
-            }
+             const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
+             if (element) {
+                 const delBtn = element.querySelector('button[aria-label*="Fjern"]');
+                 if (delBtn) delBtn.click();
+             }
         }));
     }
     
@@ -6215,6 +6314,8 @@ function handleNodeRightClick(event, d) {
         setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
     }
 }
+
+
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
