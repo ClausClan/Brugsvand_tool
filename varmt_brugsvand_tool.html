@@ -1370,67 +1370,72 @@ function addCirkulationRor() {
  * Opdeler et rør (både fremløb og retur).
  */
 function splitPipe(nodeId) {
-    // 1. Find rækken i DOM'en
-    const row = document.querySelector(`tr[data-id="${nodeId}"]`);
-    if (!row) return;
+    // 1. Find rækken og data
+    const oldRow = document.querySelector(`tr[data-id="${nodeId}"]`);
+    if (!oldRow) return;
 
-    // 2. Bestem type og container
-    const type = row.dataset.type; // 'ror_vv' eller 'ror_kv'
-    const container = row.closest('tbody'); // .ror-container
-    const cardBody = row.closest('.card-body');
-    const addBtn = cardBody.querySelector('button[aria-label*="Tilføj rør"]');
-
-    // 3. Opret det nye rør (Brug eksisterende funktion)
-    // Vi kalder addRorSektion, men vi skal "hijacke" den for at placere den rigtigt
-    // Først tæller vi op manuelt for at få ID
+    const type = oldRow.dataset.type; // 'ror_vv' eller 'ror_kv'
+    const oldLenInput = oldRow.querySelector('.len');
+    const currentLen = parseFloat(oldLenInput.value) || 0;
+    
+    // 2. Halver længden på det eksisterende rør
+    const newLen = currentLen / 2;
+    oldLenInput.value = newLen; // Sæt visuel værdi
+    // Opdater også modellen hvis den findes, ellers sker det ved næste beregning
+    
+    // 3. Opret det nye rør (Indsæt efter)
+    // Vi bruger state.tC til at generere unikt ID
     state.tC++;
-    const sId = row.closest('.card').dataset.id;
+    const sId = oldRow.closest('.card').dataset.id;
     const newId = `${sId}-R${state.tC}`;
     
-    const tr = document.createElement('tr');
-    tr.dataset.id = newId;
-    tr.dataset.type = type; // Bevar typen (VV/KV)
-    const datalistId = `list-${newId}`;
+    const newRow = document.createElement('tr');
+    newRow.dataset.id = newId;
+    newRow.dataset.type = type; // Bevar typen (Varm/Kold)
     
-    // HTML (Kopi af standard rør template)
-    tr.innerHTML = `
-        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-        <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-        <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
-        <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions"></td>
-        <td><input type="text" class="form-control form-control-sm dim-input dim" value="${row.querySelector('.dim').value}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-        <td><input type="number" min="0" class="form-control form-control-sm len" value="1"></td>
-        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
-    `;
+    // Klon indholdet fra det gamle rør for at bevare dimension/materiale
+    newRow.innerHTML = oldRow.innerHTML;
     
-    // 4. Indsæt det nye rør LIGE EFTER det gamle (visuelt)
-    row.after(tr);
+    // Opdater ID og værdier i den nye række
+    newRow.querySelector('.id-text').textContent = newId;
     
-    // 5. Opdater Logik
-    tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
-    const matSelect = tr.querySelector('.material');
-    matSelect.value = row.querySelector('.material').value; // Arv materiale
-    matSelect.onchange = handleMaterialChange;
-    updateDimOptions(matSelect);
-
-    // 6. Flyt Børn: Alle der pegede på OldId skal nu pege på NewId
+    const nameInput = newRow.querySelector('.name-text');
+    nameInput.value = ''; // Nyt navn
+    nameInput.onchange = (e) => state.names.set(newId, e.target.value);
+    
+    const lenInput = newRow.querySelector('.len');
+    lenInput.value = newLen; // Den anden halvdel af længden
+    
+    // VIGTIGT: Sæt forælderen til at være det gamle rør (vi indskyder)
+    const parentSel = newRow.querySelector('.parent');
+    
+    // Indsæt i DOM
+    oldRow.after(newRow);
+    
+    // 4. Opdater Logik & Forbindelser
+    // Genopbyg dropdowns så den nye ID findes
+    updateAllSelects(); 
+    
+    // Sæt det nye rørs forælder til det gamle rør
+    parentSel.value = nodeId; 
+    
+    // 5. FLYT BØRN: Alle der pegede på OldId skal nu pege på NewId
+    // Vi skal finde alle rør og tapsteder i hele dokumentet, der har oldId som parent
+    // Men vi skal IKKE flytte den nye række, vi lige har lavet (den peger jo korrekt på oldId)
     const allParents = document.querySelectorAll('.parent');
     allParents.forEach(sel => {
-        if (sel.value === nodeId) {
-            sel.value = newId; // Flyt barnet til det nye rør
+        const row = sel.closest('tr');
+        if (row && row.dataset.id !== newId && sel.value === nodeId) {
+            sel.value = newId; // Flyt barnet til det nye indskudte rør
         }
     });
 
-    // 7. Sæt det nye rørs forælder til det gamle rør
-    updateAllSelects(); // Opbyg listerne først
-    const newParentSel = tr.querySelector('.parent');
-    newParentSel.value = nodeId; // New -> Old
-
-    // 8. Gem
+    // 6. Gem og opdater
+    const matSelect = newRow.querySelector('.material');
+    if (matSelect) matSelect.onchange = handleMaterialChange;
+    
     setProjektErÆndret();
-    updateAllSelects(); // Kør igen for at sikre alt er syncet
+    updateAllSelects(); // En gang til for at opdatere diagrammet korrekt
 }
 
 
@@ -1444,54 +1449,62 @@ function splitPipe(nodeId) {
  * Inkluderer logik til at filtrere børn baseret på typen af gren.
  */
 function copyBranch(d) {
-    if (!state.lastModel) return;
-    
-    // Rekursiv indsamling af data
-    const collectData = (nodeId) => {
-        const nodeData = state.lastModel.nodes.get(nodeId);
-        if (!nodeData) return null;
+    // Vi skal bruge data fra DOM'en for at få de aktuelle indtastninger
+    // Rekursiv funktion til at samle data
+    const collectNodeData = (nodeId) => {
+        const row = document.querySelector(`tr[data-id="${nodeId}"]`);
+        if (!row) return null;
 
-        const domRow = document.querySelector(`tr[data-id="${nodeId}"]`);
-        if (!domRow) return null; // Skal findes i DOM for at kopiere input
-
-        const result = {
-            type: nodeData.type, // ror_vv, ror_kv, tapsted
-            qf: nodeData.qf, // For tapsted
-            isApartment: domRow.dataset.isApartment === 'true',
-            // Rør data
-            material: domRow.querySelector('.material')?.value,
-            dim: domRow.querySelector('.dim')?.value,
-            len: domRow.querySelector('.len')?.value,
+        const type = row.dataset.type;
+        const data = {
+            type: type,
+            // Rør-data
+            material: row.querySelector('.material')?.value,
+            dim: row.querySelector('.dim')?.value,
+            len: row.querySelector('.len')?.value,
+            fittings: row.querySelector('.fittings')?.value,
+            location: row.querySelector('.location')?.value,
+            insulation: row.querySelector('.insulation-class')?.value,
+            // Tapsted-data
+            qf: row.querySelector('.qf')?.value,
+            kote: row.querySelector('.kote')?.value,
+            isSyst: row.querySelector('.syst')?.checked,
+            tapTypeName: null,
             children: []
         };
-        
-        // Find tapType navn hvis det er et tapsted
-        if (nodeData.type === 'tapsted') {
-             const tapSel = domRow.querySelector('.tapType');
-             if(tapSel) result.tapTypeName = tapSel.options[tapSel.selectedIndex].text;
+
+        if (type === 'tapsted') {
+            const sel = row.querySelector('.tapType');
+            if (sel) data.tapTypeName = sel.options[sel.selectedIndex].text;
+            data.isApartment = row.dataset.isApartment === 'true';
         }
 
-        // Kopier børn
-        nodeData.children.forEach(child => {
-            const childData = collectData(child.id);
-            if (childData) result.children.push(childData);
+        // Find børn i DOM (dem der har denne nodeId som parent)
+        // Dette er lidt tungt, men sikkert. Vi kigger i samme container.
+        const container = row.closest('tbody');
+        const potentialChildren = container.querySelectorAll(`tr`);
+        potentialChildren.forEach(childRow => {
+            const pVal = childRow.querySelector('.parent')?.value;
+            if (pVal === nodeId) {
+                const childData = collectNodeData(childRow.dataset.id);
+                if (childData) data.children.push(childData);
+            }
         });
 
-        return result;
+        return data;
     };
 
-    const clipboardData = collectData(d.id);
+    const payload = collectNodeData(d.id);
     
-    if (clipboardData) {
-        // Gem til "global" clipboard state
-        state.clipboard = clipboardData;
+    if (payload) {
+        state.clipboard = payload;
         
-        // Vis feedback
-        const btn = document.createElement('div');
-        btn.textContent = `Gren kopieret! (${clipboardData.children.length + 1} elementer)`;
-        btn.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#198754; color:white; padding:10px; border-radius:5px; z-index:9999; animation: fadeOut 2s 2s forwards;';
-        document.body.appendChild(btn);
-        setTimeout(() => btn.remove(), 4000);
+        // Vis visuel feedback
+        const msg = document.createElement('div');
+        msg.textContent = `Gren kopieret! (${payload.type})`;
+        msg.style.cssText = "position:fixed; bottom:20px; right:20px; background:#198754; color:white; padding:10px; border-radius:5px; z-index:9999;";
+        document.body.appendChild(msg);
+        setTimeout(() => msg.remove(), 2000);
     }
 }
 
@@ -1506,131 +1519,128 @@ function copyBranch(d) {
  */
 function pasteBranch(targetId) {
     if (!state.clipboard) {
-        alert("Intet kopieret indhold fundet.");
+        alert("Intet indhold i udklipsholder.");
         return;
     }
 
-    // 1. Validering: Må vi indsætte her?
     const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
     if (!targetRow) return;
-    
-    const targetType = targetRow.dataset.type; // ror_vv eller ror_kv
-    const sourceType = state.clipboard.type;   // ror_vv eller ror_kv
 
     // Tjek kompatibilitet
-    const isTargetVV = targetType === 'ror_vv' || targetType === 'beholder';
-    const isSourceVV = sourceType === 'ror_vv';
+    const targetType = targetRow.dataset.type;
+    const sourceType = state.clipboard.type;
     
-    const isTargetKV = targetType === 'ror_kv' || targetType === 'vandstik';
-    const isSourceKV = sourceType === 'ror_kv';
+    const isTargetVV = (targetType === 'ror_vv' || targetType === 'beholder');
+    const isSourceVV = (sourceType === 'ror_vv' || sourceType === 'tapsted'); // Tapsteder kan ofte sættes på begge, men rør skal matche
+    
+    const isTargetKV = (targetType === 'ror_kv' || targetType === 'vandstik');
+    const isSourceKV = (sourceType === 'ror_kv' || sourceType === 'tapsted');
 
-    if ((isTargetVV && !isSourceVV) || (isTargetKV && !isSourceKV)) {
-        alert(`Fejl: Du kan ikke indsætte en ${isSourceVV?'Varm':'Kold'} gren på et ${isTargetVV?'Varmt':'Koldt'} rør.`);
-        return;
+    // Simpel regel: Rør skal matche system.
+    if (sourceType.includes('ror_') && targetType.includes('ror_')) {
+        if (sourceType !== targetType) {
+            alert(`Du kan ikke indsætte et ${sourceType} på et ${targetType}.`);
+            return;
+        }
     }
 
-    // 2. Find containeren (kortet) hvor vi skal indsætte
+    // Find containere
     const card = targetRow.closest('.card');
     const rorContainer = card.querySelector('.ror-container');
     const tapContainer = card.querySelector('.tapsted-container');
 
-    // 3. Rekursiv oprettelse
-    const createNodesRecursive = (data, parentId) => {
-        let newId = parentId; // Default hvis det fejler
+    // Rekursiv indsættelse
+    const insertRecursive = (data, parentId) => {
+        state.tC++;
+        const sId = card.dataset.id;
+        // Bestem prefix baseret på type for pænere ID
+        const typeChar = data.type === 'tapsted' ? 'T' : 'R';
+        const newId = `${sId}-${typeChar}${state.tC}-Kopi`; // Tilføj "Kopi" for at undgå ID konflikter ved hurtig paste
+
+        let newRow;
 
         if (data.type === 'ror_vv' || data.type === 'ror_kv') {
-            // Opret Rør
-            state.tC++;
-            const sId = card.dataset.id;
-            newId = `${sId}-R${state.tC}`;
-            
-            const tr = document.createElement('tr');
-            tr.dataset.id = newId;
-            tr.dataset.type = data.type; // Bevar typen
+            newRow = document.createElement('tr');
+            newRow.dataset.id = newId;
+            newRow.dataset.type = data.type;
             const datalistId = `list-${newId}`;
             
-            tr.innerHTML = `
+            // Brug samme HTML struktur som addRorSektion men fyld værdier
+            newRow.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent"></select></td>
-                <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Pex">Pex</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+                <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
                 <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-                <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions"></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" value="${data.insulation || 'Auto'}" list="insulationClassOptions"></td>
                 <td><input type="text" class="form-control form-control-sm dim-input dim" value="${data.dim}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
                 <td><input type="number" min="0" class="form-control form-control-sm len" value="${data.len}"></td>
-                <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${data.fittings}"></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
             `;
             
-            // Sæt Materiale
-            const matSel = tr.querySelector('.material');
-            matSel.value = data.material;
-            matSel.onchange = handleMaterialChange;
+            newRow.querySelector('.material').value = data.material;
+            newRow.querySelector('.location').value = data.location;
             
-            rorContainer.appendChild(tr);
-            updateDimOptions(matSel);
+            rorContainer.appendChild(newRow);
+            updateDimOptions(newRow.querySelector('.material'));
 
         } else if (data.type === 'tapsted') {
-            // Opret Tapsted
-            state.tC++;
-            const sId = card.dataset.id;
-            newId = `${sId}-T${state.tC}`;
-            
-            const tr = document.createElement('tr');
-            tr.dataset.id = newId;
-            tr.dataset.type = 'tapsted';
-            tr.dataset.isApartment = data.isApartment ? 'true' : 'false';
-            
-            // Genbrug addTapsted logik manuelt for at sætte værdier
-            // ... (Kopier options generering fra addTapsted eller brug ST) ...
-            let opts = ''; 
-            Object.keys(ST).forEach(k => {
-                const isApt = k.includes('Lejlighed');
-                opts += `<option value="${ST[k].qf_hot}" data-is-apartment="${isApt}">${k}</option>`;
-            });
-            Object.entries(state.customTapsteder).forEach(([k, v]) => {
-                opts += `<option value="${v.qf_hot}" data-is-apartment="${v.isApartment}">${k}</option>`;
-            });
+            newRow = document.createElement('tr');
+            newRow.dataset.id = newId;
+            newRow.dataset.type = 'tapsted';
+            newRow.dataset.isApartment = data.isApartment ? 'true' : 'false';
 
-            tr.innerHTML = `
+            // Genopbyg options (brug ST)
+            let opts = ''; 
+            // ... (Kort version: Vi bruger en generisk funktion eller henter fra en eksisterende række) ...
+            // Vi "låner" options fra en nabo for nemheds skyld, eller bygger dem
+            const existingTap = document.querySelector('.tapsted-container .tapType');
+            if (existingTap) {
+                opts = existingTap.innerHTML;
+            } else {
+                // Fallback hvis ingen tapsteder findes
+                Object.keys(ST).forEach(k => opts += `<option value="${ST[k].qf_hot}">${k}</option>`);
+            }
+
+            newRow.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent"></select></td>
                 <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)">${opts}</select></td>
                 <td><input type="number" class="form-control form-control-sm qf" min="0" value="${data.qf}" step="0.01"></td>
-                <td><input type="number" class="form-control form-control-sm kote allow-negative" value="0"></td>
-                <td class="text-center"><input type="checkbox" class="form-check-input syst"></td>
+                <td><input type="number" class="form-control form-control-sm kote allow-negative" value="${data.kote}"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input syst" ${data.isSyst ? 'checked' : ''}></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
             `;
             
-            // Sæt valgt type
-            const tapSel = tr.querySelector('.tapType');
-            let foundIdx = -1;
-            for(let i=0; i<tapSel.options.length; i++) {
-                if (tapSel.options[i].text === data.tapTypeName) { foundIdx = i; break; }
+            // Sæt type
+            const sel = newRow.querySelector('.tapType');
+            let idx = -1;
+            for(let i=0; i<sel.options.length; i++) {
+                if(sel.options[i].text === data.tapTypeName) idx = i;
             }
-            if(foundIdx !== -1) tapSel.selectedIndex = foundIdx;
+            if(idx !== -1) sel.selectedIndex = idx;
             
-            tapContainer.appendChild(tr);
+            tapContainer.appendChild(newRow);
         }
 
-        // Opdater forbindelser
-        updateAllSelects(); // Vigtigt: Opdater dropdowns så den nye ID findes
-        const pSel = document.querySelector(`tr[data-id="${newId}"] .parent`);
+        // VIGTIGT: Opdater parent straks
+        // Vi skal opdatere selects NU for at newId er kendt i systemet, så børn kan pege på det
+        updateAllSelects(); // Dette er tungt i en loop, men sikkert.
+        
+        const pSel = newRow.querySelector('.parent');
         if (pSel) pSel.value = parentId;
 
-        // Rekursion for børn
-        data.children.forEach(child => createNodesRecursive(child, newId));
+        // Indsæt børn
+        if (data.children && data.children.length > 0) {
+            data.children.forEach(child => insertRecursive(child, newId));
+        }
     };
 
-    // Start indsættelse
-    // Bemærk: Vi indsætter ikke roden selv som en kopi, men indsætter dens BØRN på target
-    // ELLER: Vi indsætter roden som et nyt rør forbundet til target?
-    // Logik: "Kopier Gren" betyder normalt "Dette rør og alt under det".
-    // Så vi skal oprette 'clipboard.root' forbundet til 'targetId'.
-    
-    createNodesRecursive(state.clipboard, targetId);
+    insertRecursive(state.clipboard, targetId);
     
     setProjektErÆndret();
     updateAllSelects();
+    updateDiagram();
 }
 
 function addRorSektion(btn, type = 'ror_vv') {
@@ -6007,7 +6017,7 @@ function handleNodeRightClick(event, d) {
             state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
             document.body.style.cursor = 'crosshair';
         }));
-        
+
         if (state.clipboard) {
              const clipType = state.clipboard.type;
              // Tjek kompatibilitet (VV til VV, KV til KV)
@@ -6096,130 +6106,80 @@ function handleNodeRightClick(event, d) {
  * Låser noderne fast til musen og snapper til GRID.
  * Bruger "Delta-Snap" for at bevare figurens form og sikre tydeligt grid-snap.
  */
-function startMoveBranch(rootId) {
-    // 1. Identificer alle noder i grenen
-    const branchNodes = [];
+function startMoveBranch(d) {
+    state.movingBranch = d;
     
-    const collectNodes = (id) => {
-        const node = state.nodes.find(n => n.id === id);
-        if (node) branchNodes.push(node);
-        
-        document.querySelectorAll('.parent').forEach(select => {
-            if (select.value === id) {
-                const childId = select.closest('tr').dataset.id;
-                collectNodes(childId);
-            }
-        });
-    };
-    
-    collectNodes(rootId);
-    if (branchNodes.length === 0) return;
-
-    // 2. Find musens start-position i diagram-koordinater
-    const svgNode = d3.select('#diagram svg').node();
-    // Hvis vi ikke har et event (kaldt fra menu), bruger vi rod-nodens position som "musens startpunkt"
-    const rootNode = state.nodes.find(n => n.id === rootId);
-    const startX = (rootNode.fx !== undefined && rootNode.fx !== null) ? rootNode.fx : rootNode.x;
-    const startY = (rootNode.fy !== undefined && rootNode.fy !== null) ? rootNode.fy : rootNode.y;
-    
-    // 3. Gem start-data (Oprindelige positioner)
-    state.movingBranch = {
-        nodes: branchNodes,
-        startMouseX: startX,
-        startMouseY: startY,
-        // Gem den oprindelige faste position for hver node
-        initialPositions: branchNodes.map(n => ({
-            id: n.id,
-            fx: (n.fx !== undefined && n.fx !== null) ? n.fx : n.x,
-            fy: (n.fy !== undefined && n.fy !== null) ? n.fy : n.y
-        }))
-    };
-
-    // Visuel feedback (Rød markering)
-    d3.selectAll('.node').filter(d => branchNodes.some(bn => bn.id === d.id))
-        .select('circle, rect')
-        .style('stroke', '#ff0000')
-        .style('stroke-width', '3px');
-
-    // 4. Tilføj event listeners til HELE SVG'en
     const svg = d3.select('#diagram svg');
+    const nodes = svg.selectAll('.node'); // Hent alle noder
     
-    svg.on('mousemove.branchMove', function(event) {
-        // Konverter musens pixel-koordinater til diagram-koordinater
-        const transform = d3.zoomTransform(this);
-        const [mx, my] = d3.pointer(event);
-        const currentX = transform.invertX(mx);
-        const currentY = transform.invertY(my);
-        
-        // Beregn bevægelsen (Delta)
-        const dx = currentX - state.movingBranch.startMouseX;
-        const dy = currentY - state.movingBranch.startMouseY;
+    // Visuel feedback: Gør den gren vi flytter gennemsigtig
+    // (Her kunne man lave en rekursiv dæmpning af børn, men vi dæmper bare roden)
+    d3.select(nodes.nodes().find(n => n.__data__.id === d.id)).style('opacity', 0.5);
 
-        // SNAP DELTA TIL GRID (Global gridSize = 10)
-        const snappedDx = Math.round(dx / gridSize) * gridSize;
-        const snappedDy = Math.round(dy / gridSize) * gridSize;
+    // Highlight gyldige targets
+    nodes.each(function(n) {
+        const el = d3.select(this);
+        let isValid = false;
         
-        // Opdater positioner
-        state.movingBranch.nodes.forEach((node, i) => {
-            const initial = state.movingBranch.initialPositions[i];
-            
-            // Ny position = Oprindelig + Snappet Flytning
-            node.fx = initial.fx + snappedDx;
-            node.fy = initial.fy + snappedDy;
-            
-            // TVING VISUEL OPDATERING STRAKS (Fjerner "elastik"-effekt)
-            node.x = node.fx;
-            node.y = node.fy;
-        });
-        
-        // Opdater diagrammet (links følger med)
-        state.sim.alpha(1).restart();
-        state.sim.tick(); // Tvinger D3 til at opdatere links med det samme
+        // Regel: Samme system
+        if (d.type === 'ror_vv' || d.type === 'tapsted') {
+            if (n.type === 'ror_vv' || n.type === 'beholder') isValid = true;
+        } else if (d.type === 'ror_kv' || d.type === 'tapsted') { // Tapsted er joker, men her antager vi
+             // Hvis vi flytter et tapsted fra KV, skal det til KV
+             // Vi skal tjekke 'd's nuværende kontekst? Nej, d.type er 'tapsted'.
+             // Simplificering: Tillad drop på begge rørtyper for tapsteder
+             if (d.type === 'tapsted') {
+                 if (n.type === 'ror_vv' || n.type === 'ror_kv' || n.type === 'beholder' || n.type === 'vandstik') isValid = true;
+             } else {
+                 // Koldt rør
+                 if (n.type === 'ror_kv' || n.type === 'vandstik') isValid = true;
+             }
+        }
+
+        // Man kan ikke flytte til sig selv eller sine børn (cirkulær ref)
+        // (Simpel tjek: id må ikke være ens)
+        if (n.id === d.id) isValid = false;
+
+        if (isValid) {
+            el.select('circle, rect').style('stroke', '#00ff00').style('stroke-width', '3px');
+        } else {
+            el.style('opacity', 0.3); // Dæmp ugyldige
+        }
     });
 
-    // Klik for at slippe
-    svg.on('click.branchMove', function() {
-        stopMoveBranch();
+    // Opsæt klik-lytter til at "slippe"
+    svg.on('click.move', (event) => {
+        // Find den node vi klikkede på
+        const target = d3.select(event.target).datum();
+        if (target && target.id !== d.id) {
+            // Udfør flytningen logisk
+            const row = document.querySelector(`tr[data-id="${d.id}"]`);
+            if (row) {
+                const pSel = row.querySelector('.parent');
+                pSel.value = target.id;
+                // Trig change event for at opdatere model
+                updateAllSelects();
+                setProjektErÆndret();
+            }
+        }
+        stopMoveBranch(); // Afslut uanset hvad
     });
     
-    // Højreklik for at annullere
-    svg.on('contextmenu.branchMove', function(event) {
-        event.preventDefault();
-        stopMoveBranch();
-    });
+    // Højreklik annullerer
+    svg.on('contextmenu.move', (e) => { e.preventDefault(); stopMoveBranch(); });
     
-    // Skift markør
-    document.body.style.cursor = 'grabbing';
+    document.body.style.cursor = 'move';
 }
 
-
-/**
- * Stopper flytningen og gemmer positionerne.
- */
 function stopMoveBranch() {
-    if (!state.movingBranch) return;
-    
-    // Fjern event listeners
-    const svg = d3.select('#diagram svg');
-    svg.on('mousemove.branchMove', null);
-    svg.on('click.branchMove', null);
-    svg.on('contextmenu.branchMove', null);
-    
-    // Fjern visuel markering
-    d3.selectAll('.node circle, .node rect')
-        .style('stroke', null)
-        .style('stroke-width', null);
-        
-    document.body.style.cursor = 'default';
-    
-    // Ryd state
     state.movingBranch = null;
+    const svg = d3.select('#diagram svg');
+    svg.on('click.move', null);
+    svg.on('contextmenu.move', null);
     
-    // Fortæl systemet at vi har ændret noget (så auto-gem virker)
-    setProjektErÆndret();
-    
-    // Genopfrisk diagrammet for at være sikker på styles
-    updateDiagramStyles();
+    // Nulstil visuelt
+    updateDiagram(); // Nemmest bare at tegne forfra
+    document.body.style.cursor = 'default';
 }
 
 /**
