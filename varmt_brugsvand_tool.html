@@ -3044,40 +3044,29 @@ function calculateQd_VV(model) {
 
 // 2. Dimensioner Fremløb (VV)
 function dimensionSupply_VV(model, config) {
+    const temp = config.T_v; // Varmt vand
+
     model.nodes.forEach(n => {
         if (n.type !== 'ror_vv' || !n.qd) return;
 
         const mat = n.material;
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
         let bestDim = sortedDims[sortedDims.length - 1]; 
-        const temp = config.T_v;
 
-        // (Samme logik som før, blot inde i denne omdøbte funktion)
-        if (config.dimPrinciple === 'min_velocity_pressure') {
-            let bestPaM = Infinity;
-            let foundDim = false;
-            for (const dim of sortedDims) {
-                const d_i = ID[mat][dim] / 1000;
-                const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
-                if (v >= config.min_v_f) {
-                    const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
-                    if (dp_m < bestPaM) { bestPaM = dp_m; bestDim = dim; foundDim = true; }
-                }
+        for (const dim of sortedDims) {
+            const d_i = ID[mat][dim] / 1000;
+            const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+            
+            // Beregn tryktab med korrekt temperatur
+            const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
+            
+            let criteriaMet = false;
+            switch (config.dimPrinciple) {
+                case 'pressure_drop': if (dp_m < config.max_dp_m) criteriaMet = true; break;
+                case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
+                case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
             }
-            if (!foundDim) bestDim = sortedDims[0];
-        } else {
-            for (const dim of sortedDims) {
-                const d_i = ID[mat][dim] / 1000;
-                const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
-                const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
-                let criteriaMet = false;
-                switch (config.dimPrinciple) {
-                    case 'pressure_drop': if (dp_m < config.max_dp_m) criteriaMet = true; break;
-                    case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
-                    case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
-                }
-                if (criteriaMet) { bestDim = dim; break; }
-            }
+            if (criteriaMet) { bestDim = dim; break; }
         }
         n.nom_dim = bestDim;
     });
@@ -3088,12 +3077,17 @@ function dimensionSupply_VV(model, config) {
 function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
     if ((startNode.type === 'ror_vv' || startNode.type === 'cirkulation_vv') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
-        const pct = config && config.fittings_pct ? config.fittings_pct : 0;
-        const temp = startNode.type === 'ror_vv' ? config.T_v : (config.T_v - config.dT/2);
+        const pct = config.fittings_pct || 0;
+        
+        // Bestem temperatur baseret på rørtype
+        const temp = (startNode.type === 'ror_vv') ? config.T_v : (config.T_v - config.dT/2);
         
         startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
-    startNode.children.forEach(c => calculatePressureDrop_VV(c, dp_prop, flow_prop, config));
+    
+    if (startNode.children) {
+        startNode.children.forEach(c => calculatePressureDrop_VV(c, dp_prop, flow_prop, config));
+    }
     return startNode;
 }
 
@@ -3278,8 +3272,10 @@ function calculateHeatLoss_VV(model, config) {
 // 6. Dimensioner Retur (VVC)
 function dimensionReturn_VV(model, config) {
     const meanTemp = config.T_v - (config.dT / 2);
+
     model.nodes.forEach(n => {
-        if (n.type !== 'cirkulation_vv') return;
+        if (n.type !== 'cirkulation_vv') return; // Husk at bruge det nye typenavn
+        
         const flow = model.circFlows.get(n.id) || 0;
         n.circ_flow = flow;
         const mat = n.material;
@@ -3288,9 +3284,12 @@ function dimensionReturn_VV(model, config) {
 
         for (const dim of sortedDims) {
             const d_i = ID[mat][dim] / 1000;
-            const area = Math.PI * (d_i / 2) ** 2;
+            const area = Math.PI * Math.pow(d_i / 2, 2);
             const v = (flow / 1000) / area;
+            
+            // Beregn tryktab med middeltemperatur
             const dp_m_pure = getDP(flow, d_i, RH[mat] / 1000, 1, 0, 0, meanTemp); 
+            
             if (v <= config.max_v_c && dp_m_pure <= config.max_dp_m) {
                 bestDim = dim;
                 break;
@@ -3308,8 +3307,12 @@ function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0, temp = 55
     const rho = getWaterDensity(temp);
     const mu = getWaterViscosity(temp);
 
-    // Beregn hastighed og Reynolds tal
-    const v = (flow_ls/1000)/(Math.PI*Math.pow(d_inner/2, 2)); 
+    // Beregn hastighed
+    // Areal = pi * r^2 = pi * (d/2)^2
+    const area = Math.PI * Math.pow(d_inner / 2, 2);
+    const v = (flow_ls / 1000) / area; 
+    
+    // Reynolds tal: Re = (rho * v * d) / mu
     const Re = (rho * v * d_inner) / mu;
     
     // Beregn lambda (friktionskoefficient)
@@ -3325,16 +3328,20 @@ function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0, temp = 55
         } 
     }
 
+    // Dynamisk tryk: q = 0.5 * rho * v^2
     const dynamic_pressure = rho * Math.pow(v, 2) / 2;
     
-    // Beregn friktionstab
+    // 1. Rent rørtab
     const pipe_friction_loss = lambda * (L / d_inner) * dynamic_pressure;
+    
+    // 2. Tillæg for fittings (Procent af rørtab)
     const pipe_friction_with_allowance = pipe_friction_loss * (1 + (fittings_pct / 100));
+    
+    // 3. Enkeltmodstande (Zeta)
     const fittings_loss = zeta * dynamic_pressure;
 
     return pipe_friction_with_allowance + fittings_loss;
 }
-
 
 // =============================================================================
 // == CIRKULATION BEREGNING (VV)
@@ -3343,25 +3350,29 @@ function getDP(flow_ls, d_inner, roughness, L, zeta, fittings_pct = 0, temp = 55
 function calculateCirculationFlows_VV(model, config) {
     if (config.dT <= 0) return model;
 
-    // Beregn faktor dynamisk baseret på middeltemperatur
+    // Beregn dynamisk faktor baseret på gennemsnitstemperatur (rho * cp)
     const meanTemp = config.T_v - (config.dT / 2);
-    const HEAT_CAPACITY_FACTOR = getHeatCapacityFactor(meanTemp) / 1000; // J/L*K
+    
+    // HEAT_CAPACITY_FACTOR = (rho * cp) / 1000  [J / (L·K)]
+    // (Divideret med 1000 fordi flow er i l/s, men densitet er kg/m3)
+    const HEAT_CAPACITY_FACTOR = getHeatCapacityFactor(meanTemp) / 1000; 
 
     const MIN_FLOW = 0.005; 
     const targetDrop = config.dT; 
     const maxIterations = 100; 
     
     console.group("🚀 DEBUG: Cirkulation Konvergens (VV)");
+    console.log(`Dynamisk Varmekapacitet ved ${meanTemp.toFixed(1)}°C: ${HEAT_CAPACITY_FACTOR.toFixed(1)} J/L·K`);
 
     // TRIN 1: Initialt gæt
-    calculateHeatLoss_VV(model, config); // KALD _VV
+    calculateHeatLoss_VV(model, config);
     model.loops.forEach(l => {
         l.path = getPath(model, l.startNodeId, l.endNodeId);
         const totalQ = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
         l.circ_flow = Math.max(MIN_FLOW, totalQ / (HEAT_CAPACITY_FACTOR * targetDrop));
     });
 
-    // TRIN 2: KONVERGENS LOOP
+    // TRIN 2: KONVERGENS LOOP (Samme struktur som før, men med opdaterede kald)
     let iteration = 0;
     let converged = false;
 
@@ -3371,25 +3382,23 @@ function calculateCirculationFlows_VV(model, config) {
         let maxTempDeviation = 0;
         let dimsChanged = false;
 
-        // A. Aggregering
-        calculateCirculationFlowsAggregation_VV(model); // KALD _VV
+        calculateCirculationFlowsAggregation_VV(model);
 
-        // B. DIMENSIONERING (Hydraulisk Tjek) - Brug dimensionReturn_VV logik (inline her for optimeringens skyld)
         if (config.isAuto) {
+            // Her indlejrer vi logikken fra dimensionReturn_VV for effektivitet i loopet
             model.nodes.forEach(n => {
                 if (n.type !== 'cirkulation_vv') return;
-                
                 const flow = model.circFlows.get(n.id) || 0;
                 const mat = n.material;
                 const currentDim = n.nom_dim;
                 const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
-                
                 let bestDim = null;
+                
                 for (const dim of sortedDims) {
                     const d_i = ID[mat][dim] / 1000;
-                    const area = Math.PI * (d_i / 2) ** 2;
+                    const area = Math.PI * Math.pow(d_i / 2, 2);
                     const v = (flow / 1000) / area;
-                    // Tjek med middeltemperatur
+                    // Brug meanTemp i getDP
                     const dp_m = getDP(flow, d_i, RH[mat] / 1000, 1, 0, config.fittings_pct, meanTemp);
                     
                     if (v <= config.max_v_c && dp_m <= config.max_dp_m) {
@@ -3408,27 +3417,26 @@ function calculateCirculationFlows_VV(model, config) {
 
             if (dimsChanged) {
                 calculateInsulation(model, config);
-                calculateHeatLoss_VV(model, config); // KALD _VV
+                calculateHeatLoss_VV(model, config);
             }
         }
 
-        // C. TEMPERATUR TJEK
+        // Temperatur Tjek
         model.loops.forEach(l => {
             let actualPathDrop = 0;
-
             l.path.forEach(nodeId => {
                 const node = model.nodes.get(nodeId);
                 if (node && (node.type === 'ror_vv' || node.type === 'cirkulation_vv')) {
                     const totalFlow = model.circFlows.get(nodeId);
                     if (totalFlow > 0.000001) {
-                        // dT = Q / (m * c)
+                        // Brug den dynamiske faktor
                         const segmentDrop = node.q_tab / (totalFlow * HEAT_CAPACITY_FACTOR);
                         actualPathDrop += segmentDrop;
                     }
                 }
             });
-
             l._debugDrop = actualPathDrop;
+
             const diff = actualPathDrop - targetDrop;
             if (Math.abs(diff) > maxTempDeviation) maxTempDeviation = Math.abs(diff);
 
@@ -3450,16 +3458,8 @@ function calculateCirculationFlows_VV(model, config) {
         }
     }
 
-    calculateCirculationFlowsAggregation_VV(model); // KALD _VV
-    
-    console.log("--- Slutresultater (VV) ---");
-    model.loops.forEach(l => {
-        l.q_tab_tot = l.path.reduce((sum, id) => sum + (model.nodes.get(id)?.q_tab || 0), 0);
-        const returTemp = config.T_v - (l._debugDrop || 0);
-        console.log(`Streng ${l.id}: Flow ${(l.circ_flow*3600).toFixed(1)} l/h | Retur: ${returTemp.toFixed(2)} °C`);
-    });
+    calculateCirculationFlowsAggregation_VV(model);
     console.groupEnd();
-    
     return model;
 }
 
@@ -4703,7 +4703,7 @@ function displayResults(model, config) {
             
             // VÆLG DEN KORREKTE TEMPERATUR TIL BEREGNINGEN
             // Fremløb = T_v, Retur = Middeltemperatur (T_v - dT/2)
-            const temp = n.type === 'ror_vv' ? config.T_v : meanTemp;
+            const temp = (n.type === 'ror_vv') ? config.T_v : (config.T_v - config.dT/2);
             const rho = getWaterDensity(temp);
 
             // 1. Beregn RENT friktionstab pr. meter (uden tillæg) - Send temp med!
