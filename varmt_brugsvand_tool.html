@@ -6074,248 +6074,167 @@ function handleNodeRightClick(event, d) {
 
     const menu = document.createElement('div');
     menu.id = 'context-menu';
-    menu.style.position = 'absolute';
-    menu.style.left = `${event.pageX}px`;
-    menu.style.top = `${event.pageY}px`;
-    menu.style.background = 'white';
-    menu.style.border = '1px solid #ccc';
-    menu.style.borderRadius = '5px';
-    menu.style.boxShadow = '2px 2px 5px rgba(0,0,0,0.2)';
-    menu.style.padding = '5px 0';
-    menu.style.zIndex = '1000';
+    menu.style = 'position:absolute; left:'+event.pageX+'px; top:'+event.pageY+'px; background:white; border:1px solid #ccc; border-radius:5px; box-shadow:2px 2px 5px rgba(0,0,0,0.2); padding:5px 0; z-index:1000;';
 
-    // Helper til at lave menupunkter
-    const createMenuItem = (text, onClick, hasSubmenu = false) => {
+    const createMenuItem = (text, onClick) => {
         const item = document.createElement('div');
         item.textContent = text;
-        item.className = 'menu-item'; 
-        if (hasSubmenu) item.classList.add('has-submenu');
-        
-        if (onClick) {
-            item.onclick = (e) => {
-                e.stopPropagation(); 
-                onClick();
-                removeContextMenu();
-            };
-        }
+        item.className = 'menu-item';
+        item.onclick = (e) => { e.stopPropagation(); onClick(); removeContextMenu(); };
         return item;
     };
 
-    const nodeType = d.type || (d.id === 'Beholder' ? 'beholder' : null);
+    const nodeType = d.type;
 
-    // --- FUNKTIONER FOR KV (KOLDT VAND) ---
+    // ============================================================
+    // 1. FUNKTIONER FOR KOLDT VAND (NYT)
+    // ============================================================
     if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
-        // 1. Tilføj KV Streng
+        // A. Tilføj ny KV-streng (Grenrør)
         menu.appendChild(createMenuItem('Tilføj ny KV-streng herfra', () => {
             addStreng_kv();
+            // Find den nyoprettede streng og sæt dens parent til den node vi klikkede på
             const newStreng = document.querySelector('#strengeContainerKV .streng-card:last-child');
             if (newStreng) {
                 const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_kv"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+                if (firstPipe) { 
+                    firstPipe.querySelector('.parent').value = d.id; 
+                    updateAllSelects(); 
+                }
             }
         }));
 
-        // 2. Tilføj Rør/Tapsted direkte (hvis det er et rør)
+        // B. Byg videre på eksisterende rør
         if (nodeType === 'ror_kv') {
              menu.appendChild(document.createElement('hr'));
+             
+             // Tilføj KV-rør i forlængelse
              menu.appendChild(createMenuItem('Tilføj KV-rør her', () => {
                 const parentId = d.id;
-                const strengCard = document.querySelector(`tr[data-id="${parentId}"]`).closest('.streng-card');
+                // Find hvilket kort røret hører til
+                const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+                const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+                
                 if (strengCard) {
                     addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv');
+                    const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
+                    if (newPipe) { 
+                        newPipe.querySelector('.parent').value = parentId; 
+                        updateAllSelects(); 
+                    }
+                }
+            }));
+            
+            // Tilføj Tapsted på KV
+            menu.appendChild(createMenuItem('Tilføj Tapsted her', () => {
+                 const parentId = d.id;
+                 const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+                 const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+                 
+                 if (strengCard) {
+                     addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
+                     const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
+                     if (newTap) { 
+                         newTap.querySelector('.parent').value = parentId; 
+                         updateAllSelects(); 
+                     }
+                 }
+            }));
+        }
+    }
+
+    // ============================================================
+    // 2. FUNKTIONER FOR VARMT VAND (EKSISTERENDE)
+    // ============================================================
+    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
+            addStreng_vv();
+            const newStreng = document.querySelector('#strengeContainer .streng-card:last-child');
+            if (newStreng) {
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
+        }));
+        
+        if (nodeType === 'ror_vv') {
+             menu.appendChild(document.createElement('hr'));
+             menu.appendChild(createMenuItem('Tilføj VV-rør her', () => {
+                const parentId = d.id;
+                const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+                const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+
+                if (strengCard) {
+                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_vv');
                     const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
                     if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
                 }
             }));
             menu.appendChild(createMenuItem('Tilføj Tapsted her', () => {
-                 // Samme logik som rør...
                  const parentId = d.id;
-                 const strengCard = document.querySelector(`tr[data-id="${parentId}"]`).closest('.streng-card');
+                 const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+                 const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+
                  if (strengCard) {
                      addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
                      const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
                      if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
                  }
             }));
-        }
-    }
-
-    // --- 1. FORBINDELSER & FLYTNING (Fælles) ---
-    if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv' || nodeType === 'valve') {
-        menu.appendChild(createMenuItem('Forbind til...', () => {
-            state.connectingNodeInfo = { nodeData: d, type: 'parent' };
-            document.body.style.cursor = 'crosshair';
-        }));
-    }
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('Forbind til cirkulation VV...', () => {
-            state.connectingNodeInfo = { nodeData: d, type: 'return' };
-            document.body.style.cursor = 'crosshair';
-        }));
-    }
-    
-    // Flyt gren (Fælles for rør/retur/ventil, men ikke beholder)
-    if (nodeType !== 'beholder' && nodeType !== 'tapsted') {
-        menu.appendChild(createMenuItem('Flyt gren herfra', () => {
-            // Timeout for at lade menuen lukke før drag starter
-            setTimeout(() => startMoveBranch(d.id), 50);
-        }));
-    }
-    
-    if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
-
-
-    // --- 2. AVANCEREDE FUNKTIONER (Opdel & Kopier) ---
-    
-    // Opdel Rør (Gælder både fremløb og retur)
-    if (nodeType === 'ror_vv' || nodeType === 'cirkulation_vv') {
-        menu.appendChild(createMenuItem('Opdel rør...', () => {
-            const segments = prompt("Antal segmenter rørstykket skal opdeles i:", "2");
-            if (segments) {
-                const count = parseInt(segments, 10);
-                if (!isNaN(count) && count > 1) splitPipe(d.id, count);
-            }
-        }));
-        
-        // Kopier gren (Gælder nu både fremløb og retur)
-        menu.appendChild(createMenuItem('Kopier gren herfra', () => {
-            copyBranch(d.id);
-        }));
-    }
-
-    // --- 3. INDSÆT (Paste) LOGIK ---
-    if (state.clipboard) {
-        const clipType = state.clipboard.type;
-        const isSupplyClip = ['ror_vv', 'tapsted'].includes(clipType);
-        const isReturnClip = ['cirkulation_vv', 'valve'].includes(clipType);
-
-        // SCENARIE A: Indsæt på Fremløbsrør (Submenu: I denne / Ny streng)
-        if (nodeType === 'ror_vv' && isSupplyClip) {
-            const pasteItem = createMenuItem('Indsæt...', null, true);
             
-            const submenu = document.createElement('div');
-            submenu.className = 'context-submenu';
-            
-            const subItem1 = document.createElement('div');
-            subItem1.className = 'menu-item';
-            subItem1.textContent = 'I denne VV-streng';
-            subItem1.onclick = () => { pasteBranch(d.id, 'current'); removeContextMenu(); };
-            submenu.appendChild(subItem1);
-            
-            const subItem2 = document.createElement('div');
-            subItem2.className = 'menu-item';
-            subItem2.textContent = 'Som ny VV-streng';
-            subItem2.onclick = () => { pasteBranch(d.id, 'new'); removeContextMenu(); };
-            submenu.appendChild(subItem2);
-            
-            pasteItem.appendChild(submenu);
-            menu.appendChild(pasteItem);
-        }
-        
-        // SCENARIE B: Indsæt på Retur/Ventil (Direkte: I denne streng)
-        else if ((nodeType === 'cirkulation_vv' || nodeType === 'valve') && isReturnClip) {
-             menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
-                pasteBranch(d.id, 'current');
+            // Kobling til Retur
+            menu.appendChild(createMenuItem('Forbind til retur...', () => {
+                state.connectingNodeInfo = { nodeData: d, type: 'return' };
+                document.body.style.cursor = 'crosshair';
             }));
         }
+    }
+
+    // ============================================================
+    // 3. CIRKULATION & VENTILER
+    // ============================================================
+    if (nodeType === 'cirkulation_vv' || nodeType === 'valve' || nodeType === 'beholder') {
+        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
         
-        // SCENARIE C: Indsæt på Beholder
-        else if (nodeType === 'beholder') {
-            if (isSupplyClip) {
-                 // Fremløb på Beholder -> Altid ny streng
-                 menu.appendChild(createMenuItem('Indsæt som ny VV-streng', () => {
-                    pasteBranch(d.id, 'new'); 
-                }));
-            } else if (isReturnClip) {
-                 // Retur på Beholder -> Forbindes direkte
-                 menu.appendChild(createMenuItem('Indsæt kopieret gren', () => {
-                    pasteBranch(d.id, 'current');
-                }));
-            }
-        }
-    }
-    
-    if (menu.hasChildNodes() && menu.lastChild.tagName !== 'HR') {
-         menu.appendChild(document.createElement('hr')).style.margin = '5px 0';
-    }
-
-    // --- 4. TILFØJ KOMPONENTER MANUELT ---
-    
-    // Fremløb
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('Tilføj VV rør her', () => {
-            const parentId = d.id; 
-            const strengId = parentId.split('-')[0];
-            const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
-            if (strengCard) {
-                const addRorButton = strengCard.querySelector('button[aria-label="Tilføj rør"]');
-                if (addRorButton) {
-                    addRorSektion(addRorButton);
-                    const newPipe = strengCard.querySelector('.ror-container > tr[data-type="ror_vv"]:last-child');
-                    if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
-                }
-            }
-        }));
-        menu.appendChild(createMenuItem('Tilføj tapsted her', () => {
-            const parentId = d.id; 
-            const strengId = parentId.split('-')[0];
-            const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
-            if (strengCard) {
-                const addTapstedButton = strengCard.querySelector('button[aria-label="Tilføj tapsted"]');
-                if (addTapstedButton) {
-                    addTapsted(addTapstedButton);
-                    const newTap = strengCard.querySelector('.tapsted-container > tr[data-type="tapsted"]:last-child');
-                    if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
-                }
-            }
-        }));
-    }
-
-    // Ny Streng (Fra Beholder eller Rør)
-    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
-            addStreng_vv();
-            const newStreng = document.querySelector('.streng-card:last-child');
-            if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
-            }
-        }));
-    }
-
-    // Retur komponenter
-    if (nodeType === 'beholder' || nodeType === 'cirkulation_vv' || nodeType === 'valve') {
-        menu.appendChild(createMenuItem('Tilføj Cirkulationsrør her', () => {
+        menu.appendChild(createMenuItem('Tilføj Cirkulations-rør her', () => {
             addCirkulationRor();
             const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
             if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
         }));
+        
         menu.appendChild(createMenuItem('Tilføj Cirkulationsventil her', () => {
             addValve();
             const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
             if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
         }));
     }
-
-    // --- 5. SLET (Alle undtagen Beholder) ---
+    
+    // ============================================================
+    // 4. SLET (FÆLLES)
+    // ============================================================
     if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
         menu.appendChild(document.createElement('hr'));
         menu.appendChild(createMenuItem('Slet Komponent', () => {
+             // Vi finder elementet i DOM'en
              const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
+             
              if (element) {
-                 const delBtn = element.querySelector('button[aria-label*="Fjern"]');
-                 if (delBtn) delBtn.click();
+                 // Vi prøver at bruge den eksisterende "Fjern" knap for at få oprydning med
+                 const delBtn = element.querySelector('button[aria-label*="Fjern"], button.btn-outline-danger');
+                 if (delBtn) {
+                     delBtn.click();
+                 } else {
+                     // Fallback hvis knappen ikke findes
+                     element.remove();
+                     if (state.names.has(d.id)) state.names.delete(d.id);
+                     updateAllSelects();
+                 }
              }
         }));
     }
-    
-    if (menu.hasChildNodes()) {
-        document.body.appendChild(menu);
-        setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
-    }
+
+    document.body.appendChild(menu);
+    setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
-
-
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
