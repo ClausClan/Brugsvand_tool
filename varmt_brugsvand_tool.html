@@ -1855,7 +1855,7 @@ function addRorSektion(btn, type = 'ror_vv') {
     tr.innerHTML = `
         <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
         <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-        <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+        <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
         <td><select class="form-select form-select-sm location" title="Placering"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
         <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Isol."></td>
         <td><input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
@@ -1868,17 +1868,23 @@ function addRorSektion(btn, type = 'ror_vv') {
     const materialSelect = tr.querySelector('.material');
     materialSelect.onchange = handleMaterialChange;
     
+    // Tilføj først til DOM, så vi kan finde naboer
     container.appendChild(tr);
     
-    // --- RETTELSE HER ---
+    // Sæt parent intelligent
     const pSel = tr.querySelector('.parent');
-    const rorInStreng = container.querySelectorAll(`[data-type="${type}"]`);
     
+    // Find alle rør AF SAMME TYPE i DENNE CONTAINER
+    // Vi bruger :scope eller filtrerer manuelt for at være sikker på context
+    const rorInStreng = Array.from(container.children).filter(child => child.dataset.type === type);
+    
+    // rorInStreng indeholder nu også det nye rør (som er det sidste).
+    // Så hvis længden er > 1, betyder det, at der var et rør før dette.
     if (rorInStreng.length > 1) {
-        // Forbind til forrige rør i strengen
+        // Vælg det næstsidste rør (det der var sidst før vi tilføjede det nye)
         pSel.value = rorInStreng[rorInStreng.length - 2].dataset.id;
     } else {
-        // Første rør: Vælg korrekt rod-komponent baseret på type
+        // Første rør i strengen
         pSel.value = (type === 'ror_kv') ? 'Vandstik' : 'Beholder';
     }
     
@@ -4950,77 +4956,64 @@ function updateLabels(model) {
 }
 
 function applyColorGradient(mode) {
+    if (!state.lastModel) return;
     const model = state.lastModel;
     let values = [];
     
+    // 1. Saml værdier til skalaen (Inkluder alle rørtyper)
     model.nodes.forEach(n => {
-        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.L > 0 && n.nom_dim) {
+        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') && n.L > 0 && n.nom_dim) {
             let value;
             
-            if (mode === 'temp') {
-                // Hent temperatur. Hvis den ikke findes, brug T_v (fejlsikring)
-                // Vi bruger gennemsnittet af indløb og udløb for at farve røret
+            if (mode === 'velocity') {
+                const flow = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
+                const d_i = ID[n.material][n.nom_dim] / 1000;
+                value = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+            } else if (mode === 'pressure_drop') {
+                const dp = (n.type === 'cirkulation_vv') ? (n.dp_circ || 0) : (n.dp_tap || 0);
+                // Visning: Total tryktab pr meter
+                value = dp / n.L;
+            } else if (mode === 'heat_loss') {
+                value = (n.q_tab || 0) / n.L;
+            } else if (mode === 'temp') {
+                // Brug nodeTemps map (beregnet i finishCalculation)
                 const t_in = model.nodeTemps ? (model.nodeTemps.get(n.id) || 0) : 0;
-                // Estimer t_out til visualisering
-                let t_out = t_in;
-                // Genberegn lille dt for at få præcis farve
-                if (mode === 'temp') {
-                     const flow = model.circFlows.get(n.id) || 0;
-                     if (flow > 0.0001) {
-                         const dt = (n.q_tab || 0) / (flow * 4121);
-                         t_out = t_in - dt;
-                     }
-                }
-                value = (t_in + t_out) / 2;
-                
-                // Skaf værdier til legende
-                if (value > 0) values.push(value);
+                // Visning: Gennemsnit af segmentet (simpelt) eller bare input temp
+                value = t_in;
+            }
+            
+            if (isFinite(value)) {
+                values.push(value);
                 n._visValue = value;
-
-            } else {
-                // ... (Eksisterende logik for velocity, pressure_drop, heat_loss) ...
-                if (mode === 'velocity') {
-                    // ... (din eksisterende kode)
-                    const flow = n.type === 'ror_vv' ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
-                    const d_i = ID[n.material][n.nom_dim];
-                    value = (flow / 1000) / (Math.PI * (d_i / 2000) ** 2);
-                } else if (mode === 'pressure_drop') {
-                    const dp = n.type === 'ror_vv' ? (n.dp_tap || 0) : (n.dp_circ || 0);
-                    value = dp / n.L;
-                } else if (mode === 'heat_loss') {
-                    value = (n.q_tab || 0) / n.L;
-                }
-                n._visValue = value;
-                if (isFinite(value)) values.push(value);
             }
         }
     });
 
     if (values.length === 0) return;
     
+    // 2. Opsæt Farveskala
     let colorScale;
-    
     if (mode === 'temp') {
-        // Speciel farveskala for temperatur: Rød (Varm) -> Blå (Kold)
-        // Vi sætter domænet fra T_v ned til T_v - dT - buffer
-        // F.eks. 55 -> 48 grader.
         const maxTemp = d3.max(values) || 55;
-        const minTemp = d3.min(values) || 45;
-        
-        // Turbo er god, men måske omvendt (Rød høj, Blå lav)
+        const minTemp = d3.min(values) || 10;
+        // Turbo skala: Blå -> Grøn -> Gul -> Rød
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain([minTemp, maxTemp]); 
     } else {
+        // Standard (Turbo)
         const domain = d3.extent(values);
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
     }
     
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
+    // 3. Påfør farver på ALLE rørtyper
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv")
       .style('stroke', d => {
           const node = model.nodes.get(d.target.id);
-          return node && isFinite(node._visValue) ? colorScale(node._visValue) : '#ccc';
-      });
+          return (node && isFinite(node._visValue)) ? colorScale(node._visValue) : '#ccc';
+      })
+      .style('opacity', 1); // Reset opacity
 }
+
 
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
@@ -6022,64 +6015,65 @@ function clearHighlight() {
  * @param {object} d - Data-objektet for den klikkede node.
  */
 function handleNodeClick(event, d) {
-    // Tjek om vi er i "forbindelsestilstand"
-    if (state.connectingNodeInfo) {
-        event.preventDefault();
-        event.stopPropagation();
+    // 1. Hvis vi er i gang med at forbinde retur (VV)
+    if (state.connectingNodeInfo && state.connectingNodeInfo.mode === 'connect_return') {
+        const sourceId = state.connectingNodeInfo.nodeData.id;
+        const targetId = d.id;
 
-        const sourceInfo = state.connectingNodeInfo;
-        const targetNodeData = d;
-        const sourceElement = document.querySelector(`tr[data-id="${sourceInfo.nodeData.id}"], div[data-id="${sourceInfo.nodeData.id}"]`);
+        // Validering: Må kun forbinde til cirkulation/retur
+        if (d.type !== 'cirkulation_vv' && d.type !== 'beholder' && d.type !== 'valve') {
+            alert('Du kan kun forbinde til et returrør, en ventil eller beholderen.');
+            return;
+        }
 
-        if (sourceInfo.type === 'parent' && sourceElement) {
-            const isSourceReturn = ['cirkulation_vv', 'valve'].includes(sourceInfo.nodeData.type);
-            const isTargetReturn = ['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type);
-            const isTargetSupply = ['ror_vv', 'beholder'].includes(targetNodeData.type);
-
-            // En forbindelse er gyldig hvis:
-            // 1. Kilden er en retur-del OG målet er en retur-del.
-            // 2. Kilden er en fremløbs-del OG målet er en fremløbs-del.
-            // 3. Målet ikke er et tapsted (man kan ikke forbinde TIL et tapsted).
-            // 4. Man ikke forbinder til sig selv.
-            const isValidConnection = (isSourceReturn && isTargetReturn) || (!isSourceReturn && isTargetSupply);
-            
-            if (isValidConnection && sourceInfo.nodeData.id !== targetNodeData.id && targetNodeData.type !== 'tapsted') {
-                sourceElement.querySelector('.parent').value = targetNodeData.id;
-            } else {
-                console.warn("Ugyldig forbindelse forsøgt.");
+        // Find strengen som sourceId tilhører
+        const row = document.querySelector(`tr[data-id="${sourceId}"]`);
+        const card = row ? row.closest('.streng-card') : null;
+        
+        if (card) {
+            const startSelect = card.querySelector('.circ-start');
+            const endSelect = card.querySelector('.circ-end');
+            if (startSelect && endSelect) {
+                startSelect.value = sourceId;
+                endSelect.value = targetId;
+                updateDiagram();
             }
         }
         
-        if (sourceInfo.type === 'return') {
-            // Denne logik håndterer "Forbind til retur..."
-            if (['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type)) {
-                const strengId = sourceInfo.nodeData.id.split('-')[0];
-                const strengCard = document.querySelector(`.streng-card[data-id="${strengId}"]`);
-                if (strengCard) {
-                    strengCard.querySelector('.circ-start').value = sourceInfo.nodeData.id;
-                    strengCard.querySelector('.circ-end').value = targetNodeData.id;
-                }
-            }
-        }
-        
-        // Nulstil og opdater
+        // Nulstil
         state.connectingNodeInfo = null;
         document.body.style.cursor = 'default';
-        updateAllSelects();
         return;
     }
 
-    // --- Normal "Klik for at redigere" logik ---
-    const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
-    if (!element) return;
+    // 2. NYT: Hvis vi er i gang med at tilslutte Koldt Vand til Beholder
+    if (state.connectingNodeInfo && state.connectingNodeInfo.mode === 'connect_cold_feed') {
+        // Vi skal klikke på et koldt rør eller vandstikket
+        if (d.type !== 'ror_kv' && d.type !== 'vandstik') {
+            alert('Beholderen skal tilsluttes et koldtvandsrør eller vandstikket.');
+            return;
+        }
 
-    document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
-    element.classList.add('highlighted-row');
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        state.beholderConnectionId = d.id;
+        console.log(`Beholder tilsluttet: ${d.id}`);
+        
+        // Nulstil
+        state.connectingNodeInfo = null;
+        document.body.style.cursor = 'default';
+        
+        // Gem og opdater
+        setProjektErÆndret();
+        updateDiagram(); // Tegner den nye cyan linje
+        return;
+    }
 
-    setTimeout(() => {
-        element.classList.remove('highlighted-row');
-    }, 2500);
+    // 3. Normal klik-adfærd (Highlight i tabel)
+    const row = document.querySelector(`tr[data-id="${d.id}"]`);
+    if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('highlighted-row');
+        setTimeout(() => row.classList.remove('highlighted-row'), 2000);
+    }
 }
 
 /**
@@ -6108,77 +6102,9 @@ function handleNodeRightClick(event, d) {
     const nodeType = d.type;
 
     // ============================================================
-    // 1. FUNKTIONER FOR KOLDT VAND (NYT)
+    // 1. BEHOLDER (VV) - NY LOGIK FOR KOLDT VAND
     // ============================================================
-    if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
-        // A. Tilføj ny KV-streng (Grenrør)
-        menu.appendChild(createMenuItem('Tilføj ny KV-streng herfra', () => {
-            addStreng_kv();
-            // Find den nyoprettede streng og sæt dens parent til den node vi klikkede på
-            const newStreng = document.querySelector('#strengeContainerKV .streng-card:last-child');
-            if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_kv"]');
-                if (firstPipe) { 
-                    firstPipe.querySelector('.parent').value = d.id; 
-                    updateAllSelects(); 
-                }
-            }
-        }));
-
-        // B. Byg videre på eksisterende rør
-        if (nodeType === 'ror_kv') {
-             menu.appendChild(document.createElement('hr'));
-             
-             // Tilføj KV-rør i forlængelse
-             menu.appendChild(createMenuItem('Tilføj KV-rør her', () => {
-                const parentId = d.id;
-                // Find hvilket kort røret hører til
-                const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-                const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-                
-                if (strengCard) {
-                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv');
-                    const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
-                    if (newPipe) { 
-                        newPipe.querySelector('.parent').value = parentId; 
-                        updateAllSelects(); 
-                    }
-                }
-            }));
-            
-            // Tilføj Tapsted på KV
-            menu.appendChild(createMenuItem('Tilføj Tapsted her', () => {
-                 const parentId = d.id;
-                 const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-                 const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-                 
-                 if (strengCard) {
-                     addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
-                     const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
-                     if (newTap) { 
-                         newTap.querySelector('.parent').value = parentId; 
-                         updateAllSelects(); 
-                     }
-                 }
-            }));
-
-            // --- FUNKTION: FORBIND TIL BEHOLDER ---
-            menu.appendChild(document.createElement('hr'));
-            menu.appendChild(createMenuItem('➡️ Tilslut VV-Beholder her', () => {
-                // Vi gemmer forbindelsen i state
-                state.beholderConnectionId = d.id;
-                updateDiagram(); // Opdater visuelt
-                setProjektErÆndret();
-                console.log(`Beholder er nu tilsluttet koldt vand ved: ${d.id}`);
-            }));
-
-        }
-    }
-
-    // ============================================================
-    // 2. FUNKTIONER FOR VARMT VAND (EKSISTERENDE)
-    // ============================================================
-    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
+    if (nodeType === 'beholder') {
         menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
             addStreng_vv();
             const newStreng = document.querySelector('#strengeContainer .streng-card:last-child');
@@ -6188,15 +6114,39 @@ function handleNodeRightClick(event, d) {
             }
         }));
         
-        if (nodeType === 'ror_vv') {
+        // NYT: Tilslut Koldt Vand (Starter herfra)
+        menu.appendChild(document.createElement('hr'));
+        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
+            // Sæt programmet i "vælg mode"
+            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
+            document.body.style.cursor = 'crosshair';
+            
+            // Vis en lille besked (toast) eller log
+            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
+        }));
+    }
+
+    // ============================================================
+    // 2. KOLDT VAND (KV)
+    // ============================================================
+    if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
+        menu.appendChild(createMenuItem('Tilføj ny KV-streng herfra', () => {
+            addStreng_kv();
+            const newStreng = document.querySelector('#strengeContainerKV .streng-card:last-child');
+            if (newStreng) {
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_kv"]');
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
+        }));
+
+        if (nodeType === 'ror_kv') {
              menu.appendChild(document.createElement('hr'));
-             menu.appendChild(createMenuItem('Tilføj VV-rør her', () => {
+             menu.appendChild(createMenuItem('Tilføj KV-rør her', () => {
                 const parentId = d.id;
                 const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
                 const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-
                 if (strengCard) {
-                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_vv');
+                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv');
                     const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
                     if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
                 }
@@ -6205,26 +6155,62 @@ function handleNodeRightClick(event, d) {
                  const parentId = d.id;
                  const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
                  const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-
                  if (strengCard) {
                      addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
                      const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
                      if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
                  }
             }));
-            
-            // Kobling til Retur
-            menu.appendChild(createMenuItem('Forbind til retur...', () => {
-                state.connectingNodeInfo = { nodeData: d, type: 'return' };
-                document.body.style.cursor = 'crosshair';
-            }));
         }
     }
 
     // ============================================================
-    // 3. CIRKULATION & VENTILER
+    // 3. VARMT VAND (VV)
+    // ============================================================
+    if (nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
+            addStreng_vv();
+            const newStreng = document.querySelector('#strengeContainer .streng-card:last-child');
+            if (newStreng) {
+                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
+                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
+        }));
+        
+        menu.appendChild(document.createElement('hr'));
+        menu.appendChild(createMenuItem('Tilføj VV-rør her', () => {
+            const parentId = d.id;
+            const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+            const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+            if (strengCard) {
+                addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_vv');
+                const newPipe = strengCard.querySelector('.ror-container > tr:last-child');
+                if (newPipe) { newPipe.querySelector('.parent').value = parentId; updateAllSelects(); }
+            }
+        }));
+        menu.appendChild(createMenuItem('Tilføj Tapsted her', () => {
+             const parentId = d.id;
+             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+             if (strengCard) {
+                 addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
+                 const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
+                 if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
+             }
+        }));
+        menu.appendChild(createMenuItem('Forbind til retur...', () => {
+            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
+            document.body.style.cursor = 'crosshair';
+        }));
+    }
+
+    // ============================================================
+    // 4. CIRKULATION & VENTILER
     // ============================================================
     if (nodeType === 'cirkulation_vv' || nodeType === 'valve' || nodeType === 'beholder') {
+        // Kun vis "Tilføj rør" hvis det ikke er beholderen selv i denne kontekst (for at undgå dobbeltmenu)
+        // Men beholder er også startpunkt for retur.
+        
         if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
         
         menu.appendChild(createMenuItem('Tilføj Cirkulations-rør her', () => {
@@ -6234,18 +6220,41 @@ function handleNodeRightClick(event, d) {
         }));
         
         menu.appendChild(createMenuItem('Tilføj Cirkulationsventil her', () => {
-            addValve();
-            const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
-            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+            if (typeof addValve === 'function') {
+                addValve();
+                const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
+                if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
         }));
     }
     
     // ============================================================
-    // 4. SLET (FÆLLES)
+    // 5. REDIGERINGSVÆRKTØJER (FLYTTET TILBAGE!)
     // ============================================================
+    if (['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType)) {
+        menu.appendChild(document.createElement('hr'));
+        menu.appendChild(createMenuItem('✂️ Opdel rør (Indsæt node)', () => {
+            if (typeof splitPipe === 'function') splitPipe(d.id);
+        }));
+    }
+
+    // Flytning af grene er kun relevant for rør, der er en "start" på en gren
+    // Vi tjekker om det er en streng-start (det er lidt komplekst at tjekke her, så vi viser det for alle rør)
+    if (['ror_vv', 'ror_kv'].includes(nodeType)) {
+        menu.appendChild(createMenuItem('flyt gren (Klip)', () => {
+            if (typeof startMoveBranch === 'function') startMoveBranch(d);
+        }));
+        
+        // Kopiering (hvis implementeret)
+        menu.appendChild(createMenuItem('Kopier gren', () => {
+            if (typeof copyBranch === 'function') copyBranch(d);
+        }));
+    }
+
+    // SLET
     if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
         menu.appendChild(document.createElement('hr'));
-        menu.appendChild(createMenuItem('Slet Komponent', () => {
+        menu.appendChild(createMenuItem('❌ Slet Komponent', () => {
              const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
              if (element) {
                  const delBtn = element.querySelector('button[aria-label*="Fjern"], button.btn-outline-danger');
@@ -6255,7 +6264,6 @@ function handleNodeRightClick(event, d) {
                      if (state.names.has(d.id)) state.names.delete(d.id);
                      updateAllSelects();
                  }
-                 // Hvis vi sletter beholderens forbindelse, nulstil den
                  if (state.beholderConnectionId === d.id) state.beholderConnectionId = null;
              }
         }));
@@ -6264,6 +6272,7 @@ function handleNodeRightClick(event, d) {
     document.body.appendChild(menu);
     setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
+
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
