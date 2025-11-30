@@ -5957,6 +5957,7 @@ function handleNodeClick(event, d) {
         // Nulstil
         state.connectingNodeInfo = null;
         document.body.style.cursor = 'default';
+        updateAllSelects(); 
         return;
     }
 
@@ -5978,6 +5979,7 @@ function handleNodeClick(event, d) {
         // Gem og opdater
         setProjektErÆndret();
         updateDiagram(); // Tegner den nye cyan linje
+        updateAllSelects(); 
         return;
     }
 
