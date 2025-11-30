@@ -1295,16 +1295,34 @@ function handleMaterialChange(e) {
     updateDimOptions(e.target);
 }
 	
+/*function addStreng_vv() {
+*    state.sC++;
+*    const id = `S${state.sC}`;
+*    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+*    const card = clone.querySelector('.card');
+*    card.dataset.id = id;
+*    card.querySelector('.id-text').textContent = `VV-Streng ${id}`; 
+*    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+*    
+*    document.getElementById('strengeContainerVV').appendChild(clone);
+*    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv');
+}
+*/
+
 function addStreng_vv() {
-    state.sC++;
-    const id = `S${state.sC}`;
-    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+    if (!state.sC_vv) state.sC_vv = 0;
+    state.sC_vv++;
+    
+    const id = `K${state.sC_vv}`;
+    const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
     const card = clone.querySelector('.card');
     card.dataset.id = id;
-    card.querySelector('.id-text').textContent = `VV-Streng ${id}`; 
+    card.querySelector('.id-text').textContent = `VV-Streng ${id}`;
     card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
     document.getElementById('strengeContainerVV').appendChild(clone);
+    
+    // Tilføj standardstart: Et rør (VV)
     addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv');
 }
 
