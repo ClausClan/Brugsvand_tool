@@ -1295,38 +1295,23 @@ function handleMaterialChange(e) {
     updateDimOptions(e.target);
 }
 	
-/*function addStreng_vv() {
-*    state.sC++;
-*    const id = `S${state.sC}`;
-*    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
-*    const card = clone.querySelector('.card');
-*    card.dataset.id = id;
-*    card.querySelector('.id-text').textContent = `VV-Streng ${id}`; 
-*    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-*    
-*    document.getElementById('strengeContainerVV').appendChild(clone);
-*    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv');
-}
-*/
-
-function addStreng_vv() {
-    if (!state.sC_vv) state.sC_vv = 0;
-    state.sC_vv++;
-    
-    const id = `K${state.sC_vv}`;
+function addStreng_vv(startParentId = null) {
+    state.sC++;
+    const id = `S${state.sC}`;
     const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
     const card = clone.querySelector('.card');
     card.dataset.id = id;
     card.querySelector('.id-text').textContent = `VV-Streng ${id}`;
     card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
-    document.getElementById('strengeContainerVV').appendChild(clone);
+    document.getElementById('strengeContainer').appendChild(clone);
     
-    // Tilføj standardstart: Et rør (VV)
-    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv');
+    // Her sender vi startParentId med ned til røret
+    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv', startParentId);
 }
 
-function addStreng_kv() {
+
+function addStreng_kv(startParentId = null) {
     if (!state.sC_kv) state.sC_kv = 0;
     state.sC_kv++;
     
@@ -1339,8 +1324,8 @@ function addStreng_kv() {
     
     document.getElementById('strengeContainerKV').appendChild(clone);
     
-    // Tilføj standardstart: Et rør (KV)
-    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_kv');
+    // Her sender vi startParentId med ned til røret
+    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_kv', startParentId);
 }
 
 function addCirkulationRor() {
@@ -1772,7 +1757,7 @@ function pasteBranch(targetParentId, mode = 'current') {
 }
 
 
-function addRorSektion(btn, type = 'ror_vv') {
+function addRorSektion(btn, type = 'ror_vv', forceParentId = null) {
     state.tC++;
     const sId = btn.closest('.card').dataset.id;
     const id = `${sId}-R${state.tC}`;
@@ -1781,46 +1766,49 @@ function addRorSektion(btn, type = 'ror_vv') {
     const tr = document.createElement('tr');
     tr.dataset.id = id;
     tr.dataset.type = type; 
-    
     const datalistId = `list-${id}`; 
     
     tr.innerHTML = `
         <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
         <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-        <td><select class="form-select form-select-sm material" title="Materiale"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
-        <td><select class="form-select form-select-sm location" title="Placering"><option value="heated" selected>Opvarmet rum</option><option value="unheated">Uopvarmet rum</option><option value="outside">Udendørs</option></select></td>
-        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions" title="Isol."></td>
-        <td><input type="text" class="form-control form-control-sm dim-input dim" value="20" title="Dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-        <td><input type="number" min="0" class="form-control form-control-sm len" value="10" title="Længde"></td>
-        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0" title="Zeta"></td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+        <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+        <td><select class="form-select form-select-sm location"><option value="heated" selected>Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
+        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions"></td>
+        <td><input type="text" class="form-control form-control-sm dim-input dim" value="20" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+        <td><input type="number" min="0" class="form-control form-control-sm len" value="10"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
     `;
     
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-    const materialSelect = tr.querySelector('.material');
-    materialSelect.onchange = handleMaterialChange;
+    const matSelect = tr.querySelector('.material');
+    matSelect.onchange = handleMaterialChange;
     
-    // Tilføj først til DOM, så vi kan finde naboer
     container.appendChild(tr);
     
-    // Sæt parent intelligent
+    // --- FORBEDRET PARENT LOGIK ---
     const pSel = tr.querySelector('.parent');
     
-    // Find alle rør AF SAMME TYPE i DENNE CONTAINER
-    // Vi bruger :scope eller filtrerer manuelt for at være sikker på context
-    const rorInStreng = Array.from(container.children).filter(child => child.dataset.type === type);
-    
-    // rorInStreng indeholder nu også det nye rør (som er det sidste).
-    // Så hvis længden er > 1, betyder det, at der var et rør før dette.
-    if (rorInStreng.length > 1) {
-        // Vælg det næstsidste rør (det der var sidst før vi tilføjede det nye)
-        pSel.value = rorInStreng[rorInStreng.length - 2].dataset.id;
+    // Vi opdaterer først listerne, så den ønskede parent findes som option
+    updateAllSelects();
+
+    if (forceParentId) {
+        // Hvis vi har fået en specifik ordre (fra højreklik), brug den!
+        pSel.value = forceParentId;
     } else {
-        // Første rør i strengen
-        pSel.value = (type === 'ror_kv') ? 'Vandstik' : 'Beholder';
+        // Ellers brug standard logik (kædning eller root)
+        const rorInStreng = container.querySelectorAll(`[data-type="${type}"]`);
+        if (rorInStreng.length > 1) {
+            // Forbind til forrige rør i strengen
+            pSel.value = rorInStreng[rorInStreng.length - 2].dataset.id;
+        } else {
+            // Første rør: Standard rod
+            pSel.value = (type === 'ror_kv') ? 'Vandstik' : 'Beholder';
+        }
     }
     
     updateDimOptions(materialSelect);
+    // Kør en sidste update for at sikre, at diagrammet fanger den nye forbindelse
     updateAllSelects();
 }
 
@@ -6040,12 +6028,7 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     if (nodeType === 'beholder') {
         menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
-            addStreng_vv();
-            const newStreng = document.querySelector('#strengeContainer .streng-card:last-child');
-            if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
-            }
+            addStreng_vv(d.id);
         }));
         
         // NYT: Tilslut Koldt Vand (Starter herfra)
@@ -6065,12 +6048,7 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
         menu.appendChild(createMenuItem('Tilføj ny KV-streng herfra', () => {
-            addStreng_kv();
-            const newStreng = document.querySelector('#strengeContainerKV .streng-card:last-child');
-            if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_kv"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
-            }
+            addStreng_kv(d.id);
         }));
 
         if (nodeType === 'ror_kv') {
@@ -6115,12 +6093,7 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     if (nodeType === 'ror_vv') {
         menu.appendChild(createMenuItem('Tilføj ny VV-streng herfra', () => {
-            addStreng_vv();
-            const newStreng = document.querySelector('#strengeContainer .streng-card:last-child');
-            if (newStreng) {
-                const firstPipe = newStreng.querySelector('.ror-container > tr[data-type="ror_vv"]');
-                if (firstPipe) { firstPipe.querySelector('.parent').value = d.id; updateAllSelects(); }
-            }
+            addStreng_vv(d.id);
         }));
         
         menu.appendChild(document.createElement('hr'));
