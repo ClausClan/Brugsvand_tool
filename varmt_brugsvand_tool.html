@@ -1369,110 +1369,135 @@ function addCirkulationRor() {
  * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
  * Opdeler et rør (både fremløb og retur).
  */
-function splitPipe(nodeId) {
-    const row = document.querySelector(`tr[data-id="${nodeId}"]`);
-    if (!row) return;
-
-    // 1. Spørg brugeren om antal segmenter
-    const segmentsStr = prompt("Hvor mange dele skal røret opdeles i?", "2");
-    if (!segmentsStr) return; // Bruger trykkede Annuller
+function splitPipe(targetId) {
+    const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
+    if (!targetRow) return;
+    
+    // 1. Input: Antal segmenter
+    const segmentsStr = prompt("Antal segmenter røret skal opdeles i?", "2");
+    if (!segmentsStr) return;
     const segments = parseInt(segmentsStr, 10);
     if (isNaN(segments) || segments < 2) return alert("Ugyldigt antal.");
 
-    // 2. Bestem type og container
-    const type = row.dataset.type; // ror_vv, ror_kv, cirkulation_vv
-    // Tillad alle rørtyper
-    if (!['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(type)) {
-        alert("Dette element kan ikke opdeles.");
-        return;
-    }
-
-    // 3. Beregn ny længde
-    const lenInput = row.querySelector('.len');
-    const oldLen = parseFloat(lenInput.value) || 0;
-    const newLen = oldLen / segments;
-    lenInput.value = newLen.toFixed(2);
-
-    // Gem data til kloning
-    const material = row.querySelector('.material').value;
-    const location = row.querySelector('.location').value;
-    const insulation = row.querySelector('.insulation-class').value;
-    const dim = row.querySelector('.dim').value;
+    // 2. Hent Data og Koordinater
+    const type = targetRow.dataset.type;
+    const currentParentId = targetRow.querySelector('.parent').value;
     
-    // Find korrekt ID prefix og tæller
-    let prefix, counterVar;
-    if (type === 'cirkulation_vv') {
-        prefix = 'Cirk'; // Eller Retur afhængig af hvad du bruger
-        // Vi skal bruge state.rC, men pas på ikke at genbruge ID'er
-    } else {
-        // Find streng-ID
-        const card = row.closest('.streng-card');
-        const sId = card ? card.dataset.id : 'XX';
-        prefix = type === 'ror_kv' ? `${sId}-R` : `${sId}-R`;
+    // Find noder i modellen for at få koordinater
+    const startNode = state.nodes.find(n => n.id === currentParentId);
+    const endNode = state.nodes.find(n => n.id === targetId);
+    
+    let startX = 0, startY = 0, endX = 0, endY = 0;
+    let hasCoords = false;
+
+    if (startNode && endNode) {
+        // Foretræk fx/fy (låste positioner) hvis de findes, ellers x/y (simulerede)
+        startX = (startNode.fx !== undefined && startNode.fx !== null) ? startNode.fx : startNode.x;
+        startY = (startNode.fy !== undefined && startNode.fy !== null) ? startNode.fy : startNode.y;
+        endX = (endNode.fx !== undefined && endNode.fx !== null) ? endNode.fx : endNode.x;
+        endY = (endNode.fy !== undefined && endNode.fy !== null) ? endNode.fy : endNode.y;
+        hasCoords = true;
     }
 
-    // Vi skal indsætte N-1 nye rør FØR det oprindelige rør (for at bevare flow-retning logisk)
-    let currentParentId = row.querySelector('.parent').value;
+    // 3. Beregn Længder og Egenskaber
+    const lenInput = targetRow.querySelector('.len');
+    const totalLen = parseFloat(lenInput.value) || 0;
+    const segmentLen = totalLen / segments;
+    
+    // Gem egenskaber til kloning
+    const material = targetRow.querySelector('.material').value;
+    const location = targetRow.querySelector('.location').value;
+    const dim = targetRow.querySelector('.dim').value;
+    const insulation = targetRow.querySelector('.insulation-class').value;
+
+    // 4. Loop: Opret N-1 nye rør INDEN det nuværende
+    let anchorParent = currentParentId; // Vi starter fra forælderen
+    
+    // Find ID prefix (S1-R... eller Cirk...)
+    const card = targetRow.closest('.streng-card');
+    const sId = card ? card.dataset.id : '';
 
     for (let i = 1; i < segments; i++) {
-        // Generer unikt ID
+        // Generer ID
         let newId;
         if (type === 'cirkulation_vv') {
             state.rC++; newId = `Cirk${state.rC}`;
         } else {
-            state.tC++; newId = `${prefix}${state.tC}`;
+            state.tC++; newId = `${sId}-R${state.tC}`;
         }
         
+        // Beregn Koordinat (Interpolation)
+        if (hasCoords) {
+            const ratio = i / segments;
+            const newX = startX + (endX - startX) * ratio;
+            const newY = startY + (endY - startY) * ratio;
+            
+            // Skub ind i modellen med det samme, så diagrammet ved hvor den er
+            state.nodes.push({
+                id: newId, 
+                type: type, 
+                fx: newX, 
+                fy: newY,
+                x: newX,
+                y: newY
+            });
+        }
+
+        // Opret HTML Række
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = type;
         const datalistId = `list-${newId}`;
 
-        // HTML (Klonet struktur)
         tr.innerHTML = `
             <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
             <td><select class="form-select form-select-sm parent"></select></td>
-            <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Pex">Pex</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+            <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
             <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
             <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions"></td>
             <td><input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-            <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}"></td>
+            <td><input type="number" min="0" class="form-control form-control-sm len" value="${segmentLen.toFixed(2)}"></td>
             <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
             <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
         `;
 
+        // Sæt værdier
         tr.querySelector('.material').value = material;
         tr.querySelector('.location').value = location;
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
         
-        // Indsæt FØR det originale rør
-        row.parentNode.insertBefore(tr, row);
-        
-        // Sæt parent på det nye rør
-        const pSel = tr.querySelector('.parent');
-        // Midlertidig option for at undgå updateAllSelects i loop
-        const opt = document.createElement('option');
-        opt.value = currentParentId; opt.text = currentParentId; 
-        pSel.add(opt); pSel.value = currentParentId;
-        
-        // Det næste rør (eller det originale) skal nu have dette nye rør som parent
-        currentParentId = newId;
-        
-        // Opdater events
         const matSelect = tr.querySelector('.material');
-        if (matSelect) {
-            matSelect.onchange = handleMaterialChange;
-            updateDimOptions(matSelect);
-        }
+        matSelect.onchange = handleMaterialChange;
+        
+        // Indsæt FØR målrækken i tabellen
+        targetRow.parentNode.insertBefore(tr, targetRow);
+        
+        // Sæt parent (midlertidigt i DOM for at kæden hænger sammen)
+        const pSel = tr.querySelector('.parent');
+        const opt = document.createElement('option');
+        opt.value = anchorParent; 
+        opt.text = anchorParent; // Visuelt fix indtil updateAllSelects
+        pSel.add(opt); 
+        pSel.value = anchorParent;
+
+        // Opdater anchor til dette nye rør, så næste rør hæftes på dette
+        anchorParent = newId;
+        
+        updateDimOptions(matSelect);
     }
 
-    // Opdater det oprindelige rør til at pege på det sidste nye rør
-    // Vi gør det via updateAllSelects for at være sikre på at listerne er opdaterede
-    updateAllSelects();
+    // 5. Opdater det oprindelige rør (Det sidste i kæden)
+    lenInput.value = segmentLen.toFixed(2);
     
-    const originalParentSel = row.querySelector('.parent');
-    originalParentSel.value = currentParentId;
+    // Vi er nødt til at opdatere selects globalt for at det oprindelige rør kan "se" det nye rør som parent
+    updateAllSelects(); 
+    
+    const targetParentSel = targetRow.querySelector('.parent');
+    targetParentSel.value = anchorParent; // Hæft på det sidste nye rør
 
+    // 6. Afslut
     setProjektErÆndret();
+    updateDiagram(); // Tegn de nye noder på deres beregnede pladser
 }
 
 /**
