@@ -5035,17 +5035,16 @@ function updateLegend() {
 // =================================================================================
 
 function beregnGlobalOptimering(config) {
-    console.group("🚀 GLOBAL OPTIMERING START (VV)");
+    console.group("🚀 GLOBAL OPTIMERING START (VV + Hydraulisk Link)");
     const model = buildModel(config);
     
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model);
 
-    // ... (Constraint logik uændret) ...
     config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
     console.log(`Constraint Type: ${config.globalConstraintType}`);
 
-    // Nulstil til mindste dimensioner
+    // Nulstil til mindste dimensioner (VV & VVC)
     model.nodes.forEach(n => {
         if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
             const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
@@ -5053,6 +5052,42 @@ function beregnGlobalOptimering(config) {
         }
     });
 
+    // ==========================
+    // 1. KOLDT VAND (KV) BEREGNING (Statisk grundlag)
+    // ==========================
+    // Vi optimerer ikke KV i dette loop (det ville kræve et dobbelt-loop), 
+    // men vi beregner det for at finde starttrykket.
+    if (model.nodes.has('Vandstik')) {
+        calculateQd_KV(model);
+        if (config.isAuto) dimensionSupply_KV(model, config); // Standard dimensionering af KV
+        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
+    }
+
+    // ==========================
+    // 2. HYDRAULISK LINK (KV -> VV)
+    // ==========================
+    let availablePressureForVV = config.pln;
+    model.kv_pressure_loss_to_beholder = 0;
+
+    if (state.beholderConnectionId) {
+        // Beregn tabet fra Vandstik frem til tilslutningspunktet
+        const dpToConnection = getPathPressureDrop(model, state.beholderConnectionId);
+        
+        model.kv_pressure_loss_to_beholder = dpToConnection;
+        availablePressureForVV = config.pln - dpToConnection;
+        
+        console.log(`Global Opt: KV Tabet er ${dpToConnection.toFixed(0)} Pa. Nyt VV Starttryk: ${availablePressureForVV.toFixed(0)} Pa`);
+    }
+    model.vv_start_pressure = availablePressureForVV;
+
+    // VIGTIGT: Opret en skygge-config til optimeringsloopet
+    // Vi sætter 'pln' til det reducerede tryk, så findFailingTapPoints_VV optimerer mod det rigtige mål.
+    const optConfig = { ...config, pln: availablePressureForVV };
+
+
+    // ==========================
+    // 3. OPTIMERINGS LOOP (VV)
+    // ==========================
     let iterations = 0;
     const maxIterations = 10000;
     let optimized = false;
@@ -5060,15 +5095,16 @@ function beregnGlobalOptimering(config) {
     let finalGlobalFailures = [];
 
     while (iterations < maxIterations) {
-        // KALD DE NYE _VV FUNKTIONER
         calculateQd_VV(model);
-        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
+        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); // Bruger fittings_pct fra config
         
         const localFailures = findLocalFailures_VV(model, config);
-        const globalFailures = findFailingTapPoints_VV(model, config);
+        
+        // HER bruger vi optConfig for at tjekke mod det reducerede starttryk
+        const globalFailures = findFailingTapPoints_VV(model, optConfig); 
         
         if (iterations === 0 || iterations % 500 === 0 || localFailures.length === 0) {
-             console.log(`Iter ${iterations}: Lokale=${localFailures.length}, Globale=${globalFailures.length}`);
+             // console.log(`Iter ${iterations}: Lokale=${localFailures.length}, Globale=${globalFailures.length}`);
         }
 
         if (localFailures.length === 0 && globalFailures.length === 0) {
@@ -5101,10 +5137,21 @@ function beregnGlobalOptimering(config) {
 
     model.optimizationInfo = { converged: optimized, iterations: iterations, remainingErrors: finalLocalFailures.length + finalGlobalFailures.length };
 
-    // Afsluttende beregninger (VV)
+    // ==========================
+    // 4. AFSLUTTENDE BEREGNINGER
+    // ==========================
+    
+    // Find kritisk vej (Bruger standard config, men vi ved nu at trykket overholdes)
     const pressureDropResult = findMaxPathDp_VV(model.tree, config);
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
+    
+    // KV info til rapport
+    if (model.nodes.has('Vandstik')) {
+        const kvRes = findMaxPathDp_KV(model, config);
+        model.max_dp_kv = kvRes.max_dp;
+        model.criticalPathKV = new Set(kvRes.path);
+    }
     
     // Cirkulations loop (VV)
     for (let i = 0; i < 3; i++) {
