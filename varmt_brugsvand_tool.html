@@ -6145,80 +6145,7 @@ function handleNodeRightClick(event, d) {
     }
 
     // ============================================================
-    // 1. FORBINDELSER (HØJESTE PRIORITET)
-    // ============================================================
-    // Gælder alle rør og ventiler (men ikke rødder som Beholder/Vandstik, da de er faste)
-    if (isPipe || nodeType === 'valve') {
-         menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
-            state.connectingNodeInfo = { nodeData: d, type: 'parent' };
-            document.body.style.cursor = 'crosshair';
-        }));
-    }
-    
-    // Specifikt for Varmt Vand: Retur-kobling
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
-            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
-            document.body.style.cursor = 'crosshair';
-        }));
-    }
-
-    if (isPipe || nodeType === 'valve') {
-        menu.appendChild(document.createElement('hr'));
-    }
-
-    // ============================================================
-    // 2. NY STRENG / UDBYGNING (FLYTTET HEROP)
-    // ============================================================
-    
-    // Beholder & VV Rør -> Ny VV Streng
-    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('➕ Tilføj ny VV-streng herfra', () => {
-            addStreng_vv(d.id);
-        }));
-    }
-
-    // Vandstik & KV Rør -> Ny KV Streng
-    if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
-        menu.appendChild(createMenuItem('➕ Tilføj ny KV-streng herfra', () => {
-            addStreng_kv(d.id);
-        }));
-    }
-
-    // Cirkulation & Beholder -> Nyt Cirkulationsrør (Extension)
-    if (nodeType === 'cirkulation_vv' || nodeType === 'valve' || nodeType === 'beholder') {
-        menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
-            addCirkulationRor();
-            // Auto-parent logic
-            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
-            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
-        }));
-    }
-
-    menu.appendChild(document.createElement('hr'));
-
-    // ============================================================
-    // 3. REDIGERING & MANIPULATION
-    // ============================================================
-    
-    if (isPipe) {
-        menu.appendChild(createMenuItem('✂️ Opdel rør (Indsæt node)', () => {
-            if (typeof splitPipe === 'function') splitPipe(d.id);
-        }));
-        
-        menu.appendChild(createMenuItem('🖐️ Flyt gren (Klip)', () => {
-            if (typeof startMoveBranch === 'function') startMoveBranch(d.id);
-        }));
-        
-        menu.appendChild(createMenuItem('📋 Kopier gren', () => {
-            if (typeof copyBranch === 'function') copyBranch(d.id);
-        }));
-        
-        menu.appendChild(document.createElement('hr'));
-    }
-
-    // ============================================================
-    // 4. LOKAL UDBYGNING (I SAMME STRENG)
+    // 1. LOKAL UDBYGNING (ØVERST)
     // ============================================================
 
     // VV Rør
@@ -6245,6 +6172,11 @@ function handleNodeRightClick(event, d) {
                  }
              }
         }));
+        
+        // Paste Extension (VV)
+        if (showPasteVV) {
+             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+        }
     }
 
     // KV Rør
@@ -6270,10 +6202,21 @@ function handleNodeRightClick(event, d) {
                  }
              }
         }));
+        
+        // Paste Extension (KV)
+        if (showPasteKV) {
+             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+        }
     }
 
     // Cirkulation / Ventil
     if (['cirkulation_vv', 'valve'].includes(nodeType)) {
+        menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
+            addCirkulationRor();
+            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
+            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+        }));
+        
         menu.appendChild(createMenuItem('🔧 Tilføj Ventil her', () => {
             if (typeof addValve === 'function') {
                 addValve();
@@ -6281,11 +6224,35 @@ function handleNodeRightClick(event, d) {
                 if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
         }));
+        
+        // Paste Extension (Retur)
+        if (showPasteRetur) {
+             menu.appendChild(createMenuItem('📋 Indsæt kopieret gren', () => pasteBranch(d.id, 'current')));
+        }
     }
 
-    // Specielt for Beholder (Koldt vands tilslutning)
+    // ============================================================
+    // 2. FORBINDELSER
+    // ============================================================
+    
+    // Generel forbindelse (Forældre-valg)
+    if (isPipe || nodeType === 'valve') {
+         menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
+            state.connectingNodeInfo = { nodeData: d, type: 'parent' };
+            document.body.style.cursor = 'crosshair';
+        }));
+    }
+    
+    // Specifik Retur-kobling (VV)
+    if (nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
+            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
+            document.body.style.cursor = 'crosshair';
+        }));
+    }
+    
+    // Beholder -> Koldt Vand
     if (nodeType === 'beholder') {
-        menu.appendChild(document.createElement('hr'));
         menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
             state.connectingNodeInfo = { mode: 'connect_cold_feed' };
             document.body.style.cursor = 'crosshair';
@@ -6294,44 +6261,62 @@ function handleNodeRightClick(event, d) {
     }
 
     // ============================================================
-    // 5. PASTE (INDSÆT)
+    // 3. NY STRENG (AFGRENING)
     // ============================================================
     
-    // Paste VV
-    if (nodeType === 'ror_vv' || nodeType === 'beholder') {
+    // VV
+    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('🌱 Tilføj ny VV-streng herfra', () => {
+            addStreng_vv(d.id);
+        }));
+        // Paste New String (VV)
         if (showPasteVV) {
-             menu.appendChild(document.createElement('hr'));
-             if (nodeType === 'ror_vv') {
-                 menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
-             }
              menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
         }
     }
 
-    // Paste KV
-    if (nodeType === 'ror_kv' || nodeType === 'vandstik') {
+    // KV
+    if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
+        menu.appendChild(createMenuItem('🌱 Tilføj ny KV-streng herfra', () => {
+            addStreng_kv(d.id);
+        }));
+        // Paste New String (KV)
         if (showPasteKV) {
-             menu.appendChild(document.createElement('hr'));
-             if (nodeType === 'ror_kv') {
-                 menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
-             }
              menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
-        }
-    }
-
-    // Paste Retur
-    if (['cirkulation_vv', 'valve', 'beholder'].includes(nodeType)) {
-        if (showPasteRetur) {
-             menu.appendChild(document.createElement('hr'));
-             menu.appendChild(createMenuItem('📋 Indsæt kopieret gren', () => pasteBranch(d.id, 'current')));
         }
     }
 
     // ============================================================
-    // 6. SLET
+    // SEPARATOR (SKILLER HEREFTER)
+    // ============================================================
+    if (isPipe || nodeType === 'valve' || nodeType === 'beholder' || nodeType === 'vandstik') {
+        menu.appendChild(document.createElement('hr'));
+    }
+
+    // ============================================================
+    // 4. REDIGERING (OPDEL/FLYT/KOPIER)
+    // ============================================================
+    
+    if (isPipe) {
+        menu.appendChild(createMenuItem('✂️ Opdel rør (Indsæt node)', () => {
+            if (typeof splitPipe === 'function') splitPipe(d.id);
+        }));
+        
+        menu.appendChild(createMenuItem('🖐️ Flyt gren (Klip)', () => {
+            if (typeof startMoveBranch === 'function') startMoveBranch(d.id);
+        }));
+        
+        menu.appendChild(createMenuItem('📋 Kopier gren', () => {
+            if (typeof copyBranch === 'function') copyBranch(d.id);
+        }));
+    }
+
+    // ============================================================
+    // 5. SLET (BUNDEN)
     // ============================================================
     if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
-        menu.appendChild(document.createElement('hr'));
+        if (!isPipe) menu.appendChild(document.createElement('hr')); // Ekstra separator hvis ikke rør (fx ventil)
+        
         menu.appendChild(createMenuItem('❌ Slet Komponent', () => {
              const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
              if (element) {
@@ -6351,7 +6336,6 @@ function handleNodeRightClick(event, d) {
     document.body.appendChild(menu);
     setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
-
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
