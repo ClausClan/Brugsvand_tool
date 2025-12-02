@@ -448,10 +448,10 @@
     </div>
 </div>
                       <div class="tab-pane fade" id="rør" role="tabpanel"><table class="table table-sm table-bordered table-hover" id="rørResultTable"><thead></thead><tbody></tbody></table></div>
-<div class="tab-pane fade" id="cirkulation" role="tabpanel"><table class="table table-sm table-bordered table-hover" id="cirkResultTable"><thead></thead><tbody></tbody></table></div>
+                        <div class="tab-pane fade" id="cirkulation" role="tabpanel"><table class="table table-sm table-bordered table-hover" id="cirkResultTable"><thead></thead><tbody></tbody></table></div>
                     </div>
 					</div>
-                
+                </div>
             </div>
         </div> <div class="col-lg-6 d-flex flex-column">
             <div class="card flex-grow-1">
@@ -1364,141 +1364,119 @@ function addCirkulationRor() {
  * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
  * Opdeler et rør (både fremløb og retur).
  */
-function splitPipe(targetId, segments) {
+function splitPipe(targetId) {
     const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
     if (!targetRow) return;
     
-    // Bestem typen (ror eller retur)
-    const type = targetRow.dataset.type;
-    if (type !== 'ror_vv' && type !== 'cirkulation_vv') {
-        alert("Kun rør kan opdeles.");
-        return;
-    }
+    const segmentsStr = prompt("Antal segmenter røret skal opdeles i:", "2");
+    if (!segmentsStr) return;
+    const segments = parseInt(segmentsStr, 10);
+    if (isNaN(segments) || segments < 2) return alert("Ugyldigt antal.");
 
-    // --- TRIN A: BEREGN KOORDINATER ---
+    const type = targetRow.dataset.type;
     const currentParentId = targetRow.querySelector('.parent').value;
+    
+    // Beregn Koordinater (Vektor fra Parent -> Target)
     const startNode = state.nodes.find(n => n.id === currentParentId);
     const endNode = state.nodes.find(n => n.id === targetId);
     
     let startX = 0, startY = 0, endX = 0, endY = 0;
-    let useCoords = false;
+    let hasCoords = false;
 
     if (startNode && endNode) {
-        // Brug .fx/.fy hvis de er sat (låst), ellers .x/.y
+        // Prioriter faste koordinater (fx)
         startX = (startNode.fx !== undefined && startNode.fx !== null) ? startNode.fx : startNode.x;
         startY = (startNode.fy !== undefined && startNode.fy !== null) ? startNode.fy : startNode.y;
         endX = (endNode.fx !== undefined && endNode.fx !== null) ? endNode.fx : endNode.x;
         endY = (endNode.fy !== undefined && endNode.fy !== null) ? endNode.fy : endNode.y;
-        useCoords = true;
+        hasCoords = true;
     }
-    // ----------------------------------
 
-    const originalLen = parseFloat(targetRow.querySelector('.len').value) || 0;
-    const newLen = originalLen / segments;
+    const lenInput = targetRow.querySelector('.len');
+    const totalLen = parseFloat(lenInput.value) || 0;
+    const segmentLen = totalLen / segments;
     
+    // Kopier egenskaber
     const material = targetRow.querySelector('.material').value;
     const location = targetRow.querySelector('.location').value;
     const dim = targetRow.querySelector('.dim').value;
     const insulation = targetRow.querySelector('.insulation-class').value;
-    const fittings = 0; 
 
-    let lastParentId = currentParentId;
+    let idPrefix = "";
+    if (type !== 'cirkulation_vv') {
+        const card = targetRow.closest('.streng-card');
+        idPrefix = card ? card.dataset.id : 'XX';
+    }
 
-    // 2. Opret N-1 nye rør FØR det oprindelige rør
+    let anchorParent = currentParentId; 
+
     for (let i = 1; i < segments; i++) {
         let newId;
-        
-        // GENERER KORREKT ID BASERET PÅ TYPE
-        if (type === 'ror_vv') {
-            const sId = targetId.split('-')[0]; 
-            state.tC++; 
-            newId = `${sId}-R${state.tC}`;
-        } else { // type === 'cirkulation_vv'
-            state.rC++;
-            newId = `Retur${state.rC}`;
+        if (type === 'cirkulation_vv') {
+            state.rC++; newId = `Cirk${state.rC}`;
+        } else {
+            state.tC++; newId = `${idPrefix}-R${state.tC}`;
         }
         
-        const datalistId = `list-${newId}`;
-        
-        // --- TRIN B: KOORDINATER ---
-        if (useCoords) {
+        // Beregn Position (Lineær interpolation)
+        if (hasCoords) {
             const ratio = i / segments;
             const newX = startX + (endX - startX) * ratio;
             const newY = startY + (endY - startY) * ratio;
             
-            state.nodes.push({
-                id: newId,
-                fx: newX,
-                fy: newY
-            });
+            // Push direkte til noder for at undgå "hop" i diagrammet
+            state.nodes.push({ id: newId, type: type, fx: newX, fy: newY, x: newX, y: newY });
         }
 
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
-        tr.dataset.type = type; // Sæt korrekt type
-        
-        // Byg HTML (Universel for både ror og retur)
+        tr.dataset.type = type;
+        const datalistId = `list-${newId}`;
+
+        // Standard HTML for rør
         tr.innerHTML = `
-            <td>
-                <span class="input-group input-group-sm">
-                    <span class="input-group-text id-text">${newId}</span>
-                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn">
-                </span>
-            </td>
-            <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-            <td><select class="form-select form-select-sm material" title="Materiale">
-                <option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
-                <option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>
-            </select></td>
-            <td>
-                <select class="form-select form-select-sm location" title="Placering">
-                    <option value="heated">Opvarmet rum</option>
-                    <option value="unheated">Uopvarmet rum</option>
-                    <option value="outside">Udendørs</option>
-                </select>
-            </td>
-            <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions" title="Isol."></td>
-            <td>
-                <input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" title="Dim" list="${datalistId}">
-                <datalist id="${datalistId}"></datalist>
-            </td>
-            <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}" title="Længde"></td>
-            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${fittings}" title="Zeta"></td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern" aria-label="Fjern element">&times;</button></td>
+            <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+            <td><select class="form-select form-select-sm parent"></select></td>
+            <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+            <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
+            <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions"></td>
+            <td><input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+            <td><input type="number" min="0" class="form-control form-control-sm len" value="${segmentLen.toFixed(2)}"></td>
+            <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
         `;
 
         tr.querySelector('.material').value = material;
         tr.querySelector('.location').value = location;
-        
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
+        
         const matSelect = tr.querySelector('.material');
         matSelect.onchange = handleMaterialChange;
         
         targetRow.parentNode.insertBefore(tr, targetRow);
         
-        updateDimOptions(matSelect);
-
+        // Sæt parent direkte
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
-        tempOpt.value = lastParentId;
-        tempOpt.text = lastParentId;
-        pSel.add(tempOpt);
-        pSel.value = lastParentId;
+        tempOpt.value = anchorParent; tempOpt.text = anchorParent; 
+        pSel.add(tempOpt); pSel.value = anchorParent;
 
-        lastParentId = newId;
+        anchorParent = newId;
+        updateDimOptions(matSelect);
     }
 
-    targetRow.querySelector('.len').value = newLen.toFixed(2);
+    // Opdater slut-segmentet
+    targetRow.querySelector('.len').value = segmentLen.toFixed(2);
     
-    const targetPSel = targetRow.querySelector('.parent');
-    const tempOptTarget = document.createElement('option');
-    tempOptTarget.value = lastParentId;
-    tempOptTarget.text = lastParentId;
-    targetPSel.add(tempOptTarget);
-    targetPSel.value = lastParentId;
+    // Opdater ALT, så listerne kender de nye ID'er
+    updateAllSelects(); 
+    
+    // Sæt parent på slut-segmentet
+    const targetParentSel = targetRow.querySelector('.parent');
+    targetParentSel.value = anchorParent; 
 
-    updateAllSelects();
     setProjektErÆndret();
+    updateDiagram(); 
 }
 
 /**
