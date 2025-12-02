@@ -1502,12 +1502,15 @@ function splitPipe(targetId) {
  * Sikrer korrekt beregning af vektor til forælder (også Beholder).
  * Kopierer gren (Fremløb ELLER Retur).
  * Inkluderer logik til at filtrere børn baseret på typen af gren.
+ * - Bevarer vektor til forælder (så indsættelse sker med samme afstand/vinkel).
+ * - Bevarer intern form (børns position relativt til roden).
+ * - Filtrerer systemer (blander ikke Koldt/Varmt/Cirkulation).
  */
 function copyBranch(rootId) {
     const rootNode = state.nodes.find(n => n.id === rootId);
     if (!rootNode) return;
 
-    // Hent offset til parent for korrekt placering ved paste
+    // Hjælper: Hent position (foretrækker fastlåst fx/fy, ellers flydende x/y)
     const getPos = (id) => {
         const n = state.nodes.find(x => x.id === id);
         if (!n) return {x:0, y:0};
@@ -1515,33 +1518,54 @@ function copyBranch(rootId) {
     };
     
     const rootPos = getPos(rootId);
-    // Find parent ID via DOM, da modellen måske ikke er synkroniseret
-    const domRow = document.querySelector(`tr[data-id="${rootId}"]`);
-    const parentId = domRow ? domRow.querySelector('.parent').value : null;
-    const parentPos = parentId ? getPos(parentId) : {x: rootPos.x - 60, y: rootPos.y - 60};
     
-    const offsetX = rootPos.x - parentPos.x;
-    const offsetY = rootPos.y - parentPos.y;
+    // 1. BEREGN VEKTOR TIL FORÆLDER (Det "Geometriske Håndtag")
+    // Vi finder forælderen via DOM'en for at få den aktuelle struktur
+    const domRow = document.querySelector(`tr[data-id="${rootId}"]`);
+    if (!domRow) return;
 
-    // Rekursiv indsamling
+    const parentId = domRow.querySelector('.parent').value;
+    let parentOffsetX = 60; // Standard afstand hvis ingen forælder (fx Vandstik/Beholder)
+    let parentOffsetY = 60;
+
+    if (parentId && parentId !== "Ingen" && parentId !== "") {
+        const parentPos = getPos(parentId);
+        // Vektor = Rodens position - Forælderens position
+        parentOffsetX = rootPos.x - parentPos.x;
+        parentOffsetY = rootPos.y - parentPos.y;
+    }
+
+    // Bestem "System Type" for roden, så vi kan filtrere børn
+    const rootType = domRow.dataset.type;
+
+    // 2. REKURSIV INDSAMLING
     const scrapNode = (id) => {
         const row = document.querySelector(`tr[data-id="${id}"]`);
         if (!row) return null;
         
         const type = row.dataset.type;
-        // Inkluder nu også ror_kv
-        if (!['ror_vv', 'ror_kv', 'tapsted', 'cirkulation_vv', 'valve'].includes(type)) return null;
-
         const pos = getPos(id);
         
+        // --- FILTER LOGIK: Kryds ikke systemgrænser ---
+        // Hvis vi starter med Varmt (ror_vv), må vi IKKE kopiere Koldt (ror_kv) eller Cirkulation (cirkulation_vv)
+        if (rootType.includes('ror_vv') && !['ror_vv', 'tapsted'].includes(type)) return null;
+        
+        // Hvis vi starter med Koldt (ror_kv), må vi IKKE kopiere Varmt
+        if (rootType.includes('ror_kv') && !['ror_kv', 'tapsted'].includes(type)) return null;
+        
+        // Hvis vi starter med Cirkulation, må vi IKKE kopiere Varmt/Koldt
+        if (rootType.includes('cirkulation') && !['cirkulation_vv', 'valve'].includes(type)) return null;
+
+        // Byg data-objekt
         const data = { 
             type: type, 
             children: [],
-            relX: pos.x - rootPos.x, // Relativt til roden af kopien
+            // Gem position relativt til RODEN af kopien (bevarer figurens form)
+            relX: pos.x - rootPos.x, 
             relY: pos.y - rootPos.y
         };
         
-        // Data udtræk (Generisk)
+        // Udtræk data fra input-felter (så ikke-gemte ændringer kommer med)
         if (type.includes('ror') || type === 'cirkulation_vv') {
             data.material = row.querySelector('.material').value;
             data.location = row.querySelector('.location').value;
@@ -1550,24 +1574,23 @@ function copyBranch(rootId) {
             data.len = row.querySelector('.len').value;
             data.fittings = row.querySelector('.fittings').value;
         } 
-        if (type === 'tapsted') {
+        else if (type === 'tapsted') {
             const tapSelect = row.querySelector('.tapType');
-            data.tapType = tapSelect.options[tapSelect.selectedIndex].text; // Gem navn for opslag
+            data.tapType = tapSelect.options[tapSelect.selectedIndex].text; // Gem navn for opslag i ST
             data.qf = row.querySelector('.qf').value;
             data.kote = row.querySelector('.kote').value;
             data.syst = row.querySelector('.syst').checked;
             data.isApartment = row.dataset.isApartment;
         }
-        if (type === 'valve') {
+        else if (type === 'valve') {
             data.valveType = row.querySelector('.valve-type-select').value;
         }
 
-        // Find børn
-        // Vi leder kun i samme "scope" (samme tabel) for at undgå fejl
-        const container = row.closest('tbody');
-        const potentialChildren = container.querySelectorAll('tr');
-        potentialChildren.forEach(childRow => {
-            const pVal = childRow.querySelector('.parent').value;
+        // Find børn (kun i relevante containere for at optimere)
+        // Vi leder efter alle rækker, der peger på dette ID som parent
+        const allRows = document.querySelectorAll(`tr[data-id]`); 
+        allRows.forEach(childRow => {
+            const pVal = childRow.querySelector('.parent')?.value;
             if (pVal === id) {
                 const childData = scrapNode(childRow.dataset.id);
                 if (childData) data.children.push(childData);
@@ -1580,16 +1603,28 @@ function copyBranch(rootId) {
     const tree = scrapNode(rootId);
     
     if (tree) {
-        tree.parentOffsetX = offsetX;
-        tree.parentOffsetY = offsetY;
+        // Gem vektoren på rod-objektet i udklipsholderen
+        tree.parentOffsetX = parentOffsetX;
+        tree.parentOffsetY = parentOffsetY;
+        
         state.clipboard = tree;
         
-        // Visuel feedback
+        // Visuel feedback (lille "toast" besked)
         const btn = document.createElement('div');
-        btn.innerHTML = "✅ Kopieret";
-        btn.style.cssText = "position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.7); color:white; padding:20px; border-radius:10px; z-index:9999; font-size:20px;";
+        btn.innerHTML = `<span style="margin-right:8px">📋</span> Gren kopieret`;
+        btn.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:10px 20px; border-radius:30px; z-index:9999; font-size:14px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: fadeOut 2s forwards; pointer-events: none;";
+        
+        // Tilføj animation keyframes hvis de ikke findes
+        if (!document.getElementById('toast-style')) {
+            const style = document.createElement('style');
+            style.id = 'toast-style';
+            style.innerHTML = `@keyframes fadeOut { 0% {opacity:1;} 70% {opacity:1;} 100% {opacity:0; transform:translate(-50%, 20px);} }`;
+            document.head.appendChild(style);
+        }
+        
         document.body.appendChild(btn);
-        setTimeout(() => btn.remove(), 800);
+        setTimeout(() => btn.remove(), 2000);
+        
         console.log("Kopieret til clipboard:", tree);
     }
 }
@@ -1602,137 +1637,231 @@ function copyBranch(rootId) {
  * Indsætter gren (Fremløb eller Retur).
  * KV + VV + CV
  */
+/**
+ * Indsætter kopieret gren på den valgte destination.
+ * - Bruger gemt vektor til korrekt placering.
+ * - Håndterer både VV, KV og Cirkulation containere.
+ * - Validerer system-kompatibilitet.
+ */
 function pasteBranch(targetParentId, mode = 'current') {
     if (!state.clipboard) { alert("Intet at indsætte."); return; }
 
     const targetNode = state.nodes.find(n => n.id === targetParentId);
-    if (!targetNode) return; // Skal eksistere i modellen
+    if (!targetNode) return;
 
-    // TJEK KOMPATIBILITET
+    // 1. TJEK KOMPATIBILITET & SYSTEM
     const clipType = state.clipboard.type;
     const isSupplyVV = ['ror_vv', 'tapsted'].includes(clipType);
-    const isSupplyKV = ['ror_kv', 'tapsted'].includes(clipType); // Tapsted kan være begge, men rør bestemmer
+    const isSupplyKV = ['ror_kv', 'tapsted'].includes(clipType); 
     const isReturn = ['cirkulation_vv', 'valve'].includes(clipType);
+    
     const parentType = targetNode.type;
+    let allowed = false;
 
-    // Streng logik: Hvis vi paster ror_vv på ror_kv -> Fejl.
-    if (clipType === 'ror_vv' && (parentType === 'ror_kv' || parentType === 'vandstik')) {
-        alert("Kan ikke indsætte Varmt rør på Koldt system."); return;
+    // Regler for hvad der må klistres på hvad
+    if (isSupplyVV && (parentType === 'ror_vv' || parentType === 'beholder')) allowed = true;
+    if (isSupplyKV && (parentType === 'ror_kv' || parentType === 'vandstik')) allowed = true;
+    if (isReturn && (parentType === 'cirkulation_vv' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
+
+    // Særlig tjek for Tapsteder (hvis de er "neutrale" i udklipsholderen)
+    if (clipType === 'tapsted') {
+        if (parentType.includes('_vv') || parentType === 'beholder') allowed = true;
+        if (parentType.includes('_kv') || parentType === 'vandstik') allowed = true;
     }
-    if (clipType === 'ror_kv' && (parentType === 'ror_vv' || parentType === 'beholder')) {
-        alert("Kan ikke indsætte Koldt rør på Varmt system."); return;
+
+    if (!allowed) {
+        alert(`Kan ikke indsætte ${clipType} på ${parentType} (System-konflikt).`);
+        return;
     }
 
-    // Positionering
-    const parentX = (targetNode.fx ?? targetNode.x);
-    const parentY = (targetNode.fy ?? targetNode.y);
-    const offsetX = state.clipboard.parentOffsetX || 60;
-    const offsetY = state.clipboard.parentOffsetY || 60;
-    const newRootX = parentX + offsetX;
-    const newRootY = parentY + offsetY;
+    // 2. BEREGN POSITION (Brug vektoren fra copy)
+    const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
+    const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
+    
+    const baseX = getX(targetNode);
+    const baseY = getY(targetNode);
+    // Brug gemt vektor eller standard 60px hvis den mangler
+    const vecX = (state.clipboard.parentOffsetX !== undefined) ? state.clipboard.parentOffsetX : 60;
+    const vecY = (state.clipboard.parentOffsetY !== undefined) ? state.clipboard.parentOffsetY : 60;
+    
+    const newRootX = baseX + vecX;
+    const newRootY = baseY + vecY;
 
-    // FIND DESTINATION (Container & ID Prefix)
-    let containerRow, containerTap, idPrefix;
-    let targetCard;
+    // 3. FIND CONTAINER / OPRET NY STRENG
+    let targetCardId = "";
+    let targetContainerRow, targetContainerTap;
 
     if (isReturn) {
-        // Cirkulation
-        containerRow = document.getElementById('returContainerBody');
-        idPrefix = "Retur"; // Eller Cirk
+        targetContainerRow = document.getElementById('returContainerBody');
     } else {
         // Fremløb (VV eller KV)
+        let isKV = isSupplyKV;
+        if (clipType === 'tapsted') isKV = (parentType === 'ror_kv' || parentType === 'vandstik');
+
+        // Skal vi lave en ny streng? (Hvis 'new' mode ELLER vi paster direkte på Roden)
         if (mode === 'new' || parentType === 'beholder' || parentType === 'vandstik') {
-            // Opret NY streng
-            if (clipType === 'ror_kv' || parentType === 'vandstik') {
-                addStreng_kv();
-                targetCard = document.querySelector('#strengeContainerKV .streng-card:last-child');
+            if (isKV) {
+                addStreng_kv(); 
+                const newCard = document.querySelector('#strengeContainerKV .streng-card:last-child');
+                targetCardId = newCard.dataset.id;
+                // Fjern standard-røret, da vi paster vores eget træ
+                newCard.querySelectorAll('button[aria-label*="Fjern"]').forEach(b => b.click());
+                
+                targetContainerRow = newCard.querySelector('.ror-container');
+                targetContainerTap = newCard.querySelector('.tapsted-container');
             } else {
-                addStreng_vv();
-                targetCard = document.querySelector('#strengeContainer .streng-card:last-child');
+                addStreng_vv(); 
+                const newCard = document.querySelector('#strengeContainerVV .streng-card:last-child');
+                targetCardId = newCard.dataset.id;
+                newCard.querySelectorAll('button[aria-label*="Fjern"]').forEach(b => b.click());
+                
+                targetContainerRow = newCard.querySelector('.ror-container');
+                targetContainerTap = newCard.querySelector('.tapsted-container');
             }
-            // Fjern det default rør, vi indsætter vores egne
-            targetCard.querySelectorAll('button[aria-label*="Fjern"]').forEach(b => b.click());
         } else {
-            // Indsæt i EKSISTERENDE streng
-            // Find kortet ud fra targetParentId
+            // Indsæt i eksisterende streng
             const pRow = document.querySelector(`tr[data-id="${targetParentId}"]`);
-            if (pRow) targetCard = pRow.closest('.streng-card');
+            const card = pRow ? pRow.closest('.streng-card') : null;
+            if (!card) return;
+            targetCardId = card.dataset.id;
+            targetContainerRow = card.querySelector('.ror-container');
+            targetContainerTap = card.querySelector('.tapsted-container');
         }
-        
-        if (!targetCard) { console.error("Kunne ikke finde target card"); return; }
-        
-        containerRow = targetCard.querySelector('.ror-container');
-        containerTap = targetCard.querySelector('.tapsted-container');
-        idPrefix = targetCard.dataset.id; // S1, K1...
     }
 
-    // REKURSIV BYGGER
+    // 4. REKURSIV BYGGER
     const buildNode = (nodeData, pId) => {
         let newId;
-        
-        // Generer ID
-        if (nodeData.type === 'cirkulation_vv') {
+        const type = nodeData.type;
+
+        // Generer unikt ID
+        if (type === 'cirkulation_vv') {
             state.rC++; newId = `Cirk${state.rC}`;
-        } else if (nodeData.type === 'valve') {
+        } else if (type === 'valve') {
             window.valveCounter = (window.valveCounter || 0) + 1; newId = `V${window.valveCounter}`;
+        } else if (type === 'tapsted') {
+            state.tC++; newId = `${targetCardId}-T${state.tC}`;
         } else {
-            // VV/KV rør/tapsted
-            state.tC++;
-            const char = nodeData.type === 'tapsted' ? 'T' : 'R';
-            newId = `${idPrefix}-${char}${state.tC}`;
+            state.tC++; newId = `${targetCardId}-R${state.tC}`;
         }
 
-        // Opdater model position (for diagram)
-        const fx = newRootX + (nodeData.relX || 0);
-        const fy = newRootY + (nodeData.relY || 0);
-        state.nodes.push({ id: newId, fx: fx, fy: fy, type: nodeData.type }); // Midlertidig node for at kunne linke
+        const datalistId = `list-${newId}`;
+        
+        // Sæt position i modellen (Relativt til den nye rod)
+        const newFx = newRootX + (nodeData.relX || 0);
+        const newFy = newRootY + (nodeData.relY || 0);
+        state.nodes.push({ id: newId, type: type, fx: newFx, fy: newFy });
 
         // Opret DOM element
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
-        tr.dataset.type = nodeData.type;
-        
-        // ... (Her indsætter du HTML generering som før, men tilpasset til alle typer) ...
-        // For at spare plads i svaret: Brug samme HTML-generering som i din tidligere pasteBranch
-        // eller addRorSektion, men fyld værdierne fra nodeData.
-        
-        // EKSEMPEL FOR RØR (VV/KV):
-        if (nodeData.type.includes('ror')) {
-            const listId = `list-${newId}`;
+        tr.dataset.type = type;
+        if (nodeData.isApartment) tr.dataset.isApartment = nodeData.isApartment;
+
+        // HTML Generering
+        if (type.includes('ror') || type === 'cirkulation_vv') {
             tr.innerHTML = `
                 <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
                 <td><select class="form-select form-select-sm parent"></select></td>
-                <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Pex">Pex</option><option value="Rustfri Press 316L">Rustfri Press</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
+                <td><select class="form-select form-select-sm material"><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Kobber">Kobber</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
                 <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-                <td><input type="text" class="form-control form-control-sm insulation-class" value="${nodeData.insulation}" list="insulationClassOptions"></td>
-                <td><input type="text" class="form-control form-control-sm dim-input dim" value="${nodeData.dim}" list="${listId}"><datalist id="${listId}"></datalist></td>
-                <td><input type="number" min="0" class="form-control form-control-sm len" value="${nodeData.len}"></td>
-                <td><input type="number" min="0" class="form-control form-control-sm fittings" value="${nodeData.fittings}"></td>
+                <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions"></td>
+                <td><input type="text" class="form-control form-control-sm dim-input dim" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
+                <td><input type="number" min="0" class="form-control form-control-sm len"></td>
+                <td><input type="number" min="0" class="form-control form-control-sm fittings"></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
             `;
             tr.querySelector('.material').value = nodeData.material;
             tr.querySelector('.location').value = nodeData.location;
-            containerRow.appendChild(tr);
-            updateDimOptions(tr.querySelector('.material'));
-        } 
-        // ... (Tilføj else-if for tapsted, cirkulation, valve her - brug samme mønster) ...
-        // For TAPSTED: Brug containerTap.appendChild(tr);
+            tr.querySelector('.insulation-class').value = nodeData.insulation;
+            tr.querySelector('.dim').value = nodeData.dim;
+            tr.querySelector('.len').value = nodeData.len;
+            tr.querySelector('.fittings').value = nodeData.fittings;
+            
+            const matSelect = tr.querySelector('.material');
+            matSelect.onchange = handleMaterialChange;
+            updateDimOptions(matSelect);
 
-        // Sæt parent (midlertidigt i DOM)
-        // Vi kan ikke bruge .value direkte før options er bygget
+            targetContainerRow.appendChild(tr);
+
+        } else if (type === 'tapsted') {
+            let opts = ''; 
+            Object.keys(ST).forEach(k => {
+                const isApt = k.includes('Lejlighed');
+                opts += `<option value="${ST[k].qf_hot}" data-is-apartment="${isApt}">${k}</option>`;
+            });
+            Object.entries(state.customTapsteder).forEach(([k, v]) => {
+                opts += `<option value="${v.qf_hot}" data-is-apartment="${v.isApartment}">${k}</option>`;
+            });
+
+            tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent"></select></td>
+                <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)">${opts}</select></td>
+                <td><input type="number" class="form-control form-control-sm qf" min="0" step="0.01"></td>
+                <td><input type="number" class="form-control form-control-sm kote allow-negative"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input syst"></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
+            `;
+            
+            const tapSelect = tr.querySelector('.tapType');
+            let found = false;
+            for(let i=0; i<tapSelect.options.length; i++) {
+                if(tapSelect.options[i].text === nodeData.tapType) {
+                    tapSelect.selectedIndex = i; found = true; break;
+                }
+            }
+            if(!found) tapSelect.value = nodeData.qf;
+
+            tr.querySelector('.qf').value = nodeData.qf;
+            tr.querySelector('.kote').value = nodeData.kote;
+            tr.querySelector('.syst').checked = nodeData.syst;
+            
+            targetContainerTap.appendChild(tr);
+
+        } else if (type === 'valve') {
+             tr.innerHTML = `
+                <td><span class="input-group input-group-sm"><span class="input-group-text"><span class="id-text">${newId}</span></span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+                <td><select class="form-select form-select-sm parent"></select></td>
+                <td><select class="form-select form-select-sm valve-type-select"></select></td>
+                <td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
+            `;
+            const vSel = tr.querySelector('.valve-type-select');
+            let vOpts = '<option value="" disabled>Vælg...</option>';
+            for (const tName in VALVE_TYPES) vOpts += `<option value="${tName}">${tName}</option>`;
+            vSel.innerHTML = vOpts;
+            vSel.value = nodeData.valveType || "";
+            vSel.onchange = (e) => tr.dataset.valveType = e.target.value;
+            tr.dataset.valveType = nodeData.valveType;
+
+            targetContainerRow.appendChild(tr);
+        }
+
+        // Navn & Events
+        if (nodeData.name) {
+            state.names.set(newId, nodeData.name);
+            const nInput = tr.querySelector('.name-text');
+            if(nInput) nInput.value = nodeData.name;
+        }
+        const nameInp = tr.querySelector('.name-text');
+        if(nameInp) nameInp.onchange = (e) => state.names.set(newId, e.target.value);
+
+        // Forbindelse (Midlertidig)
         const pSel = tr.querySelector('.parent');
-        const opt = document.createElement('option');
-        opt.value = pId; opt.text = pId; pSel.add(opt); pSel.value = pId;
+        const tmpOpt = document.createElement('option');
+        tmpOpt.value = pId; tmpOpt.text = pId; 
+        pSel.add(tmpOpt); pSel.value = pId;
 
         // Rekursion
         if (nodeData.children) nodeData.children.forEach(child => buildNode(child, newId));
     };
 
     buildNode(state.clipboard, targetParentId);
-    
-    updateAllSelects(); // Nu bliver parent-listerne korrekte
+
+    // Opdater alt
+    updateAllSelects();
     setProjektErÆndret();
-    updateDiagram(); // Opdater grafik
 }
 
 
