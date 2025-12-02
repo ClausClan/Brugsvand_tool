@@ -1415,7 +1415,7 @@ function splitPipe(targetId) {
     const insulation = targetRow.querySelector('.insulation-class').value;
 
     let idPrefix = "";
-    if (type !== 'cirkulation_vv') {
+    if (type !== 'cirkulation_vv') { // Tjekker mod den nye type-navngivning (hvis relevant) eller fallback
         const card = targetRow.closest('.streng-card');
         idPrefix = card ? card.dataset.id : 'XX';
     }
@@ -1424,8 +1424,9 @@ function splitPipe(targetId) {
 
     for (let i = 1; i < segments; i++) {
         let newId;
-        if (type === 'cirkulation_vv') {
-            state.rC++; newId = `Cirk${state.rC}`;
+        // Håndter ID-generering baseret på typen (ror vs retur/cirkulation)
+        if (type === 'retur' || type === 'cirkulation_vv') {
+            state.rC++; newId = `Retur${state.rC}`;
         } else {
             state.tC++; newId = `${idPrefix}-R${state.tC}`;
         }
@@ -1445,7 +1446,7 @@ function splitPipe(targetId) {
         tr.dataset.type = type;
         const datalistId = `list-${newId}`;
 
-        // Standard HTML for rør
+        // Standard HTML for rør (Virker til både frem og retur pga. fælles struktur)
         tr.innerHTML = `
             <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
             <td><select class="form-select form-select-sm parent"></select></td>
@@ -1455,7 +1456,7 @@ function splitPipe(targetId) {
             <td><input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
             <td><input type="number" min="0" class="form-control form-control-sm len" value="${segmentLen.toFixed(2)}"></td>
             <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
         `;
 
         tr.querySelector('.material').value = material;
@@ -1467,7 +1468,7 @@ function splitPipe(targetId) {
         
         targetRow.parentNode.insertBefore(tr, targetRow);
         
-        // Sæt parent direkte
+        // Sæt parent direkte (midlertidigt i DOM for at holde rækkefølgen)
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
         tempOpt.value = anchorParent; tempOpt.text = anchorParent; 
@@ -1477,18 +1478,20 @@ function splitPipe(targetId) {
         updateDimOptions(matSelect);
     }
 
-    // Opdater slut-segmentet
+    // Opdater slut-segmentet (det oprindelige rør)
     targetRow.querySelector('.len').value = segmentLen.toFixed(2);
     
-    // Opdater ALT, så listerne kender de nye ID'er
+    // TRIN 1: Opdater alle lister, så de nye rør findes som options
     updateAllSelects(); 
     
-    // Sæt parent på slut-segmentet
+    // TRIN 2: Sæt den nye forælder på det oprindelige rør (Nu findes optionen i listen)
     const targetParentSel = targetRow.querySelector('.parent');
     targetParentSel.value = anchorParent; 
 
+    // TRIN 3: (VIGTIG RETTELSE) Genopbyg modellen og diagrammet fra DOM'en
+    buildNetworkAndRender();
+    
     setProjektErÆndret();
-    updateDiagram(); 
 }
 
 /**
