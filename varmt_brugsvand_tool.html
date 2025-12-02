@@ -2632,11 +2632,11 @@ function getGlobalConfig() {
 
 function buildModel(config) {
     const model = { 
-        tree: {id:'Beholder', children:[]}, 
-        kvTree: {id:'Vandstik', children:[]}, // NYT: Roden for Koldt Vand
+        tree: {id:'Beholder', type: 'beholder', children:[]}, 
+        kvTree: {id:'Vandstik', type: 'vandstik', children:[]}, 
         nodes: new Map(), 
         loops: [], 
-        isAuto: config.isAuto 
+        isAuto: config.isAuto
     };
     
     // Opret start-noder
@@ -4686,47 +4686,81 @@ function displayResults(model, config) {
 // Hjælpefunktioner til tabellerne (hvis du ikke allerede har dem separeret, er her indholdet)
 function updateRorTable(model, config) {
     const rørTable = document.getElementById('rørResultTable');
+    // Sikkerhedstjek: Findes tabellen?
+    if (!rørTable) return;
+
+    // Sæt header (hvis den mangler eller skal opdateres)
+    const thead = rørTable.querySelector('thead');
+    if (thead) {
+        thead.innerHTML = `<tr>
+            <th>ID/Navn</th>
+            <th>Type</th>
+            <th>Dim.</th>
+            <th>q [l/s]</th>
+            <th>v [m/s]</th>
+            <th>Rørfriktion [Pa/m]</th>
+            <th>Fittings [Pa]</th>
+            <th>Total [Pa]</th>
+            <th>Varmetab [W]</th>
+        </tr>`;
+    }
+
     let rørTbody = '';
-    // Genbrug eksisterende tabel-genererings logik her...
-    // (Jeg antager du genbruger koden fra din tidligere displayResults for tabellerne, da den var fin)
-    // Men husk at bruge 'meanTemp' variablen hvis den bruges i beregningerne.
     
-    // For fuldstændighedens skyld, her er den vitale del:
+    // Beregn middeltemperatur til returløb
+    const meanTemp = config.T_v - (config.dT / 2);
+
     model.nodes.forEach(n => {
-        if((n.type.includes('ror') || n.type === 'cirkulation_vv') && n.nom_dim) {
+        // RETTELSE HER: Tilføjet 'n.type &&' for at sikre, at vi ikke læser på undefined
+        if (n.type && (n.type.includes('ror') || n.type === 'cirkulation_vv') && n.nom_dim) {
+            
             const flow_ls = n.type.includes('ror') ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+            
+            // Sikkerhedstjek på ID arrayet
+            if (!ID[n.material] || !ID[n.material][n.nom_dim]) return;
+
             const d_i = ID[n.material][n.nom_dim] / 1000;
             const area = Math.PI * (d_i / 2) ** 2;
             const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
             
-            const temp = (n.type === 'ror_vv') ? config.T_v : (n.type === 'ror_kv' ? config.T_k : (config.T_v - config.dT/2));
+            // Temperatur valg
+            let temp = config.T_v; // Default VV
+            if (n.type === 'ror_kv') temp = config.T_k;
+            else if (n.type === 'cirkulation_vv') temp = meanTemp;
+
             const rho = getWaterDensity(temp);
 
+            // Beregninger
             const dp_pure = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0, temp);
             const dp_pr_meter = (n.L > 0) ? dp_pure / n.L : 0;
             
-            const dp_fitting = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, n.zeta_sum, config.fittings_pct, temp) - dp_pure;
-            const dp_total = dp_pure + dp_fitting;
+            const dp_total_calc = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, n.zeta_sum, config.fittings_pct, temp);
+            const dp_fitting = dp_total_calc - dp_pure;
 
+            // Advarsler
             let warning = '';
             const maxV = n.type.includes('cirkulation') ? config.max_v_c : config.max_v_f;
-            if (velocity > maxV) warning = '⚠️';
-            if (dp_pr_meter > config.max_dp_m) warning += '⚠️';
+            
+            if (velocity > maxV) warning = ' ⚠️';
+            if (dp_pr_meter > config.max_dp_m) warning += ' ⚠️';
 
+            // HTML Generering
             rørTbody += `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
                 <td><b>${getDisplayName(n.id)}</b></td>
                 <td>${n.type}</td>
                 <td>${n.nom_dim} mm</td>
                 <td>${flow_ls.toFixed(3)}</td>
-                <td>${velocity.toFixed(2)} ${warning}</td>
+                <td>${velocity.toFixed(2)}${warning}</td>
                 <td>${dp_pr_meter.toFixed(0)}</td>
                 <td>${dp_fitting.toFixed(0)}</td>
-                <td>${dp_total.toFixed(0)}</td>
+                <td>${dp_total_calc.toFixed(0)}</td>
                 <td>${(n.q_tab||0).toFixed(1)}</td>
             </tr>`;
         }
     });
-    rørTable.querySelector('tbody').innerHTML = rørTbody;
+    
+    const tbody = rørTable.querySelector('tbody');
+    if (tbody) tbody.innerHTML = rørTbody;
 }
 
 function updateCircTable(model) {
