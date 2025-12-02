@@ -1637,12 +1637,6 @@ function copyBranch(rootId) {
  * Indsætter gren (Fremløb eller Retur).
  * KV + VV + CV
  */
-/**
- * Indsætter kopieret gren på den valgte destination.
- * - Bruger gemt vektor til korrekt placering.
- * - Håndterer både VV, KV og Cirkulation containere.
- * - Validerer system-kompatibilitet.
- */
 function pasteBranch(targetParentId, mode = 'current') {
     if (!state.clipboard) { alert("Intet at indsætte."); return; }
 
@@ -1658,12 +1652,10 @@ function pasteBranch(targetParentId, mode = 'current') {
     const parentType = targetNode.type;
     let allowed = false;
 
-    // Regler for hvad der må klistres på hvad
     if (isSupplyVV && (parentType === 'ror_vv' || parentType === 'beholder')) allowed = true;
     if (isSupplyKV && (parentType === 'ror_kv' || parentType === 'vandstik')) allowed = true;
     if (isReturn && (parentType === 'cirkulation_vv' || parentType === 'valve' || parentType === 'beholder')) allowed = true;
 
-    // Særlig tjek for Tapsteder (hvis de er "neutrale" i udklipsholderen)
     if (clipType === 'tapsted') {
         if (parentType.includes('_vv') || parentType === 'beholder') allowed = true;
         if (parentType.includes('_kv') || parentType === 'vandstik') allowed = true;
@@ -1674,13 +1666,12 @@ function pasteBranch(targetParentId, mode = 'current') {
         return;
     }
 
-    // 2. BEREGN POSITION (Brug vektoren fra copy)
+    // 2. BEREGN POSITION
     const getX = (n) => (n.fx !== undefined && n.fx !== null) ? n.fx : n.x;
     const getY = (n) => (n.fy !== undefined && n.fy !== null) ? n.fy : n.y;
     
     const baseX = getX(targetNode);
     const baseY = getY(targetNode);
-    // Brug gemt vektor eller standard 60px hvis den mangler
     const vecX = (state.clipboard.parentOffsetX !== undefined) ? state.clipboard.parentOffsetX : 60;
     const vecY = (state.clipboard.parentOffsetY !== undefined) ? state.clipboard.parentOffsetY : 60;
     
@@ -1698,14 +1689,13 @@ function pasteBranch(targetParentId, mode = 'current') {
         let isKV = isSupplyKV;
         if (clipType === 'tapsted') isKV = (parentType === 'ror_kv' || parentType === 'vandstik');
 
-        // Skal vi lave en ny streng? (Hvis 'new' mode ELLER vi paster direkte på Roden)
         if (mode === 'new' || parentType === 'beholder' || parentType === 'vandstik') {
             if (isKV) {
                 addStreng_kv(); 
                 const newCard = document.querySelector('#strengeContainerKV .streng-card:last-child');
                 targetCardId = newCard.dataset.id;
-                // Fjern standard-røret, da vi paster vores eget træ
-                newCard.querySelectorAll('button[aria-label*="Fjern"]').forEach(b => b.click());
+                // RETTELSE HER: Vælg kun knapper i body (rækker), ikke headeren!
+                newCard.querySelectorAll('.card-body button[aria-label*="Fjern element"]').forEach(b => b.click());
                 
                 targetContainerRow = newCard.querySelector('.ror-container');
                 targetContainerTap = newCard.querySelector('.tapsted-container');
@@ -1713,7 +1703,8 @@ function pasteBranch(targetParentId, mode = 'current') {
                 addStreng_vv(); 
                 const newCard = document.querySelector('#strengeContainerVV .streng-card:last-child');
                 targetCardId = newCard.dataset.id;
-                newCard.querySelectorAll('button[aria-label*="Fjern"]').forEach(b => b.click());
+                // RETTELSE HER: Vælg kun knapper i body (rækker), ikke headeren!
+                newCard.querySelectorAll('.card-body button[aria-label*="Fjern element"]').forEach(b => b.click());
                 
                 targetContainerRow = newCard.querySelector('.ror-container');
                 targetContainerTap = newCard.querySelector('.tapsted-container');
@@ -1734,7 +1725,6 @@ function pasteBranch(targetParentId, mode = 'current') {
         let newId;
         const type = nodeData.type;
 
-        // Generer unikt ID
         if (type === 'cirkulation_vv') {
             state.rC++; newId = `Cirk${state.rC}`;
         } else if (type === 'valve') {
@@ -1747,12 +1737,10 @@ function pasteBranch(targetParentId, mode = 'current') {
 
         const datalistId = `list-${newId}`;
         
-        // Sæt position i modellen (Relativt til den nye rod)
         const newFx = newRootX + (nodeData.relX || 0);
         const newFy = newRootY + (nodeData.relY || 0);
         state.nodes.push({ id: newId, type: type, fx: newFx, fy: newFy });
 
-        // Opret DOM element
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = type;
@@ -1838,7 +1826,6 @@ function pasteBranch(targetParentId, mode = 'current') {
             targetContainerRow.appendChild(tr);
         }
 
-        // Navn & Events
         if (nodeData.name) {
             state.names.set(newId, nodeData.name);
             const nInput = tr.querySelector('.name-text');
@@ -1847,19 +1834,16 @@ function pasteBranch(targetParentId, mode = 'current') {
         const nameInp = tr.querySelector('.name-text');
         if(nameInp) nameInp.onchange = (e) => state.names.set(newId, e.target.value);
 
-        // Forbindelse (Midlertidig)
         const pSel = tr.querySelector('.parent');
         const tmpOpt = document.createElement('option');
         tmpOpt.value = pId; tmpOpt.text = pId; 
         pSel.add(tmpOpt); pSel.value = pId;
 
-        // Rekursion
         if (nodeData.children) nodeData.children.forEach(child => buildNode(child, newId));
     };
 
     buildNode(state.clipboard, targetParentId);
 
-    // Opdater alt
     updateAllSelects();
     setProjektErÆndret();
 }
@@ -6108,18 +6092,13 @@ function handleNodeClick(event, d) {
  * @param {object} d - Data-objektet for den klikkede node.
  * Indeholder undermenuer og logik for alle komponenttyper.
  * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel)
- */
 /**
- * Håndterer højre-klik på en node (Kontekstmenu).
- * Indeholder logik for Tilføj, Slet, Forbind, Flyt og Indsæt (Paste).
- */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
     removeContextMenu();
 
     const menu = document.createElement('div');
     menu.id = 'context-menu';
-    // Styling direkte her for at sikre den altid ser rigtig ud
     menu.style.cssText = `
         position: absolute; 
         left: ${event.pageX}px; 
@@ -6130,7 +6109,7 @@ function handleNodeRightClick(event, d) {
         box-shadow: 2px 2px 5px rgba(0,0,0,0.2); 
         padding: 5px 0; 
         z-index: 1000; 
-        min-width: 220px;
+        min-width: 240px;
         font-size: 14px;
         font-family: sans-serif;
     `;
@@ -6142,7 +6121,6 @@ function handleNodeRightClick(event, d) {
         item.style.padding = '8px 15px';
         item.style.cursor = 'pointer';
         
-        // Simpel hover-effekt via JS events
         item.onmouseenter = () => item.style.backgroundColor = '#f2f2f2';
         item.onmouseleave = () => item.style.backgroundColor = 'transparent';
         
@@ -6155,122 +6133,128 @@ function handleNodeRightClick(event, d) {
     };
 
     const nodeType = d.type;
+    const isPipe = ['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType);
     
-    // ANALYSE AF CLIPBOARD (Hvad har vi kopieret?)
-    let showPasteVV = false;
-    let showPasteKV = false;
-    let showPasteRetur = false;
-    
+    // ANALYSE AF CLIPBOARD
+    let showPasteVV = false, showPasteKV = false, showPasteRetur = false;
     if (state.clipboard) {
         const ct = state.clipboard.type;
-        // VV kompatibel: ror_vv eller tapsted
         if (['ror_vv', 'tapsted'].includes(ct)) showPasteVV = true;
-        // KV kompatibel: ror_kv eller tapsted
         if (['ror_kv', 'tapsted'].includes(ct)) showPasteKV = true;
-        // Retur kompatibel: cirkulation_vv eller valve
         if (['cirkulation_vv', 'valve'].includes(ct)) showPasteRetur = true;
     }
 
     // ============================================================
-    // 1. BEHOLDER (VV Root)
+    // 1. FORBINDELSER (HØJESTE PRIORITET)
     // ============================================================
-    if (nodeType === 'beholder') {
-        menu.appendChild(createMenuItem('➕ Tilføj ny VV-streng herfra', () => {
-            addStreng_vv(d.id);
-        }));
-        
-        // PASTE VV
-        if (showPasteVV) {
-            menu.appendChild(document.createElement('hr'));
-            menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => {
-                pasteBranch(d.id, 'new');
-            }));
-        }
-        // PASTE RETUR (Returløb kobles til beholder)
-        if (showPasteRetur) {
-            menu.appendChild(document.createElement('hr'));
-            menu.appendChild(createMenuItem('📋 Indsæt retur-gren', () => {
-                pasteBranch(d.id, 'current');
-            }));
-        }
-
-        menu.appendChild(document.createElement('hr'));
-        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
-            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
+    // Gælder alle rør og ventiler (men ikke rødder som Beholder/Vandstik, da de er faste)
+    if (isPipe || nodeType === 'valve') {
+         menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
+            state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
-            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
+        }));
+    }
+    
+    // Specifikt for Varmt Vand: Retur-kobling
+    if (nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
+            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
+            document.body.style.cursor = 'crosshair';
         }));
     }
 
+    if (isPipe || nodeType === 'valve') {
+        menu.appendChild(document.createElement('hr'));
+    }
+
     // ============================================================
-    // 2. KOLDT VAND (KV: Vandstik + ror_kv)
+    // 2. NY STRENG / UDBYGNING (FLYTTET HEROP)
     // ============================================================
+    
+    // Beholder & VV Rør -> Ny VV Streng
+    if (nodeType === 'beholder' || nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('➕ Tilføj ny VV-streng herfra', () => {
+            addStreng_vv(d.id);
+        }));
+    }
+
+    // Vandstik & KV Rør -> Ny KV Streng
     if (nodeType === 'vandstik' || nodeType === 'ror_kv') {
         menu.appendChild(createMenuItem('➕ Tilføj ny KV-streng herfra', () => {
             addStreng_kv(d.id);
         }));
-
-        if (nodeType === 'ror_kv') {
-             menu.appendChild(document.createElement('hr'));
-             menu.appendChild(createMenuItem('➕ Tilføj KV-rør her', () => {
-                const parentId = d.id;
-                const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-                const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-                if (strengCard) {
-                    addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv', parentId);
-                }
-            }));
-            menu.appendChild(createMenuItem('🚰 Tilføj Tapsted her', () => {
-                 const parentId = d.id;
-                 const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-                 const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-                 if (strengCard) {
-                     addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
-                     // Manuel opdatering af parent, da addTapsted ikke tager parentId
-                     const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
-                     if (newTap) { 
-                         newTap.querySelector('.parent').value = parentId; 
-                         updateAllSelects(); 
-                     }
-                 }
-            }));
-        }
-        
-        // PASTE KV
-        if (showPasteKV) {
-             menu.appendChild(document.createElement('hr'));
-             
-             if (nodeType === 'vandstik') {
-                 menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => {
-                    pasteBranch(d.id, 'new');
-                 }));
-             } else {
-                 // For rør har vi to muligheder
-                 menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => {
-                    pasteBranch(d.id, 'current');
-                 }));
-                 menu.appendChild(createMenuItem('📋 Indsæt som Ny streng (Afgrening)', () => {
-                    pasteBranch(d.id, 'new');
-                 }));
-             }
-        }
     }
 
+    // Cirkulation & Beholder -> Nyt Cirkulationsrør (Extension)
+    if (nodeType === 'cirkulation_vv' || nodeType === 'valve' || nodeType === 'beholder') {
+        menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
+            addCirkulationRor();
+            // Auto-parent logic
+            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
+            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+        }));
+    }
+
+    menu.appendChild(document.createElement('hr'));
+
     // ============================================================
-    // 3. VARMT VAND (VV: ror_vv)
+    // 3. REDIGERING & MANIPULATION
     // ============================================================
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('➕ Tilføj ny VV-streng herfra', () => {
-            addStreng_vv(d.id);
+    
+    if (isPipe) {
+        menu.appendChild(createMenuItem('✂️ Opdel rør (Indsæt node)', () => {
+            if (typeof splitPipe === 'function') splitPipe(d.id);
+        }));
+        
+        menu.appendChild(createMenuItem('🖐️ Flyt gren (Klip)', () => {
+            if (typeof startMoveBranch === 'function') startMoveBranch(d.id);
+        }));
+        
+        menu.appendChild(createMenuItem('📋 Kopier gren', () => {
+            if (typeof copyBranch === 'function') copyBranch(d.id);
         }));
         
         menu.appendChild(document.createElement('hr'));
-        menu.appendChild(createMenuItem('➕ Tilføj VV-rør her', () => {
+    }
+
+    // ============================================================
+    // 4. LOKAL UDBYGNING (I SAMME STRENG)
+    // ============================================================
+
+    // VV Rør
+    if (nodeType === 'ror_vv') {
+        menu.appendChild(createMenuItem('➕ Tilføj VV-rør her (Forlæng)', () => {
             const parentId = d.id;
             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
             if (strengCard) {
                 addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_vv', parentId);
+            }
+        }));
+        menu.appendChild(createMenuItem('🚰 Tilføj Tapsted her', () => {
+             const parentId = d.id;
+             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+             if (strengCard) {
+                 addTapsted(strengCard.querySelector('button[aria-label*="Tilføj tapsted"]'));
+                 // Manuel opdatering af parent
+                 const newTap = strengCard.querySelector('.tapsted-container > tr:last-child');
+                 if (newTap) { 
+                     newTap.querySelector('.parent').value = parentId; 
+                     updateAllSelects(); 
+                 }
+             }
+        }));
+    }
+
+    // KV Rør
+    if (nodeType === 'ror_kv') {
+        menu.appendChild(createMenuItem('➕ Tilføj KV-rør her (Forlæng)', () => {
+            const parentId = d.id;
+            const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+            const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+            if (strengCard) {
+                addRorSektion(strengCard.querySelector('button[aria-label*="Tilføj rør"]'), 'ror_kv', parentId);
             }
         }));
         menu.appendChild(createMenuItem('🚰 Tilføj Tapsted her', () => {
@@ -6286,36 +6270,10 @@ function handleNodeRightClick(event, d) {
                  }
              }
         }));
-        menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
-            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
-            document.body.style.cursor = 'crosshair';
-        }));
-
-        // PASTE VV
-        if (showPasteVV) {
-             menu.appendChild(document.createElement('hr'));
-             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => {
-                pasteBranch(d.id, 'current');
-             }));
-             menu.appendChild(createMenuItem('📋 Indsæt som Ny streng (Afgrening)', () => {
-                pasteBranch(d.id, 'new');
-             }));
-        }
     }
 
-    // ============================================================
-    // 4. CIRKULATION & VENTILER
-    // ============================================================
+    // Cirkulation / Ventil
     if (['cirkulation_vv', 'valve'].includes(nodeType)) {
-        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
-        
-        menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
-            addCirkulationRor();
-            // Opdater parent manuelt
-            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
-            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
-        }));
-        
         menu.appendChild(createMenuItem('🔧 Tilføj Ventil her', () => {
             if (typeof addValve === 'function') {
                 addValve();
@@ -6323,37 +6281,57 @@ function handleNodeRightClick(event, d) {
                 if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
             }
         }));
+    }
 
-        // PASTE RETUR
-        if (showPasteRetur) {
+    // Specielt for Beholder (Koldt vands tilslutning)
+    if (nodeType === 'beholder') {
+        menu.appendChild(document.createElement('hr'));
+        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
+            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
+            document.body.style.cursor = 'crosshair';
+            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
+        }));
+    }
+
+    // ============================================================
+    // 5. PASTE (INDSÆT)
+    // ============================================================
+    
+    // Paste VV
+    if (nodeType === 'ror_vv' || nodeType === 'beholder') {
+        if (showPasteVV) {
              menu.appendChild(document.createElement('hr'));
-             menu.appendChild(createMenuItem('📋 Indsæt kopieret gren', () => {
-                pasteBranch(d.id, 'current');
-             }));
+             if (nodeType === 'ror_vv') {
+                 menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+             }
+             menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
         }
     }
-    
-    // ============================================================
-    // 5. REDIGERINGSVÆRKTØJER (Fælles for alle rør)
-    // ============================================================
-    if (['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType)) {
-        menu.appendChild(document.createElement('hr'));
-        menu.appendChild(createMenuItem('✂️ Opdel rør (Indsæt node)', () => {
-            if (typeof splitPipe === 'function') splitPipe(d.id);
-        }));
-        
-        menu.appendChild(createMenuItem('🖐️ Flyt gren (Klip)', () => {
-            if (typeof startMoveBranch === 'function') startMoveBranch(d.id);
-        }));
-        
-        menu.appendChild(createMenuItem('📋 Kopier gren', () => {
-            if (typeof copyBranch === 'function') copyBranch(d.id);
-        }));
+
+    // Paste KV
+    if (nodeType === 'ror_kv' || nodeType === 'vandstik') {
+        if (showPasteKV) {
+             menu.appendChild(document.createElement('hr'));
+             if (nodeType === 'ror_kv') {
+                 menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+             }
+             menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
+        }
     }
 
-    // SLET (Undtagen Rod-noder)
+    // Paste Retur
+    if (['cirkulation_vv', 'valve', 'beholder'].includes(nodeType)) {
+        if (showPasteRetur) {
+             menu.appendChild(document.createElement('hr'));
+             menu.appendChild(createMenuItem('📋 Indsæt kopieret gren', () => pasteBranch(d.id, 'current')));
+        }
+    }
+
+    // ============================================================
+    // 6. SLET
+    // ============================================================
     if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
-        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
+        menu.appendChild(document.createElement('hr'));
         menu.appendChild(createMenuItem('❌ Slet Komponent', () => {
              const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
              if (element) {
@@ -6364,7 +6342,6 @@ function handleNodeRightClick(event, d) {
                      if (state.names.has(d.id)) state.names.delete(d.id);
                      updateAllSelects();
                  }
-                 // Reset beholder-kobling hvis vi sletter det rør, den hænger på
                  if (state.beholderConnectionId === d.id) state.beholderConnectionId = null;
                  setProjektErÆndret();
              }
@@ -6372,16 +6349,9 @@ function handleNodeRightClick(event, d) {
     }
 
     document.body.appendChild(menu);
-    
-    // Luk menu ved klik udenfor
-    setTimeout(() => {
-        const closeMenu = () => {
-            removeContextMenu();
-            window.removeEventListener('click', closeMenu);
-        };
-        window.addEventListener('click', closeMenu);
-    }, 0);
+    setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
+
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
