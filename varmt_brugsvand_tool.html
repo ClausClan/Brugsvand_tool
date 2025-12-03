@@ -3179,92 +3179,102 @@ function beregnStandard(config) {
  * - Hovedledning (Fremløb): Forsyner en anden streng (sektion).
  * - Fordelingsledning (Fremløb): Forsyner >1 tapsted i samme streng.
  * - Hovedledning (Retur): Bærer flow fra flere strenge.
+ * - Håndterer nu "gennemgangskomponenter" (Booster/Reducer/Ventil) korrekt.
  */
 function analyzeSystemTopology(model) {
     const getStringId = (nodeId) => {
-        if (!nodeId) return null;
-        if (nodeId === 'Beholder') return 'Beholder';
-        if (nodeId === 'Vandstik') return 'Vandstik';
+        if (!nodeId || nodeId === 'Beholder' || nodeId === 'Vandstik') return nodeId;
         return nodeId.split('-')[0]; 
     };
 
-    // Generisk analysefunktion (bruges til både VV og KV)
-    const analyzeTree = (rootId, systemType) => {
-        const analyzeNode = (nodeId) => {
-            const node = model.nodes.get(nodeId);
-            if (!node) return { tapCount: 0, feedsOtherString: false };
+    // Liste over typer, der bare transporterer vand videre (ikke er slut-punkter)
+    const passThroughTypes = ['ror_vv', 'ror_kv', 'booster', 'reducer', 'valve', 'cirkulation_vv'];
 
-            if (node.type === 'tapsted') {
-                return { tapCount: 1, feedsOtherString: false };
-            }
+    const analyzeNode = (nodeId, systemType) => {
+        const node = model.nodes.get(nodeId);
+        // Hvis noden ikke findes eller er en "blindgyde" uden børn (og ikke er tapsted)
+        if (!node) return { tapCount: 0, feedsOtherString: false };
 
-            let totalTaps = 0;
-            let feedsOther = false;
-            const myString = getStringId(node.id);
+        if (node.type === 'tapsted') {
+            return { tapCount: 1, feedsOtherString: false };
+        }
 
-            if (node.children) {
-                node.children.forEach(child => {
-                    const childResult = analyzeNode(child.id);
-                    totalTaps += childResult.tapCount;
-                    
-                    const childString = getStringId(child.id);
-                    // Tjek om vi føder en ny streng (eller beholderen hvis vi er KV)
-                    if (childString !== myString && child.type !== 'tapsted') {
-                        feedsOther = true;
-                    }
-                    // Hvis vi er KV og føder Beholderen, er vi Hovedledning
-                    if (systemType === 'KV' && child.id === 'Beholder') {
-                        feedsOther = true;
-                    }
-                    
-                    if (childResult.feedsOtherString) feedsOther = true;
-                });
-            }
+        let totalTaps = 0;
+        let feedsOther = false;
+        const myString = getStringId(node.id);
 
-            // Tildel Kategori
-            if (node.type === 'ror_vv' || node.type === 'ror_kv') {
-                const prefix = (systemType === 'KV') ? 'cold_' : '';
+        if (node.children) {
+            node.children.forEach(child => {
+                const childResult = analyzeNode(child.id, systemType);
+                totalTaps += childResult.tapCount;
                 
+                const childString = getStringId(child.id);
+                
+                // Tjek om vi føder en ny streng
+                // (Undtagelse: Hvis barnet er en booster i samme streng, tæller det ikke som "ny streng")
+                if (childString !== myString && child.type !== 'tapsted') {
+                    feedsOther = true;
+                }
+                // Specielt for KV -> Beholder linket
+                if (systemType === 'KV' && child.id === 'Beholder') {
+                    feedsOther = true;
+                }
+                
+                if (childResult.feedsOtherString) feedsOther = true;
+            });
+        }
+
+        // Tildel Kategori
+        // Vi tildeler nu kategori til ALLE gennemgangstyper, ikke kun rør
+        if (passThroughTypes.includes(node.type)) {
+            let prefix = '';
+            if (node.type === 'ror_kv' || systemType === 'KV') prefix = 'cold_';
+            
+            // Cirkulation / Retur logik
+            if (node.type === 'cirkulation_vv' || node.type === 'valve' || (node.type === 'booster' && systemType === 'RETUR')) {
+                 // Retur-kategori tildeles i separat loop nedenfor, men vi kan give en default her
+                 node.category = 'return';
+            } 
+            // Fremløb logik
+            else {
                 if (feedsOther) {
-                    node.category = prefix + 'main'; // Hovedledning
+                    node.category = prefix + 'main';
                 } else if (totalTaps === 1) {
-                    node.category = prefix + 'connection'; // Koblingsledning
+                    node.category = prefix + 'connection';
                 } else {
-                    node.category = prefix + 'distribution'; // Fordelingsledning
+                    node.category = prefix + 'distribution';
                 }
             }
-            
-            return { tapCount: totalTaps, feedsOtherString: feedsOther };
-        };
-        
-        if (model.nodes.has(rootId)) {
-            // Kør analysen for børnene af roden
-            model.nodes.get(rootId).children.forEach(child => analyzeNode(child.id));
         }
+        
+        return { tapCount: totalTaps, feedsOtherString: feedsOther };
     };
 
-    // Kør for Varmt Vand
-    analyzeTree('Beholder', 'VV');
-    
-    // Kør for Koldt Vand (NYT)
-    analyzeTree('Vandstik', 'KV');
+    // 1. Analyser Fremløb (VV og KV)
+    if (model.nodes.has('Beholder')) model.nodes.get('Beholder').children.forEach(c => analyzeNode(c.id, 'VV'));
+    if (model.nodes.has('Vandstik')) model.nodes.get('Vandstik').children.forEach(c => analyzeNode(c.id, 'KV'));
 
-    // Retur-analyse (Uændret)
+    // 2. Analyser Retur (Cirkulation)
     const returnPipeLoops = new Map();
     model.loops.forEach(loop => {
         if (!loop.path) return;
         loop.path.forEach(nodeId => {
             const node = model.nodes.get(nodeId);
-            if (node && (node.type === 'cirkulation_vv' || node.type === 'retur')) { // Håndterer begge navne
+            // Inkluder ventiler og boostere i retur-analysen
+            if (node && ['cirkulation_vv', 'valve', 'booster', 'reducer'].includes(node.type)) {
+                // Et lille hack: Vi tjekker om komponenten ligger i retur-containeren
+                // (Da en booster teoretisk kunne være på fremløbet).
+                // Men 'loop.path' er defineret af cirkulationen, så hvis den er med her, er den en del af returen.
                 if (!returnPipeLoops.has(nodeId)) returnPipeLoops.set(nodeId, new Set());
                 returnPipeLoops.get(nodeId).add(loop.id);
             }
         });
     });
+
     model.nodes.forEach(n => {
-        if (n.type === 'cirkulation_vv' || n.type === 'retur') {
+        if (returnPipeLoops.has(n.id)) {
             const loops = returnPipeLoops.get(n.id);
-            n.category = (loops && loops.size > 1) ? 'main_return' : 'return';
+            n.category = (loops.size > 1) ? 'main_return' : 'return';
         }
     });
 }
@@ -5248,66 +5258,99 @@ function updateLabels(model) {
     });
 }
 
+/**
+ * Farvelægger diagrammet baseret på resultater (Hastighed, Tryk, Temp).
+ * OPDATERET: Understøtter nu alle flow-bærende komponenter (Rør, Booster, Reducer, Ventil).
+ */
 function applyColorGradient(mode) {
     if (!state.lastModel) return;
     const model = state.lastModel;
     let values = [];
     
-    // 1. Saml værdier til skalaen (Inkluder alle rørtyper)
+    // Liste over typer, der skal farves (Fremtidssikring: Tilføj nye typer her)
+    const validTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv', 'booster', 'reducer', 'valve'];
+
     model.nodes.forEach(n => {
-        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') && n.L > 0 && n.nom_dim) {
-            let value;
+        // Tjek om typen er gyldig og om noden er relevant
+        if (validTypes.includes(n.type)) {
+            let value = undefined;
             
+            // Hent flow data (nogle har qd, andre circ_flow)
+            const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
+                         ? (model.circFlows?.get(n.id) || 0) 
+                         : (n.qd || 0);
+
             if (mode === 'velocity') {
-                const flow = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
-                const d_i = ID[n.material][n.nom_dim] / 1000;
-                value = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
-            } else if (mode === 'pressure_drop') {
-                const dp = (n.type === 'cirkulation_vv') ? (n.dp_circ || 0) : (n.dp_tap || 0);
-                // Visning: Total tryktab pr meter
-                value = dp / n.L;
-            } else if (mode === 'heat_loss') {
-                value = (n.q_tab || 0) / n.L;
-            } else if (mode === 'temp') {
-                // Brug nodeTemps map (beregnet i finishCalculation)
+                // Kun rør har dimension og dermed hastighed
+                if (n.nom_dim && ID[n.material]) {
+                    const d_i = ID[n.material][n.nom_dim] / 1000;
+                    value = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+                } else {
+                    value = 0; // Komponenter uden diameter (Booster) får 0 hastighed
+                }
+            } 
+            else if (mode === 'pressure_drop') {
+                // Hent det beregnede tryktab (eller boost!)
+                const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
+                
+                // Visning: Tryktab pr. meter (hvis rør) ELLER absolut tryktab (hvis komponent)
+                // For at kunne sammenligne på en farveskala, konverterer vi komponenter til "ækvivalent Pa/m" 
+                // ved at dividere med 1 meter (rent visuelt trick)
+                const len = n.L > 0 ? n.L : 1;
+                value = dp / len;
+            } 
+            else if (mode === 'heat_loss') {
+                value = (n.q_tab || 0) / (n.L || 1);
+            } 
+            else if (mode === 'temp') {
+                // Hent temp fra modellen
                 const t_in = model.nodeTemps ? (model.nodeTemps.get(n.id) || 0) : 0;
-                // Visning: Gennemsnit af segmentet (simpelt) eller bare input temp
                 value = t_in;
             }
             
-            if (isFinite(value)) {
-                values.push(value);
-                n._visValue = value;
+            if (value !== undefined && isFinite(value)) {
+                // Filtrer ekstreme værdier fra Boostere (negativt tryktab) i skala-beregningen
+                // så de ikke ødelægger farveskalaen for rørene
+                if (mode === 'pressure_drop' && value < -100) {
+                     // Booster (negativ værdi). Giv den en fast værdi til visning eller ignorer i skala
+                     n._visValue = value; // Gem den rigtige værdi til tooltip
+                } else {
+                    values.push(value);
+                    n._visValue = value;
+                }
             }
         }
     });
 
     if (values.length === 0) return;
     
-    // 2. Opsæt Farveskala
+    // Opsæt Farveskala
     let colorScale;
     if (mode === 'temp') {
         const maxTemp = d3.max(values) || 55;
         const minTemp = d3.min(values) || 10;
-        // Turbo skala: Blå -> Grøn -> Gul -> Rød
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain([minTemp, maxTemp]); 
     } else {
-        // Standard (Turbo)
         const domain = d3.extent(values);
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
     }
     
-    // 3. Påfør farver på ALLE rørtyper
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv")
-      .style('stroke', d => {
+    // Påfør farver på ALLE links (også de nye typer)
+    d3.selectAll("#diagram svg line")
+      .style('stroke', function(d) {
+          // Ignorer "system-links" som kv_feed (cyan), medmindre vi er i Temp mode
+          if (d.type === 'kv_feed' && mode !== 'temp') return null; 
+
           const node = model.nodes.get(d.target.id);
+          
+          // Hvis det er en booster (negativt tryk), giv den en speciel farve (fx Grøn) i tryk-mode
+          if (mode === 'pressure_drop' && node && node._visValue < 0) return '#28a745'; // Grøn for boost
+          
           return (node && isFinite(node._visValue)) ? colorScale(node._visValue) : '#ccc';
       })
-      .style('opacity', 1); // Reset opacity
+      .style('opacity', 1);
 }
-
-
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
     if (!criticalPath) return;
