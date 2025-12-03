@@ -6556,15 +6556,18 @@ function highlightLoop(loopId) {
  * Fremhæver en enkelt komponent (rør) i diagrammet.
  */
 function highlightComponent(id) {
-    // Dæmp alle links
-    // RETTELSE: Inkluderer nu .link-cirkulation_vv
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
+    // 1. Definer selektoren for ALLE rørtyper vi vil påvirke
+    const pipeSelector = "#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv";
+
+    // 2. Dæmp alle rør (Gør dem gennemsigtige)
+    d3.selectAll(pipeSelector)
         .style('opacity', 0.1);
 
-    // Find og fremhæv det specifikke link
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
+    // 3. Find og fremhæv det specifikke rør
+    // Vi leder efter linket, hvor 'target' (slutnoden) matcher det ID, vi holder musen over
+    d3.selectAll(pipeSelector)
         .filter(d => d.target.id === id)
-        .style('stroke', '#ff7f0e') 
+        .style('stroke', '#ff7f0e') // Orange highlight farve
         .style('stroke-width', '6px')
         .style('opacity', 1.0);
 }
