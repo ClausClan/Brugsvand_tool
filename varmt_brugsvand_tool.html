@@ -3857,39 +3857,52 @@ function calculateCirculationDP_VV(model, config) {
     // Nulstil
     model.nodes.forEach(n => { if (['cirkulation_vv', 'ror_vv', 'valve', 'booster', 'reducer'].includes(n.type)) n.dp_circ = 0; });
 
+    // TRIN 1: Beregn fysisk tryktab for ALLE noder i retursystemet (ÉN GANG)
+    model.nodes.forEach(n => {
+        // Vi kigger på alt der indgår i cirkulationen (rør, ventiler, komponenter)
+        // Check om noden har et cirkulationsflow
+        const flow = model.circFlows.get(n.id);
+        
+        if (flow > 0) {
+            // Rør (VV + Cirk)
+            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
+                const d_i = ID[n.material][n.nom_dim] / 1000;
+                n.dp_circ = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct, meanTemp);
+            }
+            
+            // Booster / Reducer
+            // (Hvis de sidder i returen, skal vi bruge deres pressure_change her)
+            else if (n.type === 'booster' || n.type === 'reducer') {
+                const pChange = (n.pressure_change || 0) * 1000;
+                n.dp_circ = -1 * pChange; // Booster (pos) -> Negativt tab
+            }
+            
+            // Ventil (uden valg) - Standard modstand
+            else if (n.type === 'valve') {
+                 // Ventilen beregnes specifikt pr. loop i Trin 2, men vi kan sætte en basis her
+                 n.dp_circ = 0; 
+            }
+        }
+    });
+
+    // TRIN 2: Summer tryktab for hvert loop (Pumpedimensionering)
     model.loops.forEach(l => {
         l.dp_circ_total = 0;
         l.selectedValve = null;
 
         l.path.forEach(id => {
             const n = model.nodes.get(id);
-            if (!n) return;
-            
-            // 1. RØR (Friktion + Fittings)
-            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
-                const flow = model.circFlows.get(id) || 0;
-                const d_i = ID[n.material][n.nom_dim] / 1000;
-                const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct, meanTemp);
-                
-                n.dp_circ = (n.dp_circ || 0) + segment_dp;
-                l.dp_circ_total += segment_dp;
-            }
-            
-            // 2. KOMPONENTER (Booster / Reducer)
-            // Vi bruger den 'dp_tap' værdi, der allerede er beregnet i calculatePressureDrop_VV
-            // For en Booster er dp_tap negativ (f.eks. -50000 Pa).
-            // Når vi lægger det til totalen, reduceres det nødvendige pumpetryk korrekt.
-            if (n.type === 'booster' || n.type === 'reducer') {
-                if (n.dp_tap) {
-                    l.dp_circ_total += n.dp_tap;
-                }
+            // Læg nodens beregnede tab til loopets total
+            if (n && n.dp_circ !== undefined) {
+                l.dp_circ_total += n.dp_circ;
             }
         });
 
-        // 3. VENTIL BEREGNING (Uændret logik, men bruger den opdaterede total)
+        // Ventil Beregning (Specifik for loopet)
         const valveNode = l.path.map(id => model.nodes.get(id)).find(n => n?.type === 'valve');
         let valveRequiredDp = 0; 
         
+        // ... (Samme ventil-logik som før) ...
         if (valveNode && valveNode.valveType && VALVE_TYPES[valveNode.valveType]) {
             const typeDef = VALVE_TYPES[valveNode.valveType];
             const flowLH = (l.circ_flow || 0) * 3600; 
@@ -3919,22 +3932,22 @@ function calculateCirculationDP_VV(model, config) {
                 if (bestValve) { l.selectedValve = bestValve; valveRequiredDp = bestValve.minDp; }
             }
         } else {
-             // Fallback zeta
              valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0, meanTemp);
         }
 
+        // Opdater ventilen med det krav, dette loop stiller
+        // (Hvis ventilen deles, overskrives denne kun til visning - pumpen skal klare det værste)
         if (valveNode) valveNode.dp_circ = valveRequiredDp;
-        l.dp_circ_total += valveRequiredDp;
         
-        // Hvis en booster gør totalmodstanden negativ (dvs. boosteren leverer mere tryk end rørene sluger),
-        // så sætter vi totalen til 0 (pumpen skal bare levere flow, ikke tryk).
-        // I praksis vil strengreguleringsventilen skulle drosle overskudstrykket væk.
+        l.dp_circ_total += valveRequiredDp;
         if (l.dp_circ_total < 0) l.dp_circ_total = 0;
 
         if (l.dp_circ_total > model.max_dp_circ) model.max_dp_circ = l.dp_circ_total;
     });
+    
     return model;
 }
+
 
 function getPath(model, startId, endId) {
     const path = new Set();
@@ -5266,6 +5279,7 @@ function updateLabels(model) {
  * Farver: KV (Lys Blå -> Mørk Grøn), VV (Lys Grøn -> Mørkerød).
  * OPDATERET: Strammere filtrering. Kun 'rør'-typer tæller med i skalaen for Pa/m og W/m.
  * Dette forhindrer Boostere/Ventiler i at ødelægge legenden.
+ * OPDATERET: Forbedret KV-detektering via 'category' og fixet Pa/m visning for komponenter.
  */
 function applyColorGradient(mode) {
     if (!state.lastModel) return;
@@ -5275,19 +5289,24 @@ function applyColorGradient(mode) {
     let valuesTempKV = [];
     let valuesTempVV = [];
     
-    // Definer hvilke typer der er "Rør" (som har længde og Pa/m)
+    // Typer der har en fysisk længde og dermed Pa/m
     const pipeTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv'];
 
     model.nodes.forEach(n => {
         n._visValue = undefined;
         n._visType = undefined;
 
-        const isKV = (n.type === 'ror_kv' || n.type === 'vandstik' || (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only'));
+        // 1. BEDRE KV DETEKTERING
+        // Hvis kategorien starter med 'cold_', er det KV (gælder også boostere/ventiler)
+        // Ellers tjekker vi typen som fallback.
+        const isKV = (n.category && n.category.startsWith('cold_')) || 
+                     n.type === 'ror_kv' || 
+                     n.type === 'vandstik' || 
+                     (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only');
+                     
         n._visType = isKV ? 'KV' : 'VV';
-        
-        // Er det et rør?
-        const isPipe = pipeTypes.includes(n.type);
 
+        // Hent flow
         const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
                      ? (model.circFlows?.get(n.id) || 0) 
                      : (n.qd || 0);
@@ -5295,27 +5314,27 @@ function applyColorGradient(mode) {
         let val = undefined;
 
         if (mode === 'velocity') {
-            if (isPipe && n.nom_dim && ID[n.material]) {
+            if (pipeTypes.includes(n.type) && n.nom_dim && ID[n.material]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 val = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
                 if (isFinite(val)) valuesPipes.push(val);
             }
         } 
         else if (mode === 'pressure_drop') {
-            const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
+            // Hent tryktab (eller boost)
+            const dp = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) ? (n.dp_circ || 0) : (n.dp_tap || 0);
             
-            if (isPipe && n.nom_dim && n.L > 0) {
-                // Rør: Beregn Pa/m
+            if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
+                // RØR: Vis Pa/m
                 val = dp / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             } else {
-                // Komponenter: Vis absolut værdi (men push IKKE til valuesPipes)
+                // KOMPONENTER: Vis absolut værdi (men tæl ikke med i farveskalaen for rør)
                 val = dp; 
             }
         } 
         else if (mode === 'heat_loss') {
-            if (isPipe && n.nom_dim && n.L > 0) {
-                // Rør: Beregn W/m
+            if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
                 val = (n.q_tab || 0) / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             }
@@ -5331,33 +5350,32 @@ function applyColorGradient(mode) {
         if (val !== undefined) n._visValue = val;
     });
 
-    // Opret Skalaer
+    // 2. Farveskalaer (Uændret logik)
     let scaleMain, scaleKV, scaleVV;
 
     if (mode === 'temp') {
-        // KV: 10 -> 20 (Blå -> Grøn)
+        // KV Skala
         const minKV = d3.min(valuesTempKV) || 10;
         const maxKV = d3.max(valuesTempKV) || 20;
-        state.tempDomains = { kv: [minKV, maxKV] }; // Gem faktisk min/max
+        state.tempDomains = { kv: [minKV, maxKV] };
         scaleKV = d3.scaleLinear().domain([minKV, maxKV]).range(["#87CEFA", "#006400"]);
 
-        // VV: 50 -> 55 (Grøn -> Rød)
+        // VV Skala
         const minVV = d3.min(valuesTempVV) || 50;
         const maxVV = d3.max(valuesTempVV) || 55;
         if(state.tempDomains) state.tempDomains.vv = [minVV, maxVV];
         scaleVV = d3.scaleLinear().domain([minVV, maxVV]).range(["#98FB98", "#8B0000"]);
 
     } else {
-        // Pa/m, W/m, m/s
+        // Standard skala (Ignorerer komponent-værdier da de ikke er pushet til valuesPipes)
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
-        
         scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
         state.visDomain = domain;
     }
     
-    // Påfør farver
+    // 3. Påfør farver
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
           if (!d || !d.target) return null;
@@ -5366,11 +5384,11 @@ function applyColorGradient(mode) {
           const n = model.nodes.get(d.target.id);
           if (!n || n._visValue === undefined) return '#ccc';
 
-          // Speciel visning for komponenter i tryk/varme mode (så de ikke bliver grå/forvirrende)
+          // Komponent-håndtering
           if ((mode === 'pressure_drop' || mode === 'heat_loss') && !pipeTypes.includes(n.type)) {
               if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745'; // Booster = Grøn
               if (mode === 'pressure_drop' && n._visValue > 0) return '#dc3545'; // Reducer = Rød
-              return '#999'; // Neutral
+              return '#999'; 
           }
 
           if (mode === 'temp') {
@@ -5382,6 +5400,8 @@ function applyColorGradient(mode) {
       })
       .style('opacity', 1);
 }
+
+
 
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
