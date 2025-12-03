@@ -3067,28 +3067,43 @@ function analyzeSystemTopology(model) {
 // =============================================================================
 
 // 1. Beregn Spidslast (VV)
+/**
+ * Beregner dimensionerende vandstrøm (qd) for Varmt Vand.
+ * Gemmer nu også total-flowet på selve Beholder-noden,
+ * så det kan læses af Koldt Vand-systemet.
+ */
 function calculateQd_VV(model) {
     function traverse(node) {
         let downstream_qf_random = 0, downstream_qf_syst = 0;
+        
         if (node.type === 'tapsted') {
             if (node.isSyst) downstream_qf_syst = node.qf; 
             else downstream_qf_random = node.qf;
         } else {
+            // Rør eller Beholder
             node.children.forEach(child => {
                 const flows = traverse(child);
                 downstream_qf_random += flows.random; 
                 downstream_qf_syst += flows.syst;
             });
         }
-        if(node.type === 'ror_vv') { // Dette dækker pt. kun VV rør
+
+        // VIGTIG RETTELSE: Vi gemmer nu data, hvis det er rør ELLER Beholder
+        if(node.type === 'ror_vv' || node.type === 'beholder') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
+            
+            // Beregn qd (DS 439 formel)
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
             node.qd = qd_random + downstream_qf_syst;
         }
+        
         return { random: downstream_qf_random, syst: downstream_qf_syst };
     }
+    
+    // Start traversering fra Beholderen
     traverse(model.tree);
+    
     return model;
 }
 
