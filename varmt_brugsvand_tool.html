@@ -4937,8 +4937,7 @@ function displayResults(model, config) {
     if (!advarslerDiv.querySelector('.alert-danger')) advarslerDiv.innerHTML = '';
     
     // 1. TJEK FORSYNINGSTRYK (Med Link)
-    // VV Systemets disponible tryk afhænger nu af KV tabet
-    const startTryk = model.vv_start_pressure; // (pln - tab_i_kv)
+    const startTryk = model.vv_start_pressure; 
     const resttryk = startTryk - model.max_dp_tapning;
     
     if (resttryk < config.min_tap_tryk) {
@@ -4960,7 +4959,7 @@ function displayResults(model, config) {
         });
     }
 
-    // 3. BEREGN GEO DATA
+    // 3. OPSUMMERINGSTABEL
     let dp_friction = model.max_dp_tapning;
     let dp_geo = 0;
     const rho_supply = getWaterDensity(config.T_v);
@@ -4981,7 +4980,6 @@ function displayResults(model, config) {
     const meanTemp = config.T_v - (config.dT / 2);
     const rho_circ = getWaterDensity(meanTemp);
 
-    // 4. OPSUMMERINGSTABEL (Med Hydraulisk Regnskab)
     let kvLinkRow = '';
     if (state.beholderConnectionId) {
         kvLinkRow = `<tr class="table-warning"><td>Tab i Koldt Vand (til Beholder)</td><td>-${(model.kv_pressure_loss_to_beholder || 0).toFixed(0)} Pa</td></tr>
@@ -4999,7 +4997,7 @@ function displayResults(model, config) {
         <tr><td>Pumpeflow (total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
         <tr><td>Pumpetryk (løftehøjde)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>`;
 
-    // 5. Opdater Beholder Resultat
+    // 4. Opdater Beholder Resultat
     const metodeA_div = document.getElementById('metodeA_content');
     if (model.N > 0) {
         metodeA_div.innerHTML = `
@@ -5013,95 +5011,134 @@ function displayResults(model, config) {
         metodeA_div.innerHTML = `<p class="text-muted">Metode A kræver, at du tilføjer tapsteder af typen "Lejlighed".</p>`;
     }
 
-    // 6. Rørdata Tabel
-    updateRorTable(model, config); // Udskilt for overskuelighed, men kan være inline som før
-    
-    // 7. Cirkulation Tabel
-    updateCircTable(model); // Udskilt for overskuelighed
+    // 5. Opdater Tabeller (Rør, Cirkulation, Komponenter)
+    updateRorTable(model, config); 
+    updateCircTable(model); 
+    updateComponentTable(model); // NYT: Kalder den nye tabel
 }
 
+
 // Hjælpefunktioner til tabellerne (hvis du ikke allerede har dem separeret, er her indholdet)
+/**
+ * Opdaterer rør-tabellen med nye kolonner og sektioner.
+ * NYT: Sektioner for VV/KV, Isolering [mm], Varmetab [W/m].
+ */
 function updateRorTable(model, config) {
     const rørTable = document.getElementById('rørResultTable');
-    // Sikkerhedstjek: Findes tabellen?
     if (!rørTable) return;
 
-    // Sæt header (hvis den mangler eller skal opdateres)
+    // 1. Opdater Header
     const thead = rørTable.querySelector('thead');
     if (thead) {
         thead.innerHTML = `<tr>
-            <th>ID/Navn</th>
-            <th>Type</th>
-            <th>Dim.</th>
-            <th>q [l/s]</th>
-            <th>v [m/s]</th>
-            <th>Rørfriktion [Pa/m]</th>
-            <th>Fittings [Pa]</th>
-            <th>Total [Pa]</th>
-            <th>Varmetab [W]</th>
+            <th style="width: 20%">ID/Navn</th>
+            <th style="width: 10%">Type</th>
+            <th style="width: 10%">Dim.</th>
+            <th style="width: 10%">Flow [l/s]</th>
+            <th style="width: 10%">Hast. [m/s]</th>
+            <th style="width: 10%">Rørfrik. [Pa/m]</th>
+            <th style="width: 10%">Total [Pa]</th>
+            <th style="width: 10%">Isol. [mm]</th>
+            <th style="width: 10%">Varmetab [W/m]</th>
         </tr>`;
     }
 
-    let rørTbody = '';
-    
-    // Beregn middeltemperatur til returløb
+    let htmlVV = '';
+    let htmlKV = '';
     const meanTemp = config.T_v - (config.dT / 2);
 
-    model.nodes.forEach(n => {
-        // RETTELSE HER: Tilføjet 'n.type &&' for at sikre, at vi ikke læser på undefined
-        if (n.type && (n.type.includes('ror') || n.type === 'cirkulation_vv') && n.nom_dim) {
-            
-            const flow_ls = n.type.includes('ror') ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
-            
-            // Sikkerhedstjek på ID arrayet
-            if (!ID[n.material] || !ID[n.material][n.nom_dim]) return;
+    // Helper til at formatere rækker
+    const createRow = (n) => {
+        const flow_ls = n.type.includes('ror') ? (n.qd || 0) : (model.circFlows.get(n.id) || 0);
+        
+        // Sikkerhedstjek
+        if (!ID[n.material] || !ID[n.material][n.nom_dim]) return '';
 
-            const d_i = ID[n.material][n.nom_dim] / 1000;
-            const area = Math.PI * (d_i / 2) ** 2;
-            const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
-            
-            // Temperatur valg
-            let temp = config.T_v; // Default VV
-            if (n.type === 'ror_kv') temp = config.T_k;
-            else if (n.type === 'cirkulation_vv') temp = meanTemp;
+        const d_i = ID[n.material][n.nom_dim] / 1000;
+        const area = Math.PI * (d_i / 2) ** 2;
+        const velocity = n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
+        
+        let temp = config.T_v; 
+        if (n.type === 'ror_kv') temp = 10; // KV fast temp
+        else if (n.type === 'cirkulation_vv') temp = meanTemp;
 
-            const rho = getWaterDensity(temp);
+        // Beregninger
+        const dp_pure = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0, temp);
+        const dp_pr_meter = (n.L > 0) ? dp_pure / n.L : 0;
+        const dp_total_calc = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, n.zeta_sum, config.fittings_pct, temp);
+        
+        // Beregn W/m
+        const heatLossPerMeter = (n.L > 0) ? (n.q_tab || 0) / n.L : 0;
 
-            // Beregninger
-            const dp_pure = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, 0, 0, temp);
-            const dp_pr_meter = (n.L > 0) ? dp_pure / n.L : 0;
-            
-            const dp_total_calc = getDP(flow_ls, d_i, RH[n.material]/1000, n.L, n.zeta_sum, config.fittings_pct, temp);
-            const dp_fitting = dp_total_calc - dp_pure;
+        // Advarsler
+        let warning = '';
+        const maxV = n.type.includes('cirkulation') ? config.max_v_c : config.max_v_f;
+        if (velocity > maxV) warning = ' ⚠️';
+        if (dp_pr_meter > config.max_dp_m) warning += ' ⚠️';
 
-            // Advarsler
-            let warning = '';
-            const maxV = n.type.includes('cirkulation') ? config.max_v_c : config.max_v_f;
-            
-            if (velocity > maxV) warning = ' ⚠️';
-            if (dp_pr_meter > config.max_dp_m) warning += ' ⚠️';
+        return `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
+            <td><b>${getDisplayName(n.id)}</b></td>
+            <td>${n.type}</td>
+            <td>${n.nom_dim} mm</td>
+            <td>${flow_ls.toFixed(3)}</td>
+            <td>${velocity.toFixed(2)}${warning}</td>
+            <td>${dp_pr_meter.toFixed(0)}</td>
+            <td>${dp_total_calc.toFixed(0)}</td>
+            <td>${n.insulationThickness || 0}</td>
+            <td>${heatLossPerMeter.toFixed(1)}</td>
+        </tr>`;
+    };
 
-            // HTML Generering
-            rørTbody += `<tr onmouseenter="highlightComponent('${n.id}')" onmouseleave="clearHighlight()">
-                <td><b>${getDisplayName(n.id)}</b></td>
-                <td>${n.type}</td>
-                <td>${n.nom_dim} mm</td>
-                <td>${flow_ls.toFixed(3)}</td>
-                <td>${velocity.toFixed(2)}${warning}</td>
-                <td>${dp_pr_meter.toFixed(0)}</td>
-                <td>${dp_fitting.toFixed(0)}</td>
-                <td>${dp_total_calc.toFixed(0)}</td>
-                <td>${(n.q_tab||0).toFixed(1)}</td>
-            </tr>`;
+    // 2. Sorter og Generer Rækker
+    const nodes = Array.from(model.nodes.values());
+    // Sorter efter ID
+    nodes.sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric: true, sensitivity: 'base'}));
+
+    nodes.forEach(n => {
+        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
+            if (n.nom_dim) htmlVV += createRow(n);
+        } else if (n.type === 'ror_kv') {
+            if (n.nom_dim) htmlKV += createRow(n);
         }
     });
+
+    // 3. Saml Tabellen med Sektioner
+    let finalHtml = '';
     
+    if (htmlVV) {
+        finalHtml += `<tr class="table-light"><td colspan="9"><strong>Varmt Vand & Cirkulation</strong></td></tr>${htmlVV}`;
+    }
+    
+    if (htmlKV) {
+        finalHtml += `<tr class="table-light"><td colspan="9"><strong>Koldt Vand</strong></td></tr>${htmlKV}`;
+    }
+
     const tbody = rørTable.querySelector('tbody');
-    if (tbody) tbody.innerHTML = rørTbody;
+    if (tbody) tbody.innerHTML = finalHtml || '<tr><td colspan="9" class="text-center">Ingen rør beregnet endnu</td></tr>';
 }
 
+
+/**
+ * Opdaterer cirkulations-tabellen.
+ * NYT: Flere detaljer om ventiler og indstilling.
+ */
 function updateCircTable(model) {
     const cirkTable = document.getElementById('cirkResultTable');
+    if (!cirkTable) return;
+
+    // Opdater Header
+    cirkTable.querySelector('thead').innerHTML = `
+        <tr>
+            <th>Streng</th>
+            <th>Valgt Ventil</th>
+            <th>VVS Nr.</th>
+            <th>Varmetab [W]</th>
+            <th>Flow [l/h]</th>
+            <th>Tryktab Total [Pa]</th>
+            <th>Ventil Δp [Pa]</th>
+            <th>Indstilling</th>
+        </tr>`;
+    
     let cirkTbody = '';
     let grandTotalFlowLH = 0;
 
@@ -5109,23 +5146,128 @@ function updateCircTable(model) {
         const flowLH = (l.circ_flow || 0) * 3600;
         grandTotalFlowLH += flowLH; 
         
-        let valveText = l.selectedValve ? (l.selectedValve.valveName || l.selectedValve.freseNr) : '-';
-        let dpVal = l.selectedValve ? (l.selectedValve.isStatic ? (Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp))) : l.selectedValve.minDp) : 0;
-        let setting = l.selectedValve && l.selectedValve.isStatic && dpVal > 0 ? `Kv: ${(36 * l.circ_flow / Math.sqrt(dpVal/1000)).toFixed(2)}` : 'Auto';
+        let valveText = '-';
+        let vvsNr = '-';
+        let setting = '-';
+        let valveDpDisplay = 0;
+        let dpLabel = "";
+        
+        if (l.selectedValve) {
+            valveText = l.selectedValve.valveName || l.selectedValve.freseNr || '-'; 
+            vvsNr = l.selectedValve.vvsNr || '-';
 
-        cirkTbody += `<tr onmouseenter="highlightLoop('${l.id}')" onmouseleave="clearHighlight()">
+            if (l.selectedValve.isStatic) {
+                // Statisk: Vi skal drosle resttrykket væk
+                const requiredValveDrop = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
+                valveDpDisplay = requiredValveDrop;
+                
+                const dp_kPa = requiredValveDrop / 1000;
+                if (dp_kPa > 0) {
+                    const kv_req = 36 * l.circ_flow / Math.sqrt(dp_kPa);
+                    setting = `Kv: ${kv_req.toFixed(2)}`;
+                } else {
+                    setting = "Åben";
+                }
+                dpLabel = "(Indreg.)";
+            } else {
+                // Dynamisk: Kræver min. starttryk
+                valveDpDisplay = l.selectedValve.minDp || 0;
+                setting = "Auto";
+                dpLabel = "(Min.)";
+            }
+        } else {
+             // Ingen ventil: Vis bare det tryk, der mangler for at matche pumpen (teoretisk drosling)
+             valveDpDisplay = Math.max(0, model.max_dp_circ - l.dp_circ_total);
+             if (valveDpDisplay > 0) dpLabel = "(Mangler)";
+        }
+
+        cirkTbody += `<tr data-loop-id="${l.id}" onmouseenter="highlightLoop('${l.id}')" onmouseleave="clearHighlight()">
                       <td><b>${getDisplayName(l.id)}</b></td>
                       <td>${valveText}</td>
+                      <td><small class="text-muted">${vvsNr}</small></td>
                       <td>${(l.q_tab_tot || 0).toFixed(1)}</td>
                       <td>${flowLH.toFixed(1)}</td>
                       <td>${(l.dp_circ_total || 0).toFixed(0)}</td>
-                      <td><b>${dpVal.toFixed(0)}</b><br><small>${setting}</small></td>
+                      <td>
+                        <b>${valveDpDisplay.toFixed(0)}</b> <small class="text-muted">${dpLabel}</small>
+                      </td>
+                      <td>${setting}</td>
                     </tr>`;
     });
+
+    // Total linje
+    const totalCircFlowM3H = grandTotalFlowLH / 1000;
+    cirkTbody += `
+        <tr class="table-secondary" style="border-top: 2px solid #dee2e6;">
+            <td colspan="4" class="text-end"><b>Samlet Cirkulation:</b></td>
+            <td colspan="4"><b>${grandTotalFlowLH.toFixed(1)} l/h</b> <small class="text-muted">(${totalCircFlowM3H.toFixed(3)} m³/h)</small></td>
+        </tr>`;
+
     cirkTable.querySelector('tbody').innerHTML = cirkTbody;
 }
 
+/**
+ * Genererer en tabel over aktive komponenter (Boostere/Reducere).
+ * Indsættes dynamisk i resultaterne.
+ */
+function updateComponentTable(model) {
+    // Find eller opret container til komponent-tabel
+    let container = document.getElementById('componentResults');
+    if (!container) {
+        // Indsæt den efter cirkulations-tabellen
+        const parent = document.getElementById('cirkulation'); // Tab-pane
+        container = document.createElement('div');
+        container.id = 'componentResults';
+        container.className = 'mt-4';
+        parent.appendChild(container);
+    }
 
+    const components = [];
+    model.nodes.forEach(n => {
+        if (n.type === 'booster' || n.type === 'reducer') {
+            components.push(n);
+        }
+    });
+
+    if (components.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = `<h5>Aktive Komponenter</h5>
+    <table class="table table-sm table-bordered table-hover">
+        <thead>
+            <tr>
+                <th>ID/Navn</th>
+                <th>Type</th>
+                <th>Indstillet ΔP [kPa]</th>
+                <th>Effektiv ΔP [Pa]</th>
+                <th>Flow [l/s]</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    components.forEach(n => {
+        const pChangeKPa = n.pressure_change || 0;
+        const pChangePa = pChangeKPa * 1000;
+        // For booster er effektivt tryk positivt i denne visning (selvom det er negativt dp i beregningen)
+        const effect = (n.type === 'booster') ? `+${pChangePa}` : `${pChangePa}`; 
+        
+        // Find flow (kan være qd eller cirkulation afhængig af placering)
+        const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
+        
+        html += `<tr>
+            <td>${getDisplayName(n.id)}</td>
+            <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktionsventil'}</td>
+            <td>${pChangeKPa}</td>
+            <td><strong>${effect}</strong></td>
+            <td>${flow.toFixed(3)}</td>
+        </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
