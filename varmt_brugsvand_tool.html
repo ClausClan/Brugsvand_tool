@@ -3314,21 +3314,31 @@ function calculateQd_VV(model) {
 }
 
 // 2. Dimensioner Fremløb (VV)
+/**
+ * Automatisk dimensionering af Koldt Vand (KV) rør.
+ * Baseret på max hastighed og max tryktab pr. meter.
+ */
+/**
+ * Automatisk dimensionering af Varmt Vand (VV) rør.
+ * Opdateret til at bruge 'ror_vv' typen.
+ */
 function dimensionSupply_VV(model, config) {
-    const temp = config.T_v; // Varmt vand
+    const temp = config.T_v || 55; // Varmt vand
 
     model.nodes.forEach(n => {
         if (n.type !== 'ror_vv' || !n.qd) return;
 
         const mat = n.material;
+        if (!ID[mat]) return;
+
         const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
         let bestDim = sortedDims[sortedDims.length - 1]; 
 
         for (const dim of sortedDims) {
             const d_i = ID[mat][dim] / 1000;
-            const v = (n.qd / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+            const area = Math.PI * Math.pow(d_i / 2, 2);
+            const v = (n.qd / 1000) / area;
             
-            // Beregn tryktab med korrekt temperatur
             const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
             
             let criteriaMet = false;
@@ -3337,7 +3347,11 @@ function dimensionSupply_VV(model, config) {
                 case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
                 case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
             }
-            if (criteriaMet) { bestDim = dim; break; }
+            
+            if (criteriaMet) { 
+                bestDim = dim; 
+                break; 
+            }
         }
         n.nom_dim = bestDim;
     });
@@ -3514,6 +3528,49 @@ function calculatePressureDrop_KV(startNode, config) {
         startNode.children.forEach(c => calculatePressureDrop_KV(c, config));
     }
     return startNode;
+}
+
+/**
+ * Automatisk dimensionering af Koldt Vand (KV) rør.
+ * Baseret på max hastighed og max tryktab pr. meter.
+ */
+function dimensionSupply_KV(model, config) {
+    const temp = 10; // Koldt vand = 10 grader
+
+    model.nodes.forEach(n => {
+        // Vi dimensionerer kun ror_kv, og kun hvis der er et flow (qd)
+        if (n.type !== 'ror_kv' || !n.qd) return;
+
+        const mat = n.material;
+        // Sikkerhed: Findes materialet i vores ID-tabel?
+        if (!ID[mat]) return;
+
+        const sortedDims = Object.keys(ID[mat]).map(Number).sort((a, b) => a - b);
+        let bestDim = sortedDims[sortedDims.length - 1]; // Default: Største dim
+
+        for (const dim of sortedDims) {
+            const d_i = ID[mat][dim] / 1000;
+            const area = Math.PI * Math.pow(d_i / 2, 2);
+            const v = (n.qd / 1000) / area;
+            
+            // Beregn rent rørtab pr. meter (uden fittings-tillæg her)
+            const dp_m = getDP(n.qd, d_i, RH[mat] / 1000, 1, 0, 0, temp);
+            
+            let criteriaMet = false;
+            switch (config.dimPrinciple) {
+                case 'pressure_drop': if (dp_m < config.max_dp_m) criteriaMet = true; break;
+                case 'velocity': if (v < config.max_v_f) criteriaMet = true; break;
+                case 'combined': default: if (v < config.max_v_f && dp_m < config.max_dp_m) criteriaMet = true; break;
+            }
+            
+            if (criteriaMet) { 
+                bestDim = dim; 
+                break; // Vi har fundet den mindste dimension, der virker
+            }
+        }
+        n.nom_dim = bestDim;
+    });
+    return model;
 }
 
 // 4. Kritisk Vej KV
