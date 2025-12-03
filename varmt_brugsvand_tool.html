@@ -2925,6 +2925,8 @@ function buildModel(config) {
 // =============================================================================
 /**
  * Beregner isoleringstykkelser jf. DS 452.
+ * OPDATERET: Varmt vand indendørs er nu altid Klasse 4 som standard (Sikker side).
+ * Brugeren skal aktivt vælge "Kl. 0", hvis røret er en koblingsledning i samme rum.
  */
 function calculateInsulation(model, config) {
     const lambda = config.lambda; 
@@ -2937,25 +2939,25 @@ function calculateInsulation(model, config) {
         
         // KOLDT VAND
         if (n.type === 'ror_kv') {
-            if (n.location === 'heated') autoKlasse = 2; // Kondens
-            else autoKlasse = 6; // Frost
+            if (n.location === 'heated') autoKlasse = 2; // Kondensisolering (DS 452)
+            else autoKlasse = 6; // Frostsikring
         } 
-        // VARMT VAND
+        // VARMT VAND (VV + Cirkulation)
         else {
             if (n.location === 'outside' || n.location === 'unheated') {
-                autoKlasse = 6;
+                autoKlasse = 6; // Maksimal isolering ude
             } else {
-                // Indendørs Varmt Vand
-                // Tjek om røret er en del af cirkulationen
-                const hasCirculation = (model.circFlows && model.circFlows.get(n.id) > 0.000001);
-
-                if (n.category === 'connection' && !hasCirculation) {
-                    // ÆGTE Koblingsledning (Stagnation): Må være uisoleret
-                    autoKlasse = 0;
-                } else {
-                    // Fordelingsledning ELLER Koblingsledning m. Cirkulation: Klasse 4
-                    autoKlasse = 4;
-                }
+                // Indendørs Varmt Vand (Opvarmet rum)
+                // Jf. DS 452 Tabel 6.4:
+                // - Fordelingsledninger: Kl. 4
+                // - Cirkulationsledninger: Kl. 4
+                // - Koblingsledninger (andre rum): Kl. 4
+                // - Koblingsledninger (samme rum): Kl. 0
+                
+                // Vi sætter standarden til Klasse 4 (Sikker side).
+                // Hvis brugeren vil udnytte undtagelsen for "samme rum", 
+                // skal de manuelt vælge "Kl. 0" i dropdownen.
+                autoKlasse = 4;
             }
         }
 
@@ -2971,8 +2973,9 @@ function calculateInsulation(model, config) {
         
         if (!Ul_constants) {
             n.insulationThickness = 0; 
+            // U-værdi for uisoleret rør (Approksimation: alpha_ydre * Omkreds)
             const d_outer_m = n.nom_dim / 1000;
-            const alpha = 10; 
+            const alpha = 10; // W/m2K (typisk indendørs)
             n.u_value_per_meter = alpha * Math.PI * d_outer_m; 
             return; 
         }
@@ -2988,7 +2991,7 @@ function calculateInsulation(model, config) {
         const Di_isol_m = Dep_m;
         const Dy_isol_m = Dep_m + 2 * (n.insulationThickness / 1000);
         const R_insulation = Math.log(Dy_isol_m / Di_isol_m) / (2 * Math.PI * lambda);
-        const R_se = 0.1; 
+        const R_se = 0.1; // Standard overgangsmodstand
         
         n.u_value_per_meter = 1 / (R_insulation + R_se);
     });
