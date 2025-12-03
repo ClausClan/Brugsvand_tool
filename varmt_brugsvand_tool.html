@@ -6627,70 +6627,157 @@ function clearHighlight() {
  * Håndterer venstre-klik på en node. Enten for at redigere, eller for at færdiggøre en forbindelse.
  * @param {object} event - Klik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
+ * Håndterer nu også 'connect_mirror_tap' logikken (Spejling ved klik).
  */
 function handleNodeClick(event, d) {
-    // 1. Hvis vi er i gang med at forbinde retur (VV)
-    if (state.connectingNodeInfo && state.connectingNodeInfo.mode === 'connect_return') {
-        const sourceId = state.connectingNodeInfo.nodeData.id;
-        const targetId = d.id;
+    // Tjek om vi er i en aktiv "mode"
+    if (state.connectingNodeInfo) {
+        event.preventDefault();
+        event.stopPropagation();
 
-        // Validering: Må kun forbinde til cirkulation/retur
-        if (d.type !== 'cirkulation_vv' && d.type !== 'beholder' && d.type !== 'valve') {
-            alert('Du kan kun forbinde til et returrør, en ventil eller beholderen.');
+        const info = state.connectingNodeInfo;
+        
+        // --- NY MODE: SPEJL TAPSTED ---
+        if (info.mode === 'connect_mirror_tap') {
+            // 1. Validering: Skal klikke på et tapsted
+            if (d.type !== 'tapsted') {
+                alert("Du skal klikke på et Tapsted for at tilslutte det.");
+                return;
+            }
+
+            // 2. Find målet (Røret vi startede fra)
+            const targetPipeId = info.parentId;
+            const targetRow = document.querySelector(`tr[data-id="${targetPipeId}"]`);
+            const targetCard = targetRow ? targetRow.closest('.streng-card') : null;
+
+            if (targetCard) {
+                // Tjek om det allerede findes i denne container (undgå dubletter i visningen)
+                const container = targetCard.querySelector('.tapsted-container');
+                const existing = Array.from(container.querySelectorAll('tr')).find(tr => tr.dataset.id === d.id);
+                
+                if (existing) {
+                    alert("Dette tapsted er allerede vist i denne streng.");
+                    // Reset
+                    state.connectingNodeInfo = null;
+                    document.body.style.cursor = 'default';
+                    return;
+                }
+
+                // 3. Opret Spejlet Række (UI)
+                const tr = createRowHTML(d.id, 'tapsted');
+                
+                // 4. Hent data fra kilden (State eller DOM)
+                // Vi henter fra DOM for at få de nyeste values (hvis brugeren lige har rettet flowet)
+                const sourceRow = document.querySelector(`tr[data-id="${d.id}"]`);
+                if (sourceRow) {
+                    // Synkroniser dropdown tekst/index
+                    const srcSel = sourceRow.querySelector('.tapType');
+                    const newSel = tr.querySelector('.tapType');
+                    // Kopier værdi og tekst
+                    newSel.value = srcSel.value;
+                    // Sæt index for at vise rigtigt navn
+                    newSel.selectedIndex = srcSel.selectedIndex;
+                    
+                    tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
+                    tr.querySelector('.kote').value = sourceRow.querySelector('.kote').value;
+                    tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
+                    tr.dataset.isApartment = sourceRow.dataset.isApartment;
+                } else {
+                    // Fallback til state data hvis DOM er drilsk (bør ikke ske)
+                    const nData = state.nodes.find(n => n.id === d.id);
+                    if (nData) {
+                         tr.querySelector('.qf').value = nData.qf;
+                         tr.querySelector('.kote').value = nData.kote;
+                    }
+                }
+
+                // 5. Indsæt og Forbind
+                container.appendChild(tr);
+                
+                // Opdater dropdowns så 'parent' selectoren bliver fyldt
+                updateAllSelects(); 
+                
+                // Sæt forælderen til det rør, vi startede højreklikket på
+                const pSel = tr.querySelector('.parent');
+                if (pSel) pSel.value = targetPipeId;
+                
+                // Gem og opdater alt
+                updateAllSelects(); 
+                setProjektErÆndret();
+                
+                // Feedback
+                console.log(`Tapsted ${d.id} spejlet til rør ${targetPipeId}`);
+            }
+            
+            // 6. Afslut mode
+            state.connectingNodeInfo = null;
+            document.body.style.cursor = 'default';
             return;
         }
 
-        // Find strengen som sourceId tilhører
-        const row = document.querySelector(`tr[data-id="${sourceId}"]`);
-        const card = row ? row.closest('.streng-card') : null;
+        // --- EKSISTERENDE MODES (Parent / Return / Cold Feed) ---
+        const sourceId = info.nodeData ? info.nodeData.id : null;
+        const targetNodeData = d;
         
-        if (card) {
-            const startSelect = card.querySelector('.circ-start');
-            const endSelect = card.querySelector('.circ-end');
-            if (startSelect && endSelect) {
-                startSelect.value = sourceId;
-                endSelect.value = targetId;
-                updateDiagram();
+        // Forbindelse af Parents
+        if (info.type === 'parent') {
+            const sourceElement = document.querySelector(`tr[data-id="${sourceId}"]`);
+            if (sourceElement) {
+                const isSourceReturn = ['cirkulation_vv', 'valve'].includes(info.nodeData.type);
+                const isTargetReturn = ['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type);
+                const isTargetSupply = ['ror_vv', 'ror_kv', 'beholder', 'vandstik', 'booster', 'reducer'].includes(targetNodeData.type);
+
+                // Validering
+                const isValidConnection = (isSourceReturn && isTargetReturn) || (!isSourceReturn && isTargetSupply);
+                
+                if (isValidConnection && sourceId !== targetNodeData.id && targetNodeData.type !== 'tapsted') {
+                    sourceElement.querySelector('.parent').value = targetNodeData.id;
+                    updateAllSelects(); // Gem og tegn
+                }
             }
         }
         
-        // Nulstil
-        state.connectingNodeInfo = null;
-        document.body.style.cursor = 'default';
-        updateAllSelects(); 
-        return;
-    }
-
-    // 2. NYT: Hvis vi er i gang med at tilslutte Koldt Vand til Beholder
-    if (state.connectingNodeInfo && state.connectingNodeInfo.mode === 'connect_cold_feed') {
-        // Vi skal klikke på et koldt rør eller vandstikket
-        if (d.type !== 'ror_kv' && d.type !== 'vandstik') {
-            alert('Beholderen skal tilsluttes et koldtvandsrør eller vandstikket.');
-            return;
+        // Forbindelse til Retur (Streng-afslutning)
+        if (info.mode === 'connect_return') {
+             if (['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type)) {
+                // Find streng-kortet
+                const row = document.querySelector(`tr[data-id="${sourceId}"]`);
+                const card = row ? row.closest('.streng-card') : null;
+                if (card) {
+                    card.querySelector('.circ-start').value = sourceId;
+                    card.querySelector('.circ-end').value = targetNodeData.id;
+                    updateAllSelects();
+                }
+            }
         }
 
-        state.beholderConnectionId = d.id;
-        console.log(`Beholder tilsluttet: ${d.id}`);
+        // Forbindelse Koldt Vand -> Beholder
+        if (info.mode === 'connect_cold_feed') {
+            if (d.type !== 'ror_kv' && d.type !== 'vandstik') {
+                alert('Beholderen skal tilsluttes et koldtvandsrør eller vandstikket.');
+                return;
+            }
+            state.beholderConnectionId = d.id;
+            updateDiagram();
+            updateAllSelects();
+        }
         
-        // Nulstil
+        // Fælles afslutning
         state.connectingNodeInfo = null;
         document.body.style.cursor = 'default';
-        
-        // Gem og opdater
-        setProjektErÆndret();
-        updateDiagram(); // Tegner den nye cyan linje
-        updateAllSelects(); 
         return;
     }
 
-    // 3. Normal klik-adfærd (Highlight i tabel)
-    const row = document.querySelector(`tr[data-id="${d.id}"]`);
-    if (row) {
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        row.classList.add('highlighted-row');
-        setTimeout(() => row.classList.remove('highlighted-row'), 2000);
+    // --- NORMAL KLIK (Highlight) ---
+    const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
+    if (element) {
+        document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
+        element.classList.add('highlighted-row');
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => element.classList.remove('highlighted-row'), 2500);
     }
 }
+
 
 /**
  * Håndterer højre-klik på en node for at vise en kontekstmenu.
@@ -6796,47 +6883,15 @@ function handleNodeRightClick(event, d) {
 
         // NYT: Tilslut Eksisterende (Spejling) - VV
         menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
-             const parentId = d.id;
-             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+             // Sæt mode til at lytte efter klik
+             state.connectingNodeInfo = { 
+                 mode: 'connect_mirror_tap', 
+                 parentId: d.id // Røret vi vil koble på
+             };
+             document.body.style.cursor = 'copy'; // Vis 'kopier' markør
              
-             if (strengCard) {
-                 // Find tapsteder der IKKE er i VV containeren, men findes i systemet (fx i KV)
-                 // Vi tjekker både den nye og gamle VV container ID for sikkerheds skyld
-                 const vvContext = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
-                 const existingInVV = Array.from(vvContext.querySelectorAll('tr[data-type="tapsted"]')).map(tr => tr.dataset.id);
-                 const allTaps = state.nodes.filter(n => n.type === 'tapsted' && !existingInVV.includes(n.id));
-                 
-                 if (allTaps.length === 0) {
-                     alert("Ingen ledige tapsteder fundet (alle tapsteder er allerede forbundet til Varmt Vand).");
-                     return;
-                 }
-
-                 const tapId = prompt(`Indtast ID på tapsted du vil tilslutte (Tilgængelige: ${allTaps.map(n => getDisplayName(n.id)).join(', ')}):`);
-                 const targetTap = allTaps.find(n => n.id === tapId || getDisplayName(n.id) === tapId);
-                 
-                 if (targetTap) {
-                     const tr = createRowHTML(targetTap.id, 'tapsted');
-                     // Kopier data fra kilden (KV)
-                     const sourceRow = document.querySelector(`tr[data-id="${targetTap.id}"]`);
-                     if (sourceRow) {
-                         const srcSel = sourceRow.querySelector('.tapType');
-                         const newSel = tr.querySelector('.tapType');
-                         newSel.value = srcSel.value;
-                         // Synkroniser index for korrekt tekst-visning
-                         newSel.selectedIndex = srcSel.selectedIndex;
-                         
-                         tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
-                         tr.querySelector('.kote').value = sourceRow.querySelector('.kote').value;
-                         tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
-                         tr.dataset.isApartment = sourceRow.dataset.isApartment;
-                     }
-                     strengCard.querySelector('.tapsted-container').appendChild(tr);
-                     updateAllSelects(); 
-                     tr.querySelector('.parent').value = parentId;
-                     updateAllSelects(); // Kør igen for at gemme valget
-                 }
-             }
+             // Vis instruktion
+             showConnectHint();
         }));
         
         if (showPasteVV) {
@@ -6866,44 +6921,12 @@ function handleNodeRightClick(event, d) {
 
         // NYT: Tilslut Eksisterende (Spejling) - KV
         menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
-             const parentId = d.id;
-             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
-             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
-             
-             if (strengCard) {
-                 // Find tapsteder der IKKE er i KV containeren
-                 const existingInKV = Array.from(document.querySelectorAll('#strengeContainerKV tr[data-type="tapsted"]')).map(tr => tr.dataset.id);
-                 const allTaps = state.nodes.filter(n => n.type === 'tapsted' && !existingInKV.includes(n.id));
-                 
-                 if (allTaps.length === 0) {
-                     alert("Ingen ledige tapsteder fundet (alle tapsteder er allerede forbundet til Koldt Vand).");
-                     return;
-                 }
-
-                 const tapId = prompt(`Indtast ID på tapsted du vil tilslutte (Tilgængelige: ${allTaps.map(n => getDisplayName(n.id)).join(', ')}):`);
-                 const targetTap = allTaps.find(n => n.id === tapId || getDisplayName(n.id) === tapId);
-                 
-                 if (targetTap) {
-                     const tr = createRowHTML(targetTap.id, 'tapsted');
-                     // Kopier data fra kilden (VV)
-                     const sourceRow = document.querySelector(`tr[data-id="${targetTap.id}"]`);
-                     if (sourceRow) {
-                         const srcSel = sourceRow.querySelector('.tapType');
-                         const newSel = tr.querySelector('.tapType');
-                         newSel.value = srcSel.value;
-                         newSel.selectedIndex = srcSel.selectedIndex;
-                         
-                         tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
-                         tr.querySelector('.kote').value = sourceRow.querySelector('.kote').value;
-                         tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
-                         tr.dataset.isApartment = sourceRow.dataset.isApartment;
-                     }
-                     strengCard.querySelector('.tapsted-container').appendChild(tr);
-                     updateAllSelects();
-                     tr.querySelector('.parent').value = parentId;
-                     updateAllSelects();
-                 }
-             }
+             state.connectingNodeInfo = { 
+                 mode: 'connect_mirror_tap', 
+                 parentId: d.id 
+             };
+             document.body.style.cursor = 'copy';
+             showConnectHint();
         }));
         
         if (showPasteKV) {
@@ -7179,6 +7202,64 @@ function removeContextMenu() {
         menu.remove();
     }
 }
+
+/**
+ * Viser en instruktions-dialog for tilslutning.
+ * Håndterer "Vis ikke igen" via localStorage.
+ */
+function showConnectHint() {
+    // 1. Tjek om brugeren har slået det fra
+    if (localStorage.getItem('varmtBrugsvand_suppressMirrorHint') === 'true') return;
+
+    // 2. Fjern eksisterende modal hvis den findes (oprydning)
+    const oldModal = document.getElementById('connectHintModal');
+    if (oldModal) oldModal.remove();
+
+    // 3. Opret HTML dynamisk
+    const modalHtml = `
+    <div class="modal fade" id="connectHintModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-light py-2">
+                    <h6 class="modal-title">🔗 Tilslut Eksisterende Tapsted</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">Klik nu på det <strong>Tapsted</strong> i diagrammet eller listen, som du vil forbinde til dette rør.</p>
+                    <small class="text-muted">Dette vil oprette en "spejlet" forbindelse, så tapstedet forsynes fra både koldt og varmt vand.</small>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="dontShowMirrorHintAgain">
+                        <label class="form-check-label small text-secondary" for="dontShowMirrorHintAgain">
+                            Vis ikke denne besked igen
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer py-1">
+                    <button type="button" class="btn btn-primary btn-sm" id="confirmMirrorHint">OK, jeg vælger nu</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 4. Initier og vis Bootstrap Modal
+    const modalEl = document.getElementById('connectHintModal');
+    const modal = new bootstrap.Modal(modalEl);
+    
+    // 5. Event Listener på knappen
+    const btn = document.getElementById('confirmMirrorHint');
+    btn.onclick = () => {
+        const chk = document.getElementById('dontShowMirrorHintAgain');
+        if (chk && chk.checked) {
+            localStorage.setItem('varmtBrugsvand_suppressMirrorHint', 'true');
+        }
+        modal.hide();
+    };
+
+    modal.show();
+}
+
 </script>
 <script>
   // PWA Service Worker Registrering
