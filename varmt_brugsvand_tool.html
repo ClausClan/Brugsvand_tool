@@ -5267,35 +5267,27 @@ function applyColorGradient(mode) {
     const model = state.lastModel;
     let values = [];
     
-    // Liste over typer, der skal farves (Fremtidssikring: Tilføj nye typer her)
     const validTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv', 'booster', 'reducer', 'valve'];
 
+    // 1. Indsaml værdier til skala
     model.nodes.forEach(n => {
-        // Tjek om typen er gyldig og om noden er relevant
         if (validTypes.includes(n.type)) {
             let value = undefined;
             
-            // Hent flow data (nogle har qd, andre circ_flow)
             const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
                          ? (model.circFlows?.get(n.id) || 0) 
                          : (n.qd || 0);
 
             if (mode === 'velocity') {
-                // Kun rør har dimension og dermed hastighed
                 if (n.nom_dim && ID[n.material]) {
                     const d_i = ID[n.material][n.nom_dim] / 1000;
                     value = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
                 } else {
-                    value = 0; // Komponenter uden diameter (Booster) får 0 hastighed
+                    value = 0;
                 }
             } 
             else if (mode === 'pressure_drop') {
-                // Hent det beregnede tryktab (eller boost!)
                 const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
-                
-                // Visning: Tryktab pr. meter (hvis rør) ELLER absolut tryktab (hvis komponent)
-                // For at kunne sammenligne på en farveskala, konverterer vi komponenter til "ækvivalent Pa/m" 
-                // ved at dividere med 1 meter (rent visuelt trick)
                 const len = n.L > 0 ? n.L : 1;
                 value = dp / len;
             } 
@@ -5303,17 +5295,13 @@ function applyColorGradient(mode) {
                 value = (n.q_tab || 0) / (n.L || 1);
             } 
             else if (mode === 'temp') {
-                // Hent temp fra modellen
                 const t_in = model.nodeTemps ? (model.nodeTemps.get(n.id) || 0) : 0;
                 value = t_in;
             }
             
             if (value !== undefined && isFinite(value)) {
-                // Filtrer ekstreme værdier fra Boostere (negativt tryktab) i skala-beregningen
-                // så de ikke ødelægger farveskalaen for rørene
                 if (mode === 'pressure_drop' && value < -100) {
-                     // Booster (negativ værdi). Giv den en fast værdi til visning eller ignorer i skala
-                     n._visValue = value; // Gem den rigtige værdi til tooltip
+                     n._visValue = value; 
                 } else {
                     values.push(value);
                     n._visValue = value;
@@ -5324,7 +5312,7 @@ function applyColorGradient(mode) {
 
     if (values.length === 0) return;
     
-    // Opsæt Farveskala
+    // 2. Farveskala
     let colorScale;
     if (mode === 'temp') {
         const maxTemp = d3.max(values) || 55;
@@ -5336,21 +5324,24 @@ function applyColorGradient(mode) {
         colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
     }
     
-    // Påfør farver på ALLE links (også de nye typer)
-    d3.selectAll("#diagram svg line")
+    // 3. Påfør farver (RETTE SELECTOR HER)
+    // Vi vælger kun linjer, hvor class starter med "link-"
+    d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
-          // Ignorer "system-links" som kv_feed (cyan), medmindre vi er i Temp mode
+          // Sikkerhedstjek: Er det et link?
+          if (!d || !d.target) return null;
+
           if (d.type === 'kv_feed' && mode !== 'temp') return null; 
 
           const node = model.nodes.get(d.target.id);
           
-          // Hvis det er en booster (negativt tryk), giv den en speciel farve (fx Grøn) i tryk-mode
-          if (mode === 'pressure_drop' && node && node._visValue < 0) return '#28a745'; // Grøn for boost
+          if (mode === 'pressure_drop' && node && node._visValue < 0) return '#28a745'; 
           
           return (node && isFinite(node._visValue)) ? colorScale(node._visValue) : '#ccc';
       })
       .style('opacity', 1);
 }
+
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
     if (!criticalPath) return;
