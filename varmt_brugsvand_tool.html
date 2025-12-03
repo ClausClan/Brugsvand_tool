@@ -5260,84 +5260,132 @@ function updateLabels(model) {
 
 /**
  * Farvelægger diagrammet baseret på resultater (Hastighed, Tryk, Temp).
- * OPDATERET: Understøtter nu alle flow-bærende komponenter (Rør, Booster, Reducer, Ventil).
+ * Beregner W/m og Pa/m korrekt (ekskluderer komponenter fra skalaen).
+ * Splitter Temperatur i to skalaer (KV og VV).
  */
 function applyColorGradient(mode) {
     if (!state.lastModel) return;
     const model = state.lastModel;
-    let values = [];
     
-    const validTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv', 'booster', 'reducer', 'valve'];
-
-    // 1. Indsaml værdier til skala
+    // Data containere
+    let valuesPipes = []; // Til Pa/m og W/m (Kun rør!)
+    let valuesTempKV = []; // Til KV Temp
+    let valuesTempVV = []; // Til VV Temp
+    
+    // 1. Gennemgå alle noder og beregn værdier
     model.nodes.forEach(n => {
-        if (validTypes.includes(n.type)) {
-            let value = undefined;
-            
-            const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
-                         ? (model.circFlows?.get(n.id) || 0) 
-                         : (n.qd || 0);
+        // Nulstil visningsværdi
+        n._visValue = undefined;
+        n._visType = undefined; // 'KV' eller 'VV'
 
-            if (mode === 'velocity') {
-                if (n.nom_dim && ID[n.material]) {
-                    const d_i = ID[n.material][n.nom_dim] / 1000;
-                    value = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
-                } else {
-                    value = 0;
-                }
-            } 
-            else if (mode === 'pressure_drop') {
-                const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
-                const len = n.L > 0 ? n.L : 1;
-                value = dp / len;
-            } 
-            else if (mode === 'heat_loss') {
-                value = (n.q_tab || 0) / (n.L || 1);
-            } 
-            else if (mode === 'temp') {
-                const t_in = model.nodeTemps ? (model.nodeTemps.get(n.id) || 0) : 0;
-                value = t_in;
+        // Bestem systemtype
+        const isKV = (n.type === 'ror_kv' || n.type === 'vandstik' || (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only'));
+        const isVV = !isKV; // Grovsortering, forfines nedenfor
+        n._visType = isKV ? 'KV' : 'VV';
+
+        // Hent basisdata
+        const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
+                     ? (model.circFlows?.get(n.id) || 0) 
+                     : (n.qd || 0);
+        
+        let val = undefined;
+
+        // --- MODE: VELOCITY (m/s) ---
+        if (mode === 'velocity') {
+            if (n.nom_dim && ID[n.material]) {
+                const d_i = ID[n.material][n.nom_dim] / 1000;
+                val = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
+                if (isFinite(val)) valuesPipes.push(val); // Kun rør har hastighed
             }
+        } 
+        // --- MODE: PRESSURE DROP (Pa/m) ---
+        else if (mode === 'pressure_drop') {
+            const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
             
-            if (value !== undefined && isFinite(value)) {
-                if (mode === 'pressure_drop' && value < -100) {
-                     n._visValue = value; 
-                } else {
-                    values.push(value);
-                    n._visValue = value;
-                }
+            // VIGTIGT: Vi beregner KUN Pa/m for RØR. Komponenter ignoreres i skalaen.
+            if (n.nom_dim && n.L > 0) {
+                val = dp / n.L;
+                if (isFinite(val)) valuesPipes.push(val);
+            } else {
+                // For komponenter gemmer vi værdien til tooltip, men pusher ikke til valuesPipes
+                val = dp; // Absolut værdi
+            }
+        } 
+        // --- MODE: HEAT LOSS (W/m) ---
+        else if (mode === 'heat_loss') {
+            if (n.nom_dim && n.L > 0) {
+                val = (n.q_tab || 0) / n.L;
+                if (isFinite(val)) valuesPipes.push(val);
+            }
+        } 
+        // --- MODE: TEMP (°C) ---
+        else if (mode === 'temp') {
+            val = model.nodeTemps ? (model.nodeTemps.get(n.id)) : undefined;
+            if (val !== undefined) {
+                if (isKV) valuesTempKV.push(val);
+                else valuesTempVV.push(val);
             }
         }
+
+        // Gem værdien på noden til senere farvning
+        if (val !== undefined) n._visValue = val;
     });
 
-    if (values.length === 0) return;
-    
-    // 2. Farveskala
-    let colorScale;
+    // 2. Opret Farveskalaer
+    let scaleMain, scaleKV, scaleVV;
+
     if (mode === 'temp') {
-        const maxTemp = d3.max(values) || 55;
-        const minTemp = d3.min(values) || 10;
-        colorScale = d3.scaleSequential(d3.interpolateTurbo).domain([minTemp, maxTemp]); 
+        // KV Skala (Fx 10 -> 20 grader): Blå -> Rød (indikerer opvarmning)
+        const minKV = d3.min(valuesTempKV) || 10;
+        const maxKV = d3.max(valuesTempKV) || 20;
+        // Brug en skala der er tydelig i det kolde område (Cool eller YlGnBu)
+        scaleKV = d3.scaleSequential(d3.interpolateCool).domain([maxKV, minKV]); // Omvendt: Kold=Mørk, Varm=Lys? Nej, lad os bruge Turbo
+        // Bedre: Turbo for begge, men separate ranges.
+        scaleKV = d3.scaleSequential(d3.interpolateTurbo).domain([minKV - 1, maxKV + 1]); 
+
+        // VV Skala (Fx 50 -> 60 grader)
+        const minVV = d3.min(valuesTempVV) || 45;
+        const maxVV = d3.max(valuesTempVV) || 60;
+        scaleVV = d3.scaleSequential(d3.interpolateTurbo).domain([minVV - 2, maxVV + 1]); 
+        
+        // Gem domænerne globalt til Legenden
+        state.tempDomains = { kv: [minKV, maxKV], vv: [minVV, maxVV] };
+
     } else {
-        const domain = d3.extent(values);
+        // Standard skala for tryk/hastighed/varmetab
+        let domain = d3.extent(valuesPipes);
+        if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
-        colorScale = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
+        
+        scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
+        
+        // Gem domæne til Legenden
+        state.visDomain = domain;
     }
     
-    // 3. Påfør farver (RETTE SELECTOR HER)
-    // Vi vælger kun linjer, hvor class starter med "link-"
+    // 3. Påfør farver
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
-          // Sikkerhedstjek: Er det et link?
           if (!d || !d.target) return null;
-
           if (d.type === 'kv_feed' && mode !== 'temp') return null; 
 
-          const node = model.nodes.get(d.target.id);
-          
-          if (mode === 'pressure_drop' && node && node._visValue < 0) return '#28a745'; 
-          
-          return (node && isFinite(node._visValue)) ? colorScale(node._visValue) : '#ccc';
+          const n = model.nodes.get(d.target.id);
+          if (!n || n._visValue === undefined) return '#ccc';
+
+          // Håndter komponenter i Pressure/Heat mode (De skal ikke farves, eller farves neutralt)
+          if ((mode === 'pressure_drop' || mode === 'heat_loss') && (!n.nom_dim || n.L <= 0)) {
+              // Dette er en komponent (Booster/Ventil) - Giv den en neutral farve eller behold standard
+              // Medmindre det er en Booster (negativ tryk), så giv den grøn
+              if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745';
+              return '#999'; 
+          }
+
+          // Vælg skala
+          if (mode === 'temp') {
+              return (n._visType === 'KV') ? scaleKV(n._visValue) : scaleVV(n._visValue);
+          } else {
+              return scaleMain(n._visValue);
+          }
       })
       .style('opacity', 1);
 }
@@ -5358,22 +5406,27 @@ function highlightCriticalPath() {
         });
 }
 
+/**
+ * legenden i bunden af diagrammet.
+ * Viser dobbelt-legend for Temperatur (KV + VV).
+ */
 function updateLegend() {
     const legendDiv = document.getElementById('diagram-legend');
-    if (!document.getElementById('visLegend').checked || !state.lastModel) {
+    const visLegendChk = document.getElementById('visLegend');
+    
+    if (!visLegendChk || !visLegendChk.checked || !state.lastModel) {
         legendDiv.style.display = 'none';
         return;
     }
 
-    // Justeringer til legendens stil
     legendDiv.style.display = 'block';
+    // Styling (som før)
     legendDiv.style.position = 'absolute';
     legendDiv.style.bottom = '10px';
-    legendDiv.style.left = '10px'; // Flyttet til venstre
-    legendDiv.style.width = '25%';  // Sat til 1/4 bredde
-    legendDiv.style.fontSize = '0.8rem';
+    legendDiv.style.left = '10px';
+    legendDiv.style.width = 'auto';
+    legendDiv.style.minWidth = '200px';
     legendDiv.classList.add('p-2', 'bg-light', 'border', 'rounded');
-
 
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
@@ -5381,25 +5434,46 @@ function updateLegend() {
     let html = '';
 
     if (showCritical) {
-        html = `<div><span style="background-color:#007bff; display:inline-block; width:20px; height:10px; margin-right:5px; vertical-align: middle;"></span> Kritisk Streng</div>`;
-    } else if (visMode !== 'none') {
-        const nodesWithValues = Array.from(state.lastModel.nodes.values()).filter(n => n._visValue !== undefined && isFinite(n._visValue));
-        if (nodesWithValues.length > 0) {
-            const minVal = d3.min(nodesWithValues, n => n._visValue);
-            const maxVal = d3.max(nodesWithValues, n => n._visValue);
-            const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m', temp: '°C'};
-            html = `
-                <div class="d-flex justify-content-between">
-                    <span>${minVal.toFixed(2)}</span>
-                    <span><b>${units[visMode]}</b></span>
-                    <span>${maxVal.toFixed(2)}</span>
+        html = `<div><span style="background-color:#007bff; display:inline-block; width:20px; height:10px; margin-right:5px;"></span> Kritisk Streng</div>`;
+    } 
+    else if (visMode === 'temp' && state.tempDomains) {
+        // DOBBELT LEGEND FOR TEMPERATUR
+        const dKV = state.tempDomains.kv;
+        const dVV = state.tempDomains.vv;
+        
+        // Helper til gradient bar
+        const gradientBar = (min, max, label) => `
+            <div class="mb-2">
+                <small class="fw-bold text-secondary">${label}</small>
+                <div class="d-flex justify-content-between" style="font-size:0.75rem">
+                    <span>${min.toFixed(1)}°C</span>
+                    <span>${max.toFixed(1)}°C</span>
                 </div>
-                <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.25)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(0.75)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
-            `;
-        }
+                <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
+            </div>`;
+            
+        html = gradientBar(dKV[0], dKV[1], "Koldt Vand (KV)");
+        html += gradientBar(dVV[0], dVV[1], "Varmt Vand (VV)");
+        
+    } 
+    else if (visMode !== 'none' && state.visDomain) {
+        // STANDARD LEGEND (Hastighed, Tryk, Tab)
+        const minVal = state.visDomain[0];
+        const maxVal = state.visDomain[1];
+        const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m'};
+        
+        html = `
+            <div class="d-flex justify-content-between" style="font-size:0.8rem">
+                <span>${minVal.toFixed(2)}</span>
+                <span class="fw-bold mx-2">${units[visMode]}</span>
+                <span>${maxVal.toFixed(2)}</span>
+            </div>
+            <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
+        `;
     } else {
         legendDiv.style.display = 'none';
     }
+    
     legendDiv.innerHTML = html;
 }
 
