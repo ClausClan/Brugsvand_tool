@@ -4444,11 +4444,10 @@ function loadProjectData(data) {
         clone.querySelector('.is-apartment').checked = val.isApartment;
         document.getElementById('customTapsteder').appendChild(clone);
     });
-    // Opdater ST og dropdowns
     Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}])) : {});
     updateTapstedOptions();
 
-    // 3. SCAN ID'ER (Opdater tællere)
+    // 3. SCAN ID'ER (Tællere) - Uændret logik
     const scanList = (list, prefix) => {
         if (!list) return;
         list.forEach(item => {
@@ -4463,12 +4462,10 @@ function loadProjectData(data) {
             } else if (item.type && item.type.includes('cirkulation')) {
                 if (idNum > state.rC) state.rC = idNum;
             }
-            // Tæl rør og tapsteder i strenge
             if (item.ror || item.tapsted) {
                 [...(item.ror||[]), ...(item.tapsted||[])].forEach(c => {
                     const cNum = parseInt(c.id.match(/\d+$/)?.[0] || 0, 10);
                     if (cNum > state.tC) state.tC = cNum;
-                    // Scan også komponenter i streng-listerne
                     if (c.type === 'booster' || c.type === 'reducer') {
                         const compNum = parseInt(c.id.replace(/\D/g, '') || 0, 10);
                         if (compNum > window.compCounter) window.compCounter = compNum;
@@ -4479,15 +4476,11 @@ function loadProjectData(data) {
     };
     scanList(data.strenge_vv, 'S');
     scanList(data.strenge_kv, 'K');
-    scanList(data.retur_komponenter || data.cirkulation_vv || []); // Håndter både nyt og gammelt format
+    scanList(data.retur_komponenter || data.cirkulation_vv || []);
 
-    // 4. GENERER ELEMENTER
-    
-    // Helper til at påføre data
+    // 4. GENERER ELEMENTER (Helper)
     const applyData = (tr, item) => {
         tr.dataset.tempParent = item.parent;
-        
-        // Rør-data
         const setVal = (sel, val) => { if(tr.querySelector(sel)) tr.querySelector(sel).value = val; };
         setVal('.material', item.material);
         setVal('.location', item.location);
@@ -4495,17 +4488,12 @@ function loadProjectData(data) {
         setVal('.dim', item.dim);
         setVal('.len', item.len);
         setVal('.fittings', item.fittings);
-        
-        // Komponent-data
         setVal('.pressure-change', item.pressure_change);
-        
-        // Tapsted-data
         setVal('.qf', item.qf);
         setVal('.kote', item.kote);
         if(tr.querySelector('.syst')) tr.querySelector('.syst').checked = item.syst;
         if(item.isApartment !== undefined) tr.dataset.isApartment = item.isApartment;
         
-        // Ventil-data
         if (item.type === 'valve') {
             const vSel = tr.querySelector('.valve-type-select');
             if (vSel) {
@@ -4515,24 +4503,16 @@ function loadProjectData(data) {
                 if(idTxt) idTxt.textContent = `${item.id} (${(item.valveType||'').substring(0,8)}...)`;
             }
         }
-
-        // Tapsted dropdown
         const tapSel = tr.querySelector('.tapType');
         if(tapSel && item.tapType) {
             let found = false;
             for(let i=0; i<tapSel.options.length; i++) {
-                if(tapSel.options[i].text === item.tapType) {
-                    tapSel.selectedIndex = i; found = true; break;
-                }
+                if(tapSel.options[i].text === item.tapType) { tapSel.selectedIndex = i; found = true; break; }
             }
             if(!found) tapSel.value = item.qf;
         }
-        
-        // Opdater options
         const matSel = tr.querySelector('.material');
         if(matSel) { matSel.value = item.material; updateDimOptions(matSel); if(item.dim) tr.querySelector('.dim').value = item.dim; }
-        
-        // Navn
         const nameInp = tr.querySelector('.name-text');
         if(nameInp) {
             const savedName = state.names.get(item.id);
@@ -4541,8 +4521,8 @@ function loadProjectData(data) {
         }
     };
 
-    // Strenge (VV)
-    (data.strenge_vv || []).forEach(s => {
+    // --- BYG VV STRENGE ---
+    (data.strenge_vv || data.strenge || []).forEach(s => {
         const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
         const card = clone.querySelector('.card');
         card.dataset.id = s.id;
@@ -4556,18 +4536,25 @@ function loadProjectData(data) {
         const tapCont = card.querySelector('.tapsted-container');
         
         (s.ror || []).forEach(item => {
-            const tr = createRowHTML(item.id, item.type);
+            // VIGTIGT: Tving typen til 'ror_vv' hvis den mangler, men bevar booster/reducer
+            let type = item.type;
+            if (!type || type === 'ror') type = 'ror_vv'; 
+            if (type === 'booster' || type === 'reducer') type = item.type; // Behold komponenter
+
+            const tr = createRowHTML(item.id, type);
             applyData(tr, item);
             rorCont.appendChild(tr);
         });
+        
         (s.tapsted || []).forEach(item => {
-            const tr = createRowHTML(item.id, item.type);
+            // VIGTIGT: Tving typen til 'tapsted'
+            const tr = createRowHTML(item.id, 'tapsted');
             applyData(tr, item);
             tapCont.appendChild(tr);
         });
     });
 
-    // Strenge (KV)
+    // --- BYG KV STRENGE ---
     (data.strenge_kv || []).forEach(s => {
         const clone = document.getElementById('kvStrengTemplate').content.cloneNode(true);
         const card = clone.querySelector('.card');
@@ -4579,22 +4566,31 @@ function loadProjectData(data) {
         const tapCont = card.querySelector('.tapsted-container');
         
         (s.ror || []).forEach(item => {
-            const tr = createRowHTML(item.id, item.type);
+            // VIGTIGT: Tving typen til 'ror_kv' hvis den mangler
+            let type = item.type;
+            if (!type || type === 'ror') type = 'ror_kv';
+            if (type === 'booster' || type === 'reducer') type = item.type;
+
+            const tr = createRowHTML(item.id, type);
             applyData(tr, item);
             rorCont.appendChild(tr);
         });
         (s.tapsted || []).forEach(item => {
-            const tr = createRowHTML(item.id, item.type);
+            const tr = createRowHTML(item.id, 'tapsted');
             applyData(tr, item);
             tapCont.appendChild(tr);
         });
     });
 
-    // Retur / Komponenter (Samlet)
+    // --- BYG RETUR / KOMPONENTER ---
     const returItems = data.retur_komponenter || [...(data.cirkulation_vv||[]), ...(data.retur||[]), ...(data.valves||[])];
     returItems.forEach(item => {
-        // Bagudkompatibilitet: Gamle retur-rør hedder måske bare 'retur' eller har ingen type -> 'cirkulation_vv'
-        let type = item.type || (item.valveType ? 'valve' : 'cirkulation_vv');
+        // Fallback logik for gamle data
+        let type = item.type;
+        if (!type) {
+            if (item.valveType) type = 'valve';
+            else type = 'cirkulation_vv';
+        }
         if (type === 'retur') type = 'cirkulation_vv';
         
         const tr = createRowHTML(item.id, type);
@@ -4610,10 +4606,8 @@ function loadProjectData(data) {
         const savedP = tr.dataset.tempParent;
         if(pSel && savedP) {
             pSel.value = savedP;
-            // Fallback hvis parent mangler
             if(pSel.value === "") {
                 if(tr.dataset.type === 'ror_kv') pSel.value = "Vandstik";
-                else if (tr.dataset.type === 'cirkulation_vv' || tr.dataset.type === 'valve') pSel.value = "Beholder";
                 else pSel.value = "Beholder";
             }
         }
@@ -4632,8 +4626,9 @@ function loadProjectData(data) {
     toggleDisplayNames(state.useNames);
     setTimeout(zoomToFit, 100);
     
-    console.log("Projekt indlæst komplet.");
+    console.log("Projekt indlæst komplet og typer repareret.");
 }
+
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
