@@ -3178,6 +3178,7 @@ function analyzeSystemTopology(model) {
  * Beregner dimensionerende vandstrøm (qd) for Varmt Vand.
  * Gemmer nu også total-flowet på selve Beholder-noden,
  * så det kan læses af Koldt Vand-systemet.
+ * Gemmer nu også qd på booster/reducer komponenter.
  */
 function calculateQd_VV(model) {
     function traverse(node) {
@@ -3187,7 +3188,7 @@ function calculateQd_VV(model) {
             if (node.isSyst) downstream_qf_syst = node.qf; 
             else downstream_qf_random = node.qf;
         } else {
-            // Rør eller Beholder
+            // Rør, Beholder, Booster, Reducer...
             node.children.forEach(child => {
                 const flows = traverse(child);
                 downstream_qf_random += flows.random; 
@@ -3195,8 +3196,8 @@ function calculateQd_VV(model) {
             });
         }
 
-        // VIGTIG RETTELSE: Vi gemmer nu data, hvis det er rør ELLER Beholder
-        if(node.type === 'ror_vv' || node.type === 'beholder') { 
+        // Gem data på relevante komponenter (Rør, Beholder, Booster, Reducer)
+        if(node.type === 'ror_vv' || node.type === 'beholder' || node.type === 'booster' || node.type === 'reducer') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             
@@ -3208,9 +3209,7 @@ function calculateQd_VV(model) {
         return { random: downstream_qf_random, syst: downstream_qf_syst };
     }
     
-    // Start traversering fra Beholderen
     traverse(model.tree);
-    
     return model;
 }
 
@@ -3311,9 +3310,9 @@ function findMaxPathDp_VV(startNode, config) {
 /**
  * Beregner dimensionerende vandstrøm (qd) for Koldt Vand.
  * NU MED HYDRAULISK LINK: Inkluderer flow fra Varmt Vand-systemet ved tilslutningspunktet.
+ * Gemmer qd på booster/reducer og bevarer hydraulisk link.
  */
 function calculateQd_KV(model) {
-    // Vi skal bruge data fra Beholderen (VV), så calculateQd_VV SKAL være kørt først!
     const beholderNode = model.nodes.get('Beholder');
     const linkId = state.beholderConnectionId;
 
@@ -3321,24 +3320,14 @@ function calculateQd_KV(model) {
         let downstream_qf_random = 0;
         let downstream_qf_syst = 0;
         
-        // 1. Håndter Tapsteder (Koldt forbrug)
         if (node.type === 'tapsted') {
             let qf_cold = 0;
             const tName = node.tapType;
             
-            // Forsøg at hente qf_cold fra ST (Standard Tapsteder)
-            // Håndterer både simpelt format (tal) og objekt-format ({qf_hot, qf_cold})
             if (ST[tName]) {
-                if (typeof ST[tName] === 'object') {
-                    qf_cold = ST[tName].qf_cold;
-                } else {
-                    // Fallback: Hvis kun varmt flow er kendt, antag samme til koldt (fx vask/brus)
-                    // Men WC skal tvinges til en værdi hvis den mangler
-                    qf_cold = ST[tName]; 
-                    if (tName.includes('WC')) qf_cold = 0.13; // Standard for WC
-                }
+                if (typeof ST[tName] === 'object') qf_cold = ST[tName].qf_cold;
+                else { qf_cold = ST[tName]; if (tName.includes('WC')) qf_cold = 0.13; }
             } else if (state.customTapsteder[tName]) {
-                // Custom tapsteder (bruger vi som regel til varmt, men her sikrer vi os)
                 qf_cold = state.customTapsteder[tName].qf_cold || 0;
             }
             
@@ -3346,7 +3335,6 @@ function calculateQd_KV(model) {
             else downstream_qf_random = qf_cold;
         } 
         
-        // 2. Hent flow fra børn
         if (node.children) {
             node.children.forEach(child => {
                 const flows = traverse(child);
@@ -3355,21 +3343,14 @@ function calculateQd_KV(model) {
             });
         }
         
-        // 3. HYDRAULISK LINK: Tilsæt VV-Flow
-        // Hvis dette rør føder beholderen, skal hele VV-belastningen lægges til her!
+        // HYDRAULISK LINK
         if (node.id === linkId && beholderNode) {
-            // Vi henter summerne fra Beholder-noden (som calculateQd_VV har beregnet)
-            if (beholderNode.sum_qf_random) {
-                downstream_qf_random += beholderNode.sum_qf_random;
-                // console.log(`Linker VV random flow (${beholderNode.sum_qf_random}) til ${node.id}`);
-            }
-            if (beholderNode.sum_qf_syst) {
-                downstream_qf_syst += beholderNode.sum_qf_syst;
-            }
+            if (beholderNode.sum_qf_random) downstream_qf_random += beholderNode.sum_qf_random;
+            if (beholderNode.sum_qf_syst) downstream_qf_syst += beholderNode.sum_qf_syst;
         }
         
-        // 4. Beregn qd for røret (DS 439 formel)
-        if(node.type === 'ror_kv' || node.type === 'vandstik') { 
+        // Gem på Rør, Vandstik, Booster, Reducer
+        if(node.type === 'ror_kv' || node.type === 'vandstik' || node.type === 'booster' || node.type === 'reducer') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             
@@ -3698,11 +3679,16 @@ function calculateCirculationFlowsAggregation_VV(model) {
     return model;
 }
 
+/**
+ * Beregner tryktab i cirkulationskredsene.
+ * Inkluderer nu trykændringer fra Booster/Reducer i kredsløbet.
+ */
 function calculateCirculationDP_VV(model, config) {
     model.max_dp_circ = 0;
     const meanTemp = config.T_v - (config.dT / 2);
 
-    model.nodes.forEach(n => { if (n.type === 'cirkulation_vv' || n.type === 'ror_vv') n.dp_circ = 0; });
+    // Nulstil
+    model.nodes.forEach(n => { if (['cirkulation_vv', 'ror_vv', 'valve', 'booster', 'reducer'].includes(n.type)) n.dp_circ = 0; });
 
     model.loops.forEach(l => {
         l.dp_circ_total = 0;
@@ -3710,61 +3696,74 @@ function calculateCirculationDP_VV(model, config) {
 
         l.path.forEach(id => {
             const n = model.nodes.get(id);
-            if (!n || !n.nom_dim) return;
-            const flow = model.circFlows.get(id) || 0;
-            if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
+            if (!n) return;
+            
+            // 1. RØR (Friktion + Fittings)
+            if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv') && n.nom_dim) {
+                const flow = model.circFlows.get(id) || 0;
                 const d_i = ID[n.material][n.nom_dim] / 1000;
-                // Brug meanTemp
                 const segment_dp = getDP(flow, d_i, RH[n.material] / 1000, n.L, n.zeta_sum, config.fittings_pct, meanTemp);
+                
                 n.dp_circ = (n.dp_circ || 0) + segment_dp;
                 l.dp_circ_total += segment_dp;
             }
+            
+            // 2. KOMPONENTER (Booster / Reducer)
+            // Vi bruger den 'dp_tap' værdi, der allerede er beregnet i calculatePressureDrop_VV
+            // For en Booster er dp_tap negativ (f.eks. -50000 Pa).
+            // Når vi lægger det til totalen, reduceres det nødvendige pumpetryk korrekt.
+            if (n.type === 'booster' || n.type === 'reducer') {
+                if (n.dp_tap) {
+                    l.dp_circ_total += n.dp_tap;
+                }
+            }
         });
 
-        // Ventil beregning (samme logik som før, men vi sikrer at fallback bruger meanTemp)
+        // 3. VENTIL BEREGNING (Uændret logik, men bruger den opdaterede total)
         const valveNode = l.path.map(id => model.nodes.get(id)).find(n => n?.type === 'valve');
         let valveRequiredDp = 0; 
         
-        // ... (Ventil-valg logik uændret fra sidst, men ved getDP fallback brug meanTemp) ...
-        // HVIS INGEN VENTIL VALGT:
-        if (!valveNode || !valveNode.valveType) {
-             valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0, meanTemp);
-        } else {
-            // ... (Valg logik for Static/Dynamic uændret) ...
-            // Gentag logikken fra forrige svar, men jeg antager den er med i din fulde kode.
-            // Sørg for at inkludere den her hvis du copy-paster.
-            // For kortheds skyld i dette svar: (Indsæt ventil-logikken fra tidligere svar her)
+        if (valveNode && valveNode.valveType && VALVE_TYPES[valveNode.valveType]) {
+            const typeDef = VALVE_TYPES[valveNode.valveType];
+            const flowLH = (l.circ_flow || 0) * 3600; 
+            const flowLS = l.circ_flow || 0;          
             
-             if (valveNode && valveNode.valveType && VALVE_TYPES[valveNode.valveType]) {
-                const typeDef = VALVE_TYPES[valveNode.valveType];
-                const flowLH = (l.circ_flow || 0) * 3600; 
-                const flowLS = l.circ_flow || 0;          
-                if (typeDef.type === 'dynamic') { 
-                    const valveData = typeDef.data;
-                    const selectedValveData = valveData.find(v => v.maxFlowLH >= flowLH);
-                    if (selectedValveData) { l.selectedValve = selectedValveData; valveRequiredDp = selectedValveData.minDp || selectedValveData.deltaP_Pa; }
-                } else if (typeDef.type === 'static') {
-                    const valveData = typeDef.data; 
-                    let bestValve = null;
-                    for (const valve of valveData) {
-                        const kv = valve.kv_2_5;
-                        if (kv <= 0) continue;
-                        const dp_kPa = Math.pow((36 * flowLS) / kv, 2);
+            if (typeDef.type === 'dynamic') { 
+                const valveData = typeDef.data;
+                const selectedValveData = valveData.find(v => v.maxFlowLH >= flowLH);
+                if (selectedValveData) { l.selectedValve = selectedValveData; valveRequiredDp = selectedValveData.minDp || selectedValveData.deltaP_Pa; }
+            } else if (typeDef.type === 'static') {
+                const valveData = typeDef.data; 
+                let bestValve = null;
+                for (const valve of valveData) {
+                    const kv = valve.kv_2_5;
+                    if (kv <= 0) continue;
+                    const dp_kPa = Math.pow((36 * flowLS) / kv, 2);
+                    if (dp_kPa < 25) { 
                         const dp_Pa = dp_kPa * 1000;
-                        if (dp_kPa < 25) { bestValve = { valveName: `DN ${valve.dn} (STAD)`, vvsNr: valve.vvs, kvs: valve.kvs, kv_setting: kv, minDp: dp_Pa, isStatic: true }; break; }
+                        bestValve = { valveName: `DN ${valve.dn} (STAD)`, vvsNr: valve.vvs, kvs: valve.kvs, kv_setting: kv, minDp: dp_Pa, isStatic: true }; break; 
                     }
-                    if (!bestValve && valveData.length > 0) {
-                        const largest = valveData[valveData.length - 1];
-                        const dp_Pa = Math.pow((36 * flowLS) / largest.kv_2_5, 2) * 1000;
-                        bestValve = { valveName: `DN ${largest.dn} (STAD)`, vvsNr: largest.vvs, kvs: largest.kvs, kv_setting: largest.kv_2_5, minDp: dp_Pa, isStatic: true };
-                    }
-                    if (bestValve) { l.selectedValve = bestValve; valveRequiredDp = bestValve.minDp; }
                 }
+                if (!bestValve && valveData.length > 0) {
+                    const largest = valveData[valveData.length - 1];
+                    const dp_Pa = Math.pow((36 * flowLS) / largest.kv_2_5, 2) * 1000;
+                    bestValve = { valveName: `DN ${largest.dn} (STAD)`, vvsNr: largest.vvs, kvs: largest.kvs, kv_setting: largest.kv_2_5, minDp: dp_Pa, isStatic: true };
+                }
+                if (bestValve) { l.selectedValve = bestValve; valveRequiredDp = bestValve.minDp; }
             }
+        } else {
+             // Fallback zeta
+             valveRequiredDp = getDP(l.circ_flow, 0.015, 0, 0, l.zeta, 0, meanTemp);
         }
 
         if (valveNode) valveNode.dp_circ = valveRequiredDp;
         l.dp_circ_total += valveRequiredDp;
+        
+        // Hvis en booster gør totalmodstanden negativ (dvs. boosteren leverer mere tryk end rørene sluger),
+        // så sætter vi totalen til 0 (pumpen skal bare levere flow, ikke tryk).
+        // I praksis vil strengreguleringsventilen skulle drosle overskudstrykket væk.
+        if (l.dp_circ_total < 0) l.dp_circ_total = 0;
+
         if (l.dp_circ_total > model.max_dp_circ) model.max_dp_circ = l.dp_circ_total;
     });
     return model;
