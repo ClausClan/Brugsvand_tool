@@ -2140,78 +2140,113 @@ function toggleAutoDim(isAuto) {
     document.querySelectorAll('.dim-input').forEach(i => i.disabled = isAuto);
 }
 
+/**
+ * Opdaterer alle dropdown-lister (Forældre, Cirkulation).
+ * RETTET: Inkluderer nu ALLE komponenter (Rør, Booster, Reducer) som gyldige forældre.
+ */
 function updateAllSelects() {
-    // 1. Find rør og komponenter
-    const rorVV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_vv"]'));
-    const rorKV = Array.from(document.querySelectorAll('.ror-container > tr[data-type="ror_kv"]'));
-    const returComps = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
+    // 1. INDSAML POTENTIELLE FORÆLDRE (Container-baseret)
+    
+    // VV: Find alt i VV-rør tabellerne (Rør + Komponenter)
+    const vvContainer = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
+    const vvParentsList = Array.from(vvContainer ? vvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
+    
+    // KV: Find alt i KV-rør tabellerne
+    const kvContainer = document.getElementById('strengeContainerKV');
+    const kvParentsList = Array.from(kvContainer ? kvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
+    
+    // Retur: Find alt i retur-tabellen
+    const returParentsList = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
-    // 2. Byg lister
-    const optionsVV = '<option value="Beholder">Beholder</option>' + rorVV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-    const optionsKV = '<option value="Vandstik">Vandstik</option>' + rorKV.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-    const optionsRetur = '<option value="">Ingen</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-    const optionsReturParent = '<option value="Beholder">Beholder</option>' + returComps.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
+    // 2. BYG OPTION-STRINGS
+    const buildOpts = (list, rootName) => {
+        return `<option value="${rootName}">${rootName}</option>` + 
+               list.map(el => {
+                   const id = el.dataset.id;
+                   const name = state.names.get(id) || id;
+                   // Tilføj type-info hvis det ikke er et standard rør
+                   const type = el.dataset.type;
+                   const suffix = (type === 'booster') ? ' (Booster)' : (type === 'reducer' ? ' (Reduktion)' : '');
+                   return `<option value="${id}">${name}${suffix}</option>`;
+               }).join('');
+    };
 
-    // 3. Opdater dropdowns
+    const optionsVV = buildOpts(vvParentsList, "Beholder");
+    const optionsKV = buildOpts(kvParentsList, "Vandstik");
+    const optionsReturParent = buildOpts(returParentsList, "Beholder");
+    
+    // Cirkulation-slutpunkter (kan være "Ingen")
+    const optionsCircEnd = `<option value="">Ingen</option>` + buildOpts(returParentsList, "Beholder").replace('Beholder', 'Beholder (Retur)');
+
+    // 3. OPDATER 'PARENT' DROPDOWNS
     document.querySelectorAll('.parent').forEach(s => {
-        const p = s.closest('[data-id]');
-        if (!p) return; 
+        const row = s.closest('tr');
+        if (!row) return; 
         
-        const type = p.dataset.type;
+        const myId = row.dataset.id;
         const currentVal = s.value; 
         
-        // Indhold
-        if (type === 'ror_vv') s.innerHTML = optionsVV;
-        else if (type === 'ror_kv') s.innerHTML = optionsKV;
-        else if (type === 'cirkulation_vv' || type === 'valve') s.innerHTML = optionsReturParent;
-        else if (type === 'tapsted') {
-            // Tjek streng-type
-            const strengCard = p.closest('.streng-card');
-            if (strengCard && strengCard.dataset.id.startsWith('K')) s.innerHTML = optionsKV;
-            else s.innerHTML = optionsVV;
+        // Bestem hvilket system vi er i
+        const isKV = row.closest('#strengeContainerKV') || row.closest('.kv-card');
+        const isRetur = row.closest('#returContainerBody');
+        
+        // Sæt indhold
+        if (isRetur) {
+            s.innerHTML = optionsReturParent;
+        } else if (isKV) {
+            s.innerHTML = optionsKV;
+        } else {
+            s.innerHTML = optionsVV; // Default VV
         }
         
-        // Fjern self
-        const ownOpt = s.querySelector(`option[value="${p.dataset.id}"]`); 
-        if(ownOpt) ownOpt.remove();
+        // Fjern muligheden for at vælge sig selv
+        const selfOpt = s.querySelector(`option[value="${myId}"]`);
+        if(selfOpt) selfOpt.remove();
         
-        // Sæt værdi eller standard
+        // Gendan værdi
         s.value = currentVal;
+        
+        // Fallback: Hvis den valgte forælder ikke findes mere (eller var ugyldig), sæt til rod
         if (s.value === "") {
-            // --- RETTELSE HER: Eksplicit logik for standardværdier ---
-            if (type === 'ror_kv' || (type === 'tapsted' && s.innerHTML.includes('Vandstik'))) {
-                s.value = "Vandstik";
-            } else if (type === 'cirkulation_vv' || type === 'valve') {
-                s.value = "Beholder"; // Cirkulation skal hjem til Beholder som default
-            } else {
-                s.value = "Beholder"; // VV Rør default
-            }
+            if (isKV) s.value = "Vandstik";
+            else s.value = "Beholder";
         }
     });
 
-    // 4. Cirkulations-koblinger på strenge
-    document.querySelectorAll('.streng-card').forEach(c => {
-        if (!c.classList.contains('kv-card')) { // Kun VV strenge har cirkulation
-            const start = c.querySelector('.circ-start'); 
-            const end = c.querySelector('.circ-end');
-            if (start && end) {
-                const startVal = start.value;
-                const endVal = end.value;
-                const rorInStreng = Array.from(c.querySelectorAll('.ror-container > tr[data-id]'));
-                
-                start.innerHTML = rorInStreng.map(el => `<option value="${el.dataset.id}">${getDisplayName(el.dataset.id)}</option>`).join('');
-                end.innerHTML = optionsRetur; 
-                
-                // Default start = sidste rør, Default slut = Ingen (eller Beholder hvis ønsket, men ofte kobles den på et returrør)
-                start.value = startVal || (rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '');
-                end.value = endVal || '';
-            }
+    // 4. OPDATER CIRKULATION I STRENGE
+    document.querySelectorAll('.streng-card').forEach(card => {
+        // Ignorer KV-kort
+        if (card.closest('#strengeContainerKV') || card.classList.contains('kv-card')) return;
+
+        const startSel = card.querySelector('.circ-start');
+        const endSel = card.querySelector('.circ-end');
+        
+        if (startSel && endSel) {
+            const savedStart = startSel.value;
+            const savedEnd = endSel.value;
+            
+            // Startpunkt kan være hvilket som helst rør/komponent i DENNE streng
+            const localComps = Array.from(card.querySelectorAll('.ror-container > tr[data-id]'));
+            
+            startSel.innerHTML = localComps.map(el => {
+                const name = state.names.get(el.dataset.id) || el.dataset.id;
+                return `<option value="${el.dataset.id}">${name}</option>`;
+            }).join('');
+            
+            endSel.innerHTML = optionsCircEnd;
+            
+            // Gendan
+            if (savedStart) startSel.value = savedStart;
+            // Hvis start er tom (ny streng), vælg sidste rør som default
+            if (!startSel.value && localComps.length > 0) startSel.value = localComps[localComps.length - 1].dataset.id;
+            
+            endSel.value = savedEnd;
         }
     });
-    
+
+    // 5. TEGN DIAGRAM
     buildNetworkAndRender();
 }
-
 
 function getDisplayName(id) {
     if (state.useNames && state.names.has(id)) return state.names.get(id);
