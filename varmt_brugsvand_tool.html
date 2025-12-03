@@ -5031,7 +5031,9 @@ function updateLegend() {
 
 
 // =================================================================================
-// == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING                                       ==
+// == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING
+// Global Optimering giver dig det billigste og mest kompakte rørsystem, der fysisk 
+// kan levere det krævede tryk, ved intelligent at udnytte hele det disponible forsyningstryk.                                       ==
 // =================================================================================
 
 function beregnGlobalOptimering(config) {
@@ -5166,6 +5168,7 @@ function beregnGlobalOptimering(config) {
     console.groupEnd();
     return model;
 }
+
 
 function findLocalFailures_VV(model, config) {
     const failures = [];
