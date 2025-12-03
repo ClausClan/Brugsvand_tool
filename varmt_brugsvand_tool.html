@@ -5262,108 +5262,93 @@ function updateLabels(model) {
  * Farvelægger diagrammet baseret på resultater (Hastighed, Tryk, Temp).
  * Beregner W/m og Pa/m korrekt (ekskluderer komponenter fra skalaen).
  * Splitter Temperatur i to skalaer (KV og VV).
+ * Temperaturskalaer er nu fastlåst til Design-kriterier (Config).
+ * KV: 10°C -> 20°C (Blå -> Rødlig nuance)
+ * VV: (Tv - dT) -> Tv (fx 50°C -> 55°C)
  */
 function applyColorGradient(mode) {
-    if (!state.lastModel) return;
+    if (!state.lastModel || !state.lastConfig) return;
     const model = state.lastModel;
+    const config = state.lastConfig;
     
-    // Data containere
-    let valuesPipes = []; // Til Pa/m og W/m (Kun rør!)
-    let valuesTempKV = []; // Til KV Temp
-    let valuesTempVV = []; // Til VV Temp
+    let valuesPipes = [];
     
-    // 1. Gennemgå alle noder og beregn værdier
+    // Definer faste domæner baseret på Config
+    // KV: Fra Stik (10) til Omgivelser (20). 
+    const domainKV = [config.T_k, config.T_omg_inde]; 
+    
+    // VV: Fra Returkrav (Tv - dT) til Fremløb (Tv). Fx 50 til 55.
+    const minVV = config.T_v - config.dT;
+    const maxVV = config.T_v;
+    const domainVV = [minVV, maxVV];
+
+    // Gem til legenden
+    state.tempDomains = { kv: domainKV, vv: domainVV };
+
+    // Opret farveskalaer
+    // KV: Cool (Blå -> Cyan -> Magenta). Viser opvarmning tydeligt.
+    const scaleKV = d3.scaleSequential(d3.interpolateCool).domain(domainKV);
+    
+    // VV: Turbo (koldere=blå/grøn, varmere=rød).
+    // Vi strækker domænet lidt, så 50 ikke er helt blåt, men måske grønligt/gulligt, og 55 er rødt.
+    const scaleVV = d3.scaleSequential(d3.interpolateTurbo).domain([minVV - 1, maxVV]); 
+
+    // Generisk skala til tryk/hastighed
+    let scaleMain;
+
     model.nodes.forEach(n => {
-        // Nulstil visningsværdi
         n._visValue = undefined;
-        n._visType = undefined; // 'KV' eller 'VV'
+        n._visType = undefined;
 
         // Bestem systemtype
         const isKV = (n.type === 'ror_kv' || n.type === 'vandstik' || (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only'));
-        const isVV = !isKV; // Grovsortering, forfines nedenfor
         n._visType = isKV ? 'KV' : 'VV';
 
-        // Hent basisdata
         const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
                      ? (model.circFlows?.get(n.id) || 0) 
                      : (n.qd || 0);
         
         let val = undefined;
 
-        // --- MODE: VELOCITY (m/s) ---
         if (mode === 'velocity') {
             if (n.nom_dim && ID[n.material]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 val = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
-                if (isFinite(val)) valuesPipes.push(val); // Kun rør har hastighed
+                if (isFinite(val)) valuesPipes.push(val);
             }
         } 
-        // --- MODE: PRESSURE DROP (Pa/m) ---
         else if (mode === 'pressure_drop') {
             const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
-            
-            // VIGTIGT: Vi beregner KUN Pa/m for RØR. Komponenter ignoreres i skalaen.
             if (n.nom_dim && n.L > 0) {
                 val = dp / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             } else {
-                // For komponenter gemmer vi værdien til tooltip, men pusher ikke til valuesPipes
-                val = dp; // Absolut værdi
+                val = dp; 
             }
         } 
-        // --- MODE: HEAT LOSS (W/m) ---
         else if (mode === 'heat_loss') {
             if (n.nom_dim && n.L > 0) {
                 val = (n.q_tab || 0) / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             }
         } 
-        // --- MODE: TEMP (°C) ---
         else if (mode === 'temp') {
             val = model.nodeTemps ? (model.nodeTemps.get(n.id)) : undefined;
-            if (val !== undefined) {
-                if (isKV) valuesTempKV.push(val);
-                else valuesTempVV.push(val);
-            }
         }
 
-        // Gem værdien på noden til senere farvning
         if (val !== undefined) n._visValue = val;
     });
 
-    // 2. Opret Farveskalaer
-    let scaleMain, scaleKV, scaleVV;
-
-    if (mode === 'temp') {
-        // KV Skala (Fx 10 -> 20 grader): Blå -> Rød (indikerer opvarmning)
-        const minKV = d3.min(valuesTempKV) || 10;
-        const maxKV = d3.max(valuesTempKV) || 20;
-        // Brug en skala der er tydelig i det kolde område (Cool eller YlGnBu)
-        scaleKV = d3.scaleSequential(d3.interpolateCool).domain([maxKV, minKV]); // Omvendt: Kold=Mørk, Varm=Lys? Nej, lad os bruge Turbo
-        // Bedre: Turbo for begge, men separate ranges.
-        scaleKV = d3.scaleSequential(d3.interpolateTurbo).domain([minKV - 1, maxKV + 1]); 
-
-        // VV Skala (Fx 50 -> 60 grader)
-        const minVV = d3.min(valuesTempVV) || 45;
-        const maxVV = d3.max(valuesTempVV) || 60;
-        scaleVV = d3.scaleSequential(d3.interpolateTurbo).domain([minVV - 2, maxVV + 1]); 
-        
-        // Gem domænerne globalt til Legenden
-        state.tempDomains = { kv: [minKV, maxKV], vv: [minVV, maxVV] };
-
-    } else {
-        // Standard skala for tryk/hastighed/varmetab
+    // Skala for ikke-temp modes
+    if (mode !== 'temp') {
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
-        
         scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
-        
-        // Gem domæne til Legenden
         state.visDomain = domain;
     }
     
-    // 3. Påfør farver
+    // Påfør farver
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
           if (!d || !d.target) return null;
@@ -5372,17 +5357,22 @@ function applyColorGradient(mode) {
           const n = model.nodes.get(d.target.id);
           if (!n || n._visValue === undefined) return '#ccc';
 
-          // Håndter komponenter i Pressure/Heat mode (De skal ikke farves, eller farves neutralt)
+          // Komponent-håndtering (Tryk/Varme)
           if ((mode === 'pressure_drop' || mode === 'heat_loss') && (!n.nom_dim || n.L <= 0)) {
-              // Dette er en komponent (Booster/Ventil) - Giv den en neutral farve eller behold standard
-              // Medmindre det er en Booster (negativ tryk), så giv den grøn
               if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745';
               return '#999'; 
           }
 
-          // Vælg skala
           if (mode === 'temp') {
-              return (n._visType === 'KV') ? scaleKV(n._visValue) : scaleVV(n._visValue);
+              // Brug den specifikke skala
+              // Clamp værdierne visuelt, så ekstremværdier ikke ødelægger farven
+              let v = n._visValue;
+              if (n._visType === 'KV') {
+                  if (v > domainKV[1]) return '#ff0000'; // Alarm hvis koldt vand > 20 grader
+                  return scaleKV(v);
+              } else {
+                  return scaleVV(v);
+              }
           } else {
               return scaleMain(n._visValue);
           }
@@ -5409,6 +5399,7 @@ function highlightCriticalPath() {
 /**
  * legenden i bunden af diagrammet.
  * Viser dobbelt-legend for Temperatur (KV + VV).
+ * OPDATERET: Kompakt design, placeret nede til venstre.
  */
 function updateLegend() {
     const legendDiv = document.getElementById('diagram-legend');
@@ -5420,13 +5411,16 @@ function updateLegend() {
     }
 
     legendDiv.style.display = 'block';
-    // Styling (som før)
-    legendDiv.style.position = 'absolute';
-    legendDiv.style.bottom = '10px';
-    legendDiv.style.left = '10px';
-    legendDiv.style.width = 'auto';
-    legendDiv.style.minWidth = '200px';
-    legendDiv.classList.add('p-2', 'bg-light', 'border', 'rounded');
+    // Reset styles og sæt kompakt
+    legendDiv.className = 'p-2 bg-light border rounded shadow-sm';
+    legendDiv.style.cssText = `
+        position: absolute; 
+        bottom: 10px; 
+        left: 10px; 
+        font-size: 0.75rem; 
+        background: rgba(255,255,255,0.9); 
+        pointer-events: none;
+    `;
 
     const visMode = document.querySelector('input[name="visMode"]:checked').value;
     const showCritical = document.getElementById('visKritisk').checked;
@@ -5434,49 +5428,45 @@ function updateLegend() {
     let html = '';
 
     if (showCritical) {
-        html = `<div><span style="background-color:#007bff; display:inline-block; width:20px; height:10px; margin-right:5px;"></span> Kritisk Streng</div>`;
+        html = `<div><span style="background-color:#007bff; display:inline-block; width:15px; height:8px; margin-right:5px;"></span> Kritisk Streng</div>`;
     } 
     else if (visMode === 'temp' && state.tempDomains) {
-        // DOBBELT LEGEND FOR TEMPERATUR
         const dKV = state.tempDomains.kv;
         const dVV = state.tempDomains.vv;
         
-        // Helper til gradient bar
-        const gradientBar = (min, max, label) => `
-            <div class="mb-2">
-                <small class="fw-bold text-secondary">${label}</small>
-                <div class="d-flex justify-content-between" style="font-size:0.75rem">
-                    <span>${min.toFixed(1)}°C</span>
-                    <span>${max.toFixed(1)}°C</span>
-                </div>
-                <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
-            </div>`;
-            
-        html = gradientBar(dKV[0], dKV[1], "Koldt Vand (KV)");
-        html += gradientBar(dVV[0], dVV[1], "Varmt Vand (VV)");
+        // KV Bar
+        html += `<div class="mb-1"><strong>Koldt Vand</strong> <span class="text-muted">(${dKV[0]} - ${dKV[1]}°C)</span></div>`;
+        html += `<div style="display:flex; align-items:center; margin-bottom:8px;">
+                    <span style="margin-right:5px">${dKV[0]}°</span>
+                    <div style="flex-grow:1; height:8px; width:100px; background: linear-gradient(to right, #33ffff, #ff00ff);"></div>
+                    <span style="margin-left:5px">${dKV[1]}°</span>
+                 </div>`;
         
+        // VV Bar
+        html += `<div class="mb-1"><strong>Varmt Vand</strong> <span class="text-muted">(${dVV[0]} - ${dVV[1]}°C)</span></div>`;
+        html += `<div style="display:flex; align-items:center;">
+                    <span style="margin-right:5px">${dVV[0].toFixed(0)}°</span>
+                    <div style="flex-grow:1; height:8px; width:100px; background: linear-gradient(to right, #2ecc71, #f1c40f, #e74c3c);"></div>
+                    <span style="margin-left:5px">${dVV[1]}°</span>
+                 </div>`;
     } 
     else if (visMode !== 'none' && state.visDomain) {
-        // STANDARD LEGEND (Hastighed, Tryk, Tab)
         const minVal = state.visDomain[0];
         const maxVal = state.visDomain[1];
         const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m'};
         
-        html = `
-            <div class="d-flex justify-content-between" style="font-size:0.8rem">
-                <span>${minVal.toFixed(2)}</span>
-                <span class="fw-bold mx-2">${units[visMode]}</span>
-                <span>${maxVal.toFixed(2)}</span>
-            </div>
-            <div style="height:10px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
-        `;
+        html = `<div><strong>${units[visMode]}</strong></div>
+                <div style="display:flex; align-items:center; margin-top:2px;">
+                    <span style="margin-right:5px">${minVal.toFixed(1)}</span>
+                    <div style="height:8px; width:120px; background: linear-gradient(to right, #3060cf, #25a89e, #68b538, #d4a822, #d13224);"></div>
+                    <span style="margin-left:5px">${maxVal.toFixed(1)}</span>
+                </div>`;
     } else {
         legendDiv.style.display = 'none';
     }
     
     legendDiv.innerHTML = html;
 }
-
 
 // =================================================================================
 // == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING
