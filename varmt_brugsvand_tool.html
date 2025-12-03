@@ -2316,9 +2316,16 @@ function updateTapstedOptions() {
 
 
 // --- DIAGRAM FUNKTIONER ---
+/**
+ * Bygger link-strukturen til diagrammet og renderer det.
+ * OPDATERET: Bruger container-baseret logik til at bestemme link-type.
+ * Dette sikrer, at Boostere/Reducere får korrekte farver (rød/blå).
+ */
 function buildNetworkAndRender() {
+    // Gem gamle positioner for at undgå at noder "hopper"
     const oldNodes = new Map(state.nodes.map(n => [n.id, {fx: n.fx, fy: n.fy}]));
     
+    // Genstart noder (Beholder og Vandstik er faste rødder)
     state.nodes = [
         {id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy},
         {id:"Vandstik", type:"vandstik", fx: oldNodes.get('Vandstik')?.fx || 100, fy: oldNodes.get('Vandstik')?.fy || 100}
@@ -2326,52 +2333,71 @@ function buildNetworkAndRender() {
     
     state.links = [];
     
+    // Vælg alle elementer i listerne
     const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
     
+    // 1. Opret Noder
     elements.forEach(el => {
         const pos = oldNodes.get(el.dataset.id);
-        state.nodes.push({id: el.dataset.id, type: el.dataset.type, fx: pos?.fx, fy: pos?.fy, displayName: getDisplayName(el.dataset.id)});
+        state.nodes.push({
+            id: el.dataset.id, 
+            type: el.dataset.type, 
+            fx: pos?.fx, 
+            fy: pos?.fy, 
+            displayName: getDisplayName(el.dataset.id)
+        });
     });
     
+    // 2. Opret Links (Forbindelser)
     elements.forEach(el => {
         const p = el.querySelector('.parent')?.value; 
         if(p) {
-            let linkType = 'other';
-            if (el.dataset.type === 'ror_vv' || (el.dataset.type === 'tapsted' && !el.closest('.kv-card'))) linkType = 'fremløb';
-            if (el.dataset.type === 'cirkulation_vv' || el.dataset.type === 'valve') linkType = 'cirkulation_vv';
-            if (el.dataset.type === 'ror_kv' || (el.dataset.type === 'tapsted' && el.closest('.kv-card'))) linkType = 'ror_kv';
+            let linkType = 'other'; // Fallback
+
+            // Logik: Bestem link-farve baseret på containeren
+            if (el.closest('#strengeContainerKV') || el.closest('.kv-card')) {
+                linkType = 'ror_kv'; // Blå
+            } else if (el.closest('#strengeContainerVV') || el.closest('#strengeContainer') || el.closest('.streng-card')) {
+                linkType = 'fremløb'; // Rød (VV)
+            } else if (el.closest('#returContainerBody')) {
+                linkType = 'cirkulation_vv'; // Stiplet rød
+            }
             
             state.links.push({source: p, target: el.dataset.id, type: linkType});
         }
     });
     
-    // Cirkulation
+    // 3. Cirkulations-sløjfer (De ekstra stiplede linjer)
     document.querySelectorAll('.streng-card').forEach(c => {
         if (!c.classList.contains('kv-card')) {
-            const start = c.querySelector('.circ-start').value, end = c.querySelector('.circ-end').value;
-            const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
-            if(start && end) state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
+            const start = c.querySelector('.circ-start')?.value; 
+            const end = c.querySelector('.circ-end')?.value;
+            const zeta = parseFloat(c.querySelector('.circ-zeta')?.value) || 0;
+            if(start && end) {
+                state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
+            }
         }
     });
 
-    // --- HYDRAULISK KOBLING (Koldt -> Beholder) ---
+    // 4. Hydraulisk Link (Cyan linje fra KV til Beholder)
     if (state.beholderConnectionId) {
-        // Tjek at noden stadig findes
-        const sourceExists = state.nodes.some(n => n.id === state.beholderConnectionId);
-        if (sourceExists) {
+        // Tjek om noden findes, før vi linker
+        const targetExists = Array.from(elements).some(el => el.dataset.id === state.beholderConnectionId) || state.beholderConnectionId === 'Vandstik';
+        
+        if (targetExists) {
             state.links.push({
                 source: state.beholderConnectionId, 
                 target: 'Beholder', 
-                type: 'kv_feed', // Ny link-type (Cyan)
-                isSystemLink: true 
+                type: 'kv_feed' // Cyan farve (defineres i CSS/updateDiagramStyles)
             });
         } else {
-            state.beholderConnectionId = null; // Reset hvis slettet
+            state.beholderConnectionId = null; // Reset hvis linket er dødt
         }
     }
 
     updateDiagram();
 }
+
 
 /**
  * Opdaterer det visuelle udseende af noder baseret på den aktuelle markering.
@@ -2414,29 +2440,31 @@ function initDiagram() {
     updateDiagram();
 }
 
+/**
+ * Tegner diagrammet (SVG).
+ * OPDATERET: Nye symboler for Beholder (Cylinder) og Vandstik (Boks).
+ */
 function updateDiagram() {
     const svg = d3.select("#diagram svg");
-    
-    // Sørg for at zoom-containeren findes (oprettet i initDiagram), men tøm indholdet
     let container = svg.select(".zoom-container");
-    if (container.empty()) {
-        container = svg.append("g").attr("class", "zoom-container");
-    }
-    container.html(""); // Ryd gammelt indhold, men behold zoom/pan state
+    if (container.empty()) container = svg.append("g").attr("class", "zoom-container");
+    container.html(""); // Tøm for at gentegne
 
-    // 1. TEGN LINJER (LINKS)
-    // Klassenavnet bliver nu dynamisk: 'link-fremløb' eller 'link-cirkulation_vv'
+    // 1. TEGN LINKS
     const link = container.append("g").selectAll("line")
         .data(state.links).join("line")
-        .attr("class", d => `link-${d.type}`);
+        .attr("class", d => {
+            if (d.type === 'kv_feed') return 'link-kv_feed';
+            return `link-${d.type}`;
+        });
 
-    // 2. TEGN TEKST PÅ LINJER
+    // 2. TEGN TEKST PÅ LINKS
     const linkText = container.append("g").selectAll("text")
         .data(state.links).join("text")
         .attr("class", "link-text")
         .attr("dy", -2);
 
-    // 3. TEGN NODER (PUNKTER)
+    // 3. TEGN NODER
     const node = container.append("g").selectAll("g")
         .data(state.nodes, d => d.id).join("g")
         .attr("class", "node")
@@ -2444,51 +2472,90 @@ function updateDiagram() {
         .on('click', handleNodeClick)
         .on('contextmenu', handleNodeRightClick);
 
-    // Tilføj former og farver baseret på de nye typer
     node.each(function(d) {
         const group = d3.select(this);
         
         if (d.type === 'valve') {
-            // Ventiler er lilla romber
+            // Ventil: Rombe (Lilla)
             group.append('rect')
                 .attr('width', 14).attr('height', 14)
                 .attr('x', -7).attr('y', -7)
                 .attr('transform', 'rotate(45)')
-                .style('fill', '#6f42c1');
+                .style('fill', '#6f42c1').style('stroke', '#333');
+                
         } else if (d.type === 'booster') {
-            // Cirkel med Trekant (Pumpe symbol)
-            group.append("circle").attr("r", 7).attr("fill", "#fff").attr("stroke", "#000");
-            group.append("path").attr("d", "M -4,2 L 4,2 L 0,-5 Z").attr("fill", "#000");
+            // Booster: Pumpe symbol (Cirkel med trekant)
+            group.append("circle").attr("r", 8).attr("fill", "#fff").attr("stroke", "#000").attr("stroke-width", 1.5);
+            group.append("path").attr("d", "M -4,3 L 4,3 L 0,-5 Z").attr("fill", "#000"); 
+            
         } else if (d.type === 'reducer') {
-            // Trekant der peger ned (Reduktion)
-            group.append("path").attr("d", "M -6,-4 L 6,-4 L 0,6 Z").attr("fill", "#ff9999").attr("stroke", "#000");
+            // Reducer: Trekant ned (Tragt)
+            group.append("path").attr("d", "M -7,-5 L 7,-5 L 0,7 Z")
+                .attr("fill", "#ffcccc").attr("stroke", "#000").attr("stroke-width", 1);
+                
+        } else if (d.type === 'beholder') {
+            // NYT SYMBOL: Beholder (Cylinder)
+            // Selve tanken
+            group.append("rect")
+                .attr("x", -14).attr("y", -20)
+                .attr("width", 28).attr("height", 40)
+                .attr("rx", 5) // Rundede hjørner
+                .attr("fill", "#f8f9fa")
+                .attr("stroke", "#343a40").attr("stroke-width", 2);
+            
+            // Dekorative linjer (Top/Bund)
+            group.append("line").attr("x1", -14).attr("y1", -10).attr("x2", 14).attr("y2", -10).attr("stroke", "#343a40").attr("stroke-width", 1);
+            group.append("line").attr("x1", -14).attr("y1", 10).attr("x2", 14).attr("y2", 10).attr("stroke", "#343a40").attr("stroke-width", 1);
+            
+            // Tekst "VV"
+            group.append("text").text("VV")
+                .attr("dy", 4)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold")
+                .attr("fill", "#343a40");
+            
+        } else if (d.type === 'vandstik') {
+            // NYT SYMBOL: Vandstik (Blå boks)
+            group.append("rect")
+                .attr("x", -12).attr("y", -12)
+                .attr("width", 24).attr("height", 24)
+                .attr("rx", 3)
+                .attr("fill", "#0d6efd")
+                .attr("stroke", "#000").attr("stroke-width", 2);
+                
+            // Tekst "KV"
+            group.append("text").text("KV")
+                .attr("dy", 5)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "11px")
+                .attr("font-weight", "bold")
+                .attr("fill", "white");
+            
+        } else if (d.type === 'tapsted') {
+            // Tapsted: Grøn
+            group.append("circle").attr("r", 5).attr("fill", "#198754").attr("stroke", "#333");
+            
+        } else if (d.type === 'cirkulation_vv') {
+            // Retur: Mørkerød
+            group.append("circle").attr("r", 4).attr("fill", "#a71d2a").attr("stroke", "#333");
+            
+        } else if (d.type === 'ror_kv') {
+            // Koldt rør: Blå
+            group.append("circle").attr("r", 4).attr("fill", "#0d6efd").attr("stroke", "#333");
+            
         } else {
-            // Andre er cirkler
-            group.append("circle")
-                .attr("r", d => d.type === 'beholder' ? 10 : 5)
-                .attr("fill", d => {
-                    // NY NAVNGIVNINGS-LOGIK:
-                    if (d.type === 'ror_vv') return '#dc3545';        // Rød (Varmt Frem)
-                    if (d.type === 'cirkulation_vv') return '#a71d2a'; // Mørkerød (Varm Retur)
-                    if (d.type === 'tapsted') return '#198754';        // Grøn (Tapsted)
-                    if (d.type === 'beholder') return '#343a40';       // Mørkegrå (Beholder)
-                    if (d.type === 'ror_kv') return '#0d6efd';        // Blå (Bootstrap Primary)
-                    if (d.type === 'vandstik') return '#0d6efd';       // Blå (Start)
-                    return '#6c757d'; // Fallback grå
-                });
+            // Standard ror_vv: Rødlig
+            group.append("circle").attr("r", 4).attr("fill", "#dc3545").attr("stroke", "#333");
         }
     });
     
-    // 4. TEKST LABELS PÅ NODER
+    // 4. LABELS
     node.append("text")
         .text(d => {
             let label = getDisplayName(d.id);
-            
-            // Håndter forkortelser for tapsteder (LEJL, BRUS, etc.)
             if (d.type === 'tapsted') {
-                let typeName = d.tapType;
-                
-                // Fallback: Find type i DOM hvis den ikke er på data-objektet
+                let typeName = d.tapType; 
                 if (!typeName) {
                     const row = document.querySelector(`tr[data-id="${d.id}"]`);
                     if (row) {
@@ -2496,20 +2563,23 @@ function updateDiagram() {
                         if (sel && sel.selectedIndex >= 0) typeName = sel.options[sel.selectedIndex].text;
                     }
                 }
-
-                if (typeName && TAP_ABBREVIATIONS[typeName]) {
-                    label += ` (${TAP_ABBREVIATIONS[typeName]})`;
-                }
+                if (typeName && TAP_ABBREVIATIONS[typeName]) label += ` (${TAP_ABBREVIATIONS[typeName]})`;
             }
             return label;
         })
-        .attr("dy", "-1em")
+        .attr("dy", d => {
+            // Juster label placering for de nye store symboler
+            if (d.type === 'beholder') return "-2.2em";
+            if (d.type === 'vandstik') return "-1.6em";
+            if (d.type === 'booster' || d.type === 'reducer') return "-1.2em";
+            return "-0.8em";
+        })
         .attr("font-size", "8px")
         .attr("text-anchor", "middle")
         .style("pointer-events", "none")
         .style("text-shadow", "0px 0px 3px white");
 
-    // 5. OPDATER SIMULATION (TICK)
+    // 5. SIMULATION
     state.sim.nodes(state.nodes).on("tick", () => {
         link
             .attr("x1", d => d.source.x)
@@ -2517,8 +2587,7 @@ function updateDiagram() {
             .attr("x2", d => d.target.x)
             .attr("y2", d => d.target.y);
 
-        node
-            .attr("transform", d => `translate(${d.x},${d.y})`);
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
 
         linkText
             .attr("x", d => (d.source.x + d.target.x) / 2)
@@ -2529,11 +2598,7 @@ function updateDiagram() {
     state.sim.alpha(0.3).restart();
 
     updateSelectionVisuals();
-    
-    // Opdater rørtykkelser og farver (hvis beregning er kørt)
-    if (state.lastModel) {
-        updateDiagramStyles();
-    }
+    if (state.lastModel) updateDiagramStyles();
 }
 
 /**
