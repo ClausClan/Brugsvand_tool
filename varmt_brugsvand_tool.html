@@ -5264,6 +5264,8 @@ function updateLabels(model) {
  * Splitter Temperatur i to skalaer (KV og VV).
  * OPDATERET: Bruger faktiske beregnede yderpunkter (Min/Max).
  * Farver: KV (Lys Blå -> Mørk Grøn), VV (Lys Grøn -> Mørkerød).
+ * OPDATERET: Strammere filtrering. Kun 'rør'-typer tæller med i skalaen for Pa/m og W/m.
+ * Dette forhindrer Boostere/Ventiler i at ødelægge legenden.
  */
 function applyColorGradient(mode) {
     if (!state.lastModel) return;
@@ -5273,16 +5275,19 @@ function applyColorGradient(mode) {
     let valuesTempKV = [];
     let valuesTempVV = [];
     
-    // 1. Gennemgå noder og sorter værdier
+    // Definer hvilke typer der er "Rør" (som har længde og Pa/m)
+    const pipeTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv'];
+
     model.nodes.forEach(n => {
         n._visValue = undefined;
         n._visType = undefined;
 
-        // Bestem systemtype (KV eller VV)
         const isKV = (n.type === 'ror_kv' || n.type === 'vandstik' || (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only'));
         n._visType = isKV ? 'KV' : 'VV';
+        
+        // Er det et rør?
+        const isPipe = pipeTypes.includes(n.type);
 
-        // Hent flow data
         const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
                      ? (model.circFlows?.get(n.id) || 0) 
                      : (n.qd || 0);
@@ -5290,7 +5295,7 @@ function applyColorGradient(mode) {
         let val = undefined;
 
         if (mode === 'velocity') {
-            if (n.nom_dim && ID[n.material]) {
+            if (isPipe && n.nom_dim && ID[n.material]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 val = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
                 if (isFinite(val)) valuesPipes.push(val);
@@ -5298,15 +5303,19 @@ function applyColorGradient(mode) {
         } 
         else if (mode === 'pressure_drop') {
             const dp = (n.type === 'cirkulation_vv' || n.type === 'valve') ? (n.dp_circ || 0) : (n.dp_tap || 0);
-            if (n.nom_dim && n.L > 0) {
+            
+            if (isPipe && n.nom_dim && n.L > 0) {
+                // Rør: Beregn Pa/m
                 val = dp / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             } else {
-                val = dp; // Absolut værdi for komponenter
+                // Komponenter: Vis absolut værdi (men push IKKE til valuesPipes)
+                val = dp; 
             }
         } 
         else if (mode === 'heat_loss') {
-            if (n.nom_dim && n.L > 0) {
+            if (isPipe && n.nom_dim && n.L > 0) {
+                // Rør: Beregn W/m
                 val = (n.q_tab || 0) / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             }
@@ -5322,41 +5331,33 @@ function applyColorGradient(mode) {
         if (val !== undefined) n._visValue = val;
     });
 
-    // 2. Opret Farveskalaer
+    // Opret Skalaer
     let scaleMain, scaleKV, scaleVV;
 
     if (mode === 'temp') {
-        // KV Skala: Faktisk Min -> Faktisk Max
-        // Farve: Lys Blå -> Mørk Grøn
+        // KV: 10 -> 20 (Blå -> Grøn)
         const minKV = d3.min(valuesTempKV) || 10;
         const maxKV = d3.max(valuesTempKV) || 20;
-        
-        // VV Skala: Faktisk Min -> Faktisk Max
-        // Farve: Lys Grøn -> Mørkerød
+        state.tempDomains = { kv: [minKV, maxKV] }; // Gem faktisk min/max
+        scaleKV = d3.scaleLinear().domain([minKV, maxKV]).range(["#87CEFA", "#006400"]);
+
+        // VV: 50 -> 55 (Grøn -> Rød)
         const minVV = d3.min(valuesTempVV) || 50;
         const maxVV = d3.max(valuesTempVV) || 55;
-
-        // Gem til legenden
-        state.tempDomains = { kv: [minKV, maxKV], vv: [minVV, maxVV] };
-
-        scaleKV = d3.scaleLinear()
-            .domain([minKV, maxKV])
-            .range(["#87CEFA", "#006400"]); // LightSkyBlue -> DarkGreen
-
-        scaleVV = d3.scaleLinear()
-            .domain([minVV, maxVV])
-            .range(["#98FB98", "#8B0000"]); // PaleGreen -> DarkRed
+        if(state.tempDomains) state.tempDomains.vv = [minVV, maxVV];
+        scaleVV = d3.scaleLinear().domain([minVV, maxVV]).range(["#98FB98", "#8B0000"]);
 
     } else {
-        // Standard skala for tryk/hastighed
+        // Pa/m, W/m, m/s
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
+        
         scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain(domain);
         state.visDomain = domain;
     }
     
-    // 3. Påfør farver
+    // Påfør farver
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
           if (!d || !d.target) return null;
@@ -5365,10 +5366,11 @@ function applyColorGradient(mode) {
           const n = model.nodes.get(d.target.id);
           if (!n || n._visValue === undefined) return '#ccc';
 
-          // Ignorer komponenter i tryk/varme visning for at bevare skalaen
-          if ((mode === 'pressure_drop' || mode === 'heat_loss') && (!n.nom_dim || n.L <= 0)) {
+          // Speciel visning for komponenter i tryk/varme mode (så de ikke bliver grå/forvirrende)
+          if ((mode === 'pressure_drop' || mode === 'heat_loss') && !pipeTypes.includes(n.type)) {
               if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745'; // Booster = Grøn
-              return '#999'; 
+              if (mode === 'pressure_drop' && n._visValue > 0) return '#dc3545'; // Reducer = Rød
+              return '#999'; // Neutral
           }
 
           if (mode === 'temp') {
@@ -5380,7 +5382,6 @@ function applyColorGradient(mode) {
       })
       .style('opacity', 1);
 }
-
 
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
