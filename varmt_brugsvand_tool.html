@@ -2900,50 +2900,45 @@ function beregnStandard(config) {
     const model = buildModel(config);
     if (!model) return null;
     
-    // ==========================
-    // 1. KOLDT VAND (KV) BEREGNING
-    // ==========================
+    // TRIN A: Beregn FLOW i begge systemer (VV først!)
+    // ------------------------------------------------
+    // 1. Beregn summerne i VV-nettet (Beholderen får sum_qf_random osv.)
+    calculateQd_VV(model);
+    
+    // 2. Beregn KV-nettet (Henter summerne fra Beholderen hvis linket)
     if (model.nodes.has('Vandstik')) {
         calculateQd_KV(model);
         
+        // Nu kender vi flowet i KV, så vi kan dimensionere det
         if (config.isAuto) dimensionSupply_KV(model, config);
         
-        // Beregn tryktab i KV-nettet
+        // Beregn tryktab i KV
         calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
         
-        // Find kritisk vej for KV (til info)
+        // Gem KV info
         const kvRes = findMaxPathDp_KV(model, config);
         model.max_dp_kv = kvRes.max_dp;
         model.criticalPathKV = new Set(kvRes.path);
     }
 
-    // ==========================
-    // 2. HYDRAULISK LINK (KV -> VV)
-    // ==========================
-    // Standard: VV starter med forsyningstrykket
+    // TRIN B: Beregn Starttryk til VV (Hydraulisk Link)
+    // ------------------------------------------------
     model.vv_start_pressure = config.pln; 
     model.kv_pressure_loss_to_beholder = 0;
 
-    // Hvis beholderen er tilsluttet et sted i KV-nettet
     if (state.beholderConnectionId) {
-        // Beregn tabet fra Vandstik frem til tilslutningspunktet
         const dpToConnection = getPathPressureDrop(model, state.beholderConnectionId);
-        
         model.kv_pressure_loss_to_beholder = dpToConnection;
         model.vv_start_pressure = config.pln - dpToConnection;
         
-        console.log(`Hydraulisk Link: Tab i KV (${dpToConnection.toFixed(0)} Pa) -> VV Starttryk: ${model.vv_start_pressure.toFixed(0)} Pa`);
-        
         if (model.vv_start_pressure < 0) {
-            advarslerDiv.innerHTML += `<p class="alert alert-danger">KRITISK: Tryktabet i koldtvandsforsyningen er så stort, at der er undertryk ved beholderen!</p>`;
+            advarslerDiv.innerHTML += `<p class="alert alert-danger">KRITISK: Undertryk ved beholder! KV-rørene er for små til den samlede mængde.</p>`;
         }
     }
 
-    // ==========================
-    // 3. VARMT VAND (VV) BEREGNING
-    // ==========================
-    calculateQd_VV(model);
-    
+    // TRIN C: Beregn Resten af VV (Med det rigtige starttryk)
+    // ------------------------------------------------
+    // Opdater topologi (nødvendig for dimensionering)
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model); 
 
@@ -2965,13 +2960,11 @@ function beregnStandard(config) {
     }
 
     if (!validateCirculationLoops(model, advarslerDiv)) return null;
-    
     calculateCirculationDP_VV(model, config);
     calculateBeholder(model);
     
     return model;
 }
-
 
 /**
  * NY FUNKTION (Fase 2): Analyserer systemets topologi og tildeler kategorier.
@@ -3182,27 +3175,46 @@ function findMaxPathDp_VV(startNode, config) {
 // =============================================================================
 
 // 1. Beregn Flow (KV Spidslast)
+/**
+ * Beregner dimensionerende vandstrøm (qd) for Koldt Vand.
+ * NU MED HYDRAULISK LINK: Inkluderer flow fra Varmt Vand-systemet ved tilslutningspunktet.
+ */
 function calculateQd_KV(model) {
+    // Vi skal bruge data fra Beholderen (VV), så calculateQd_VV SKAL være kørt først!
+    const beholderNode = model.nodes.get('Beholder');
+    const linkId = state.beholderConnectionId;
+
     function traverse(node) {
-        let downstream_qf_random = 0, downstream_qf_syst = 0;
+        let downstream_qf_random = 0;
+        let downstream_qf_syst = 0;
         
+        // 1. Håndter Tapsteder (Koldt forbrug)
         if (node.type === 'tapsted') {
-            // Hent koldt flow fra ST eller Custom data
             let qf_cold = 0;
-            const tapName = node.tapType;
+            const tName = node.tapType;
             
-            if (tapName && ST[tapName]) {
-                qf_cold = ST[tapName].qf_cold || 0;
-            } else if (state.customTapsteder && state.customTapsteder[tapName]) {
-                qf_cold = state.customTapsteder[tapName].qf_cold || 0;
+            // Forsøg at hente qf_cold fra ST (Standard Tapsteder)
+            // Håndterer både simpelt format (tal) og objekt-format ({qf_hot, qf_cold})
+            if (ST[tName]) {
+                if (typeof ST[tName] === 'object') {
+                    qf_cold = ST[tName].qf_cold;
+                } else {
+                    // Fallback: Hvis kun varmt flow er kendt, antag samme til koldt (fx vask/brus)
+                    // Men WC skal tvinges til en værdi hvis den mangler
+                    qf_cold = ST[tName]; 
+                    if (tName.includes('WC')) qf_cold = 0.13; // Standard for WC
+                }
+            } else if (state.customTapsteder[tName]) {
+                // Custom tapsteder (bruger vi som regel til varmt, men her sikrer vi os)
+                qf_cold = state.customTapsteder[tName].qf_cold || 0;
             }
             
-            // Gem det kolde flow på noden til debugging
-            node.qf_kv_used = qf_cold;
-
             if (node.isSyst) downstream_qf_syst = qf_cold; 
             else downstream_qf_random = qf_cold;
-        } else {
+        } 
+        
+        // 2. Hent flow fra børn
+        if (node.children) {
             node.children.forEach(child => {
                 const flows = traverse(child);
                 downstream_qf_random += flows.random; 
@@ -3210,18 +3222,30 @@ function calculateQd_KV(model) {
             });
         }
         
-        if(node.type === 'ror_kv') { 
+        // 3. HYDRAULISK LINK: Tilsæt VV-Flow
+        // Hvis dette rør føder beholderen, skal hele VV-belastningen lægges til her!
+        if (node.id === linkId && beholderNode) {
+            // Vi henter summerne fra Beholder-noden (som calculateQd_VV har beregnet)
+            if (beholderNode.sum_qf_random) {
+                downstream_qf_random += beholderNode.sum_qf_random;
+                // console.log(`Linker VV random flow (${beholderNode.sum_qf_random}) til ${node.id}`);
+            }
+            if (beholderNode.sum_qf_syst) {
+                downstream_qf_syst += beholderNode.sum_qf_syst;
+            }
+        }
+        
+        // 4. Beregn qd for røret (DS 439 formel)
+        if(node.type === 'ror_kv' || node.type === 'vandstik') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             
-            // DS 439 formel (samme som varmt)
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
             node.qd = qd_random + downstream_qf_syst;
         }
         return { random: downstream_qf_random, syst: downstream_qf_syst };
     }
     
-    // Start fra Vandstik
     if (model.nodes.has('Vandstik')) {
         traverse(model.nodes.get('Vandstik'));
     }
@@ -5037,16 +5061,15 @@ function updateLegend() {
 // =================================================================================
 
 function beregnGlobalOptimering(config) {
-    console.group("🚀 GLOBAL OPTIMERING START (VV + Hydraulisk Link)");
+    console.group("🚀 GLOBAL OPTIMERING START (Komplet Flow-integreret)");
     const model = buildModel(config);
     
     model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
     analyzeSystemTopology(model);
 
     config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
-    console.log(`Constraint Type: ${config.globalConstraintType}`);
 
-    // Nulstil til mindste dimensioner (VV & VVC)
+    // Nulstil dimensioner
     model.nodes.forEach(n => {
         if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
             const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
@@ -5054,71 +5077,48 @@ function beregnGlobalOptimering(config) {
         }
     });
 
-    // ==========================
-    // 1. KOLDT VAND (KV) BEREGNING (Statisk grundlag)
-    // ==========================
-    // Vi optimerer ikke KV i dette loop (det ville kræve et dobbelt-loop), 
-    // men vi beregner det for at finde starttrykket.
+    // 1. Beregn VV Flow først (Det er konstant uanset rørstr)
+    calculateQd_VV(model);
+
+    // 2. Beregn KV (Nu inklusiv VV flowet!)
     if (model.nodes.has('Vandstik')) {
         calculateQd_KV(model);
-        if (config.isAuto) dimensionSupply_KV(model, config); // Standard dimensionering af KV
+        if (config.isAuto) dimensionSupply_KV(model, config); 
         calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
     }
 
-    // ==========================
-    // 2. HYDRAULISK LINK (KV -> VV)
-    // ==========================
+    // 3. Find Starttryk
     let availablePressureForVV = config.pln;
     model.kv_pressure_loss_to_beholder = 0;
 
     if (state.beholderConnectionId) {
-        // Beregn tabet fra Vandstik frem til tilslutningspunktet
         const dpToConnection = getPathPressureDrop(model, state.beholderConnectionId);
-        
         model.kv_pressure_loss_to_beholder = dpToConnection;
         availablePressureForVV = config.pln - dpToConnection;
-        
-        console.log(`Global Opt: KV Tabet er ${dpToConnection.toFixed(0)} Pa. Nyt VV Starttryk: ${availablePressureForVV.toFixed(0)} Pa`);
+        console.log(`Global Opt: KV Tabet er ${dpToConnection.toFixed(0)} Pa (Inkl. VV flow). Starttryk: ${availablePressureForVV.toFixed(0)} Pa`);
     }
     model.vv_start_pressure = availablePressureForVV;
 
-    // VIGTIGT: Opret en skygge-config til optimeringsloopet
-    // Vi sætter 'pln' til det reducerede tryk, så findFailingTapPoints_VV optimerer mod det rigtige mål.
     const optConfig = { ...config, pln: availablePressureForVV };
 
-
-    // ==========================
-    // 3. OPTIMERINGS LOOP (VV)
-    // ==========================
+    // 4. Optimerings Loop (VV)
     let iterations = 0;
     const maxIterations = 10000;
     let optimized = false;
-    let finalLocalFailures = [];
-    let finalGlobalFailures = [];
 
     while (iterations < maxIterations) {
-        calculateQd_VV(model);
-        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); // Bruger fittings_pct fra config
+        // calculateQd_VV behøver ikke køres igen, flow ændres ikke
+        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); 
         
         const localFailures = findLocalFailures_VV(model, config);
-        
-        // HER bruger vi optConfig for at tjekke mod det reducerede starttryk
         const globalFailures = findFailingTapPoints_VV(model, optConfig); 
         
-        if (iterations === 0 || iterations % 500 === 0 || localFailures.length === 0) {
-             // console.log(`Iter ${iterations}: Lokale=${localFailures.length}, Globale=${globalFailures.length}`);
-        }
-
         if (localFailures.length === 0 && globalFailures.length === 0) {
             optimized = true;
             break; 
         }
         
-        finalLocalFailures = localFailures;
-        finalGlobalFailures = globalFailures;
-
         let pipeToUpgradeId;
-
         if (localFailures.length > 0) {
             pipeToUpgradeId = localFailures[0].id;
         } else {
@@ -5129,37 +5129,28 @@ function beregnGlobalOptimering(config) {
 
         if (pipeToUpgradeId) {
             const pipeNode = model.nodes.get(pipeToUpgradeId);
-            const success = upgradePipeDimension(pipeNode);
-            if (!success) break; 
+            if (!upgradePipeDimension(pipeNode)) break;
         } else {
             break; 
         }
         iterations++;
     }
 
-    model.optimizationInfo = { converged: optimized, iterations: iterations, remainingErrors: finalLocalFailures.length + finalGlobalFailures.length };
-
-    // ==========================
-    // 4. AFSLUTTENDE BEREGNINGER
-    // ==========================
-    
-    // Find kritisk vej (Bruger standard config, men vi ved nu at trykket overholdes)
+    // 5. Afslutning
     const pressureDropResult = findMaxPathDp_VV(model.tree, config);
     model.max_dp_tapning = pressureDropResult.max_dp;
     model.criticalPath = new Set(pressureDropResult.path);
     
-    // KV info til rapport
     if (model.nodes.has('Vandstik')) {
         const kvRes = findMaxPathDp_KV(model, config);
         model.max_dp_kv = kvRes.max_dp;
         model.criticalPathKV = new Set(kvRes.path);
     }
     
-    // Cirkulations loop (VV)
     for (let i = 0; i < 3; i++) {
         calculateInsulation(model, config);
         calculateHeatLoss_VV(model, config);
-        calculateCirculationFlows_VV(model, config); // Integreret loop
+        calculateCirculationFlows_VV(model, config);
     }
     
     calculateCirculationDP_VV(model, config);
@@ -5168,7 +5159,6 @@ function beregnGlobalOptimering(config) {
     console.groupEnd();
     return model;
 }
-
 
 function findLocalFailures_VV(model, config) {
     const failures = [];
