@@ -1220,34 +1220,42 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 // --- UI FUNKTIONER ---
 function handleInputChange(e) {
-    // Tjekker om ændringen skete i en dropdown for tapstedstyper
+    // 1. Håndter Tapsted Type ændring (Synkroniseret)
     if (e.target.classList.contains('tapType')) {
-        const tr = e.target.closest('tr');
+        const sourceTr = e.target.closest('tr');
+        const id = sourceTr.dataset.id;
+        
+        // Hent data fra kilden
         const selectedOption = e.target.options[e.target.selectedIndex];
-        const typeName = selectedOption.text; // Navnet, fx "Håndvask"
+        const typeName = selectedOption.text;
+        const newVal = selectedOption.value;
+        const isApt = selectedOption.dataset.isApartment === 'true';
         
-        // Slå op i vores data (ST eller custom)
-        let data = ST[typeName] || state.customTapsteder[typeName];
+        // Opdater ALLE rækker med dette ID (Spejling)
+        const allMirrors = document.querySelectorAll(`tr[data-id="${id}"]`);
         
-        // Fallback hvis data mangler (sikkerhed)
-        if (!data) {
-            // Prøv at bruge value fra option som fallback flow
-            data = { qf_hot: parseFloat(selectedOption.value) || 0 };
-        }
+        allMirrors.forEach(tr => {
+            // Opdater Dropdown
+            const sel = tr.querySelector('.tapType');
+            // Prøv at sætte index baseret på tekst for nøjagtighed
+            let found = false;
+            for(let i=0; i<sel.options.length; i++) {
+                if(sel.options[i].text === typeName) {
+                    sel.selectedIndex = i; found = true; break;
+                }
+            }
+            if(!found) sel.value = newVal;
 
-        // Opdater qf-inputfeltet (Lige nu bruger vi Varmt flow som standard)
-        const qfInput = tr.querySelector('.qf');
-        if (qfInput) {
-            qfInput.value = data.qf_hot;
-        }
-        
-        // Opdater isApartment
-        const isApartment = selectedOption.dataset.isApartment === 'true';
-        tr.dataset.isApartment = isApartment;
+            // Opdater qf feltet
+            const qfInput = tr.querySelector('.qf');
+            if (qfInput) qfInput.value = newVal;
+            
+            // Opdater dataset
+            tr.dataset.isApartment = isApt;
+        });
 
-        // Opdater noden i state
-        const nodeId = tr.dataset.id;
-        const node = state.nodes.find(n => n.id === nodeId);
+        // Opdater Noden i State
+        const node = state.nodes.find(n => n.id === id);
         if (node) {
             node.tapType = typeName;
             updateDiagram(); 
@@ -1258,15 +1266,36 @@ function handleInputChange(e) {
         }
     }
     
+    // 2. Håndter Navne ændring (Synkroniseret)
     if (e.target.classList.contains('name-text')) {
-        updateAllSelects();
+        const id = e.target.closest('[data-id]').dataset.id;
+        const newName = e.target.value;
+        
+        // Gem i state
+        state.names.set(id, newName);
+        
+        // Opdater alle spejlinger i UI
+        document.querySelectorAll(`[data-id="${id}"] .name-text`).forEach(inp => {
+            if (inp !== e.target) inp.value = newName;
+        });
+        
+        updateAllSelects(); // Opdater dropdown-lister med det nye navn
     }
     
+    // 3. Håndter andre inputs (qf, len, dim osv.)
+    if (e.target.classList.contains('qf')) {
+        const id = e.target.closest('tr').dataset.id;
+        const newVal = e.target.value;
+        // Synkroniser qf manuelt hvis brugeren overskriver standarden
+        document.querySelectorAll(`tr[data-id="${id}"] .qf`).forEach(inp => {
+            if (inp !== e.target) inp.value = newVal;
+        });
+    }
+
     if (typeof setProjektErÆndret === 'function') {
         setProjektErÆndret();
     }
 }
-
 
 
 function toggleGlobalOptimizationInputs() {
@@ -1928,70 +1957,44 @@ function addRorSektion(btn, type = 'ror_vv', forceParentId = null) {
 
 function addTapsted(btn) {
     state.tC++;
-    const sId = btn.closest('.card').dataset.id;
+    const card = btn.closest('.card');
+    const sId = card.dataset.id;
     const id = `${sId}-T${state.tC}`;
-    const container = btn.closest('.card-body').querySelector('.tapsted-container');
+    const container = card.querySelector('.tapsted-container');
     
-    // Byg options-listen. Vi gemmer nu qf_hot som value for bagudkompatibilitet i input-feltet
-    let opts = ''; 
-    Object.keys(ST).forEach(k => {
-        const isApt = k.includes('Lejlighed');
-        // Vi sætter qf_hot som value, så den nuværende logik virker
-        opts += `<option value="${ST[k].qf_hot}" data-is-apartment="${isApt}">${k}</option>`;
-    });
+    // Opret rækken
+    const tr = createRowHTML(id, 'tapsted');
     
-    // Tilføj brugerdefinerede (hvis de findes)
-    Object.entries(state.customTapsteder).forEach(([k, v]) => {
-        opts += `<option value="${v.qf_hot}" data-is-apartment="${v.isApartment}">${k}</option>`;
-    });
-
+    // Sæt standardværdier
     const defaultType = "Lejlighed (standard)";
     const defaultQf = ST[defaultType].qf_hot;
-
-    const tr = document.createElement('tr');
-    tr.dataset.id = id;
-    tr.dataset.type = 'tapsted';
+    
+    const typeSelect = tr.querySelector('.tapType');
+    let foundIdx = Array.from(typeSelect.options).findIndex(opt => opt.text === defaultType);
+    if (foundIdx !== -1) typeSelect.selectedIndex = foundIdx;
+    
+    tr.querySelector('.qf').value = defaultQf;
     tr.dataset.isApartment = 'true'; 
     
-    tr.innerHTML = `
-        <td>
-            <span class="input-group input-group-sm">
-                <span class="input-group-text id-text">${id}</span>
-                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn">
-            </span>
-        </td>
-        <td><select class="form-select form-select-sm parent" aria-label="Forælder node" title="Vælg forælder-node"></select></td>
-        <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)" aria-label="Tapsted type" title="Vælg type af tapsted">${opts}</select></td>
-        <td><input type="number" class="form-control form-control-sm qf" min="0" value="${defaultQf}" step="0.01" aria-label="Flow (l/s)" title="Normvandstrøm (qf)"></td>
-        <td><input type="number" class="form-control form-control-sm kote allow-negative" value="0" title="Kote (m)" aria-label="Kote (m)"></td>
-        <td class="text-center"><input type="checkbox" class="form-check-input syst" title="Systematisk brug" aria-label="Systematisk brug"></td>
-        <td><button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button></td>
-    `;
-    
-    // Sæt dropdown til standardværdien
-    const typeSelect = tr.querySelector('.tapType');
-    // Find index for defaultType
-    for (let i = 0; i < typeSelect.options.length; i++) {
-        if (typeSelect.options[i].text === defaultType) {
-            typeSelect.selectedIndex = i;
-            break;
-        }
-    }
-
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
     container.appendChild(tr);
     
-    const pSel = tr.querySelector('.parent');
-    const rorInStreng = btn.closest('.card-body').querySelectorAll('[data-type="ror_vv"]');
-    if(rorInStreng.length > 0) pSel.value = rorInStreng[rorInStreng.length-1].dataset.id;
+    // Smart Parent: Sæt parent til det sidste rør i strengen som standard
+    const rorInStreng = card.querySelectorAll('.ror-container > tr[data-id]');
+    const lastRorId = rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '';
     
+    if (lastRorId) {
+        tr.dataset.defaultParent = lastRorId;
+    }
+
     // Opdater state-noden
     const newNode = state.nodes.find(n => n.id === id);
     if (newNode) newNode.tapType = defaultType;
 
     updateAllSelects();
 }
+
 
 
 let valveCounter = 0;
@@ -2142,29 +2145,26 @@ function toggleAutoDim(isAuto) {
 
 /**
  * Opdaterer alle dropdown-lister (Forældre, Cirkulation).
- * RETTET: Inkluderer nu ALLE komponenter (Rør, Booster, Reducer) som gyldige forældre.
+ * Inkluderer nu ALLE komponenter (Rør, Booster, Reducer) som gyldige forældre.
+ * Opdaterer dropdowns.
+ * Styrer synlighed af parent-vv og parent-kv baseret på tapstedets 'mode'.
  */
 function updateAllSelects() {
-    // 1. INDSAML POTENTIELLE FORÆLDRE (Container-baseret)
-    
-    // VV: Find alt i VV-rør tabellerne (Rør + Komponenter)
+    // 1. INDSAML POTENTIELLE FORÆLDRE
     const vvContainer = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
     const vvParentsList = Array.from(vvContainer ? vvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
     
-    // KV: Find alt i KV-rør tabellerne
     const kvContainer = document.getElementById('strengeContainerKV');
     const kvParentsList = Array.from(kvContainer ? kvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
     
-    // Retur: Find alt i retur-tabellen
     const returParentsList = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
-    // 2. BYG OPTION-STRINGS
+    // Helper
     const buildOpts = (list, rootName) => {
         return `<option value="${rootName}">${rootName}</option>` + 
                list.map(el => {
                    const id = el.dataset.id;
                    const name = state.names.get(id) || id;
-                   // Tilføj type-info hvis det ikke er et standard rør
                    const type = el.dataset.type;
                    const suffix = (type === 'booster') ? ' (Booster)' : (type === 'reducer' ? ' (Reduktion)' : '');
                    return `<option value="${id}">${name}${suffix}</option>`;
@@ -2175,38 +2175,80 @@ function updateAllSelects() {
     const optionsKV = buildOpts(kvParentsList, "Vandstik");
     const optionsReturParent = buildOpts(returParentsList, "Beholder");
     
-    // Cirkulation-slutpunkter (kan være "Ingen")
-    const optionsCircEnd = `<option value="">Ingen</option>` + buildOpts(returParentsList, "Beholder").replace('Beholder', 'Beholder (Retur)');
+    // 2. OPDATER TAPSTEDER (Dobbelt Selects)
+    document.querySelectorAll('tr[data-type="tapsted"]').forEach(tr => {
+        const pVV = tr.querySelector('.parent-vv');
+        const pKV = tr.querySelector('.parent-kv');
+        const tapTypeSel = tr.querySelector('.tapType');
+        
+        // Find 'mode' fra ST data
+        let mode = 'both'; // Default
+        if (tapTypeSel && tapTypeSel.selectedIndex >= 0) {
+            const name = tapTypeSel.options[tapTypeSel.selectedIndex].text;
+            if (state.customTapsteder[name]) mode = state.customTapsteder[name].mode || 'hot_only'; 
+            else if (ST[name]) mode = ST[name].mode;
+        }
 
-    // 3. OPDATER 'PARENT' DROPDOWNS
+        // Gem nuværende værdier
+        const valVV = pVV.value;
+        const valKV = pKV.value;
+
+        // Opdater Options
+        pVV.innerHTML = optionsVV;
+        pKV.innerHTML = optionsKV;
+
+        // LOGIK FOR SYNLIGHED
+        
+        // Varmt Vand Dropdown
+        if (mode === 'hot_only' || mode === 'both') {
+            pVV.style.display = 'block';
+            pVV.value = valVV;
+            // Auto-set hvis tom (og vi er i en VV-streng)
+            if (!pVV.value && tr.closest('#strengeContainerVV')) {
+                pVV.value = tr.dataset.defaultParent || "Beholder";
+            }
+        } else {
+            pVV.style.display = 'none';
+            pVV.value = ""; 
+        }
+
+        // Koldt Vand Dropdown
+        if (mode === 'cold_only' || mode === 'both') {
+            pKV.style.display = 'block';
+            pKV.value = valKV;
+            // Auto-set hvis tom (og vi er i en KV-streng)
+            if (!pKV.value && tr.closest('#strengeContainerKV')) {
+                pKV.value = tr.dataset.defaultParent || "Vandstik";
+            }
+        } else {
+            pKV.style.display = 'none';
+            pKV.value = "";
+        }
+        
+        delete tr.dataset.defaultParent;
+    });
+
+    // 3. OPDATER STANDARD 'PARENT' (Rør, Ventiler)
     document.querySelectorAll('.parent').forEach(s => {
+        // Spring over de skjulte inputs i tapsteder
+        if (s.tagName !== 'SELECT') return;
+
         const row = s.closest('tr');
         if (!row) return; 
-        
         const myId = row.dataset.id;
         const currentVal = s.value; 
         
-        // Bestem hvilket system vi er i
         const isKV = row.closest('#strengeContainerKV') || row.closest('.kv-card');
         const isRetur = row.closest('#returContainerBody');
         
-        // Sæt indhold
-        if (isRetur) {
-            s.innerHTML = optionsReturParent;
-        } else if (isKV) {
-            s.innerHTML = optionsKV;
-        } else {
-            s.innerHTML = optionsVV; // Default VV
-        }
+        if (isRetur) s.innerHTML = optionsReturParent;
+        else if (isKV) s.innerHTML = optionsKV;
+        else s.innerHTML = optionsVV; 
         
-        // Fjern muligheden for at vælge sig selv
         const selfOpt = s.querySelector(`option[value="${myId}"]`);
         if(selfOpt) selfOpt.remove();
         
-        // Gendan værdi
         s.value = currentVal;
-        
-        // Fallback: Hvis den valgte forælder ikke findes mere (eller var ugyldig), sæt til rod
         if (s.value === "") {
             if (isKV) s.value = "Vandstik";
             else s.value = "Beholder";
@@ -2215,38 +2257,31 @@ function updateAllSelects() {
 
     // 4. OPDATER CIRKULATION I STRENGE
     document.querySelectorAll('.streng-card').forEach(card => {
-        // Ignorer KV-kort
         if (card.closest('#strengeContainerKV') || card.classList.contains('kv-card')) return;
-
         const startSel = card.querySelector('.circ-start');
         const endSel = card.querySelector('.circ-end');
-        
         if (startSel && endSel) {
             const savedStart = startSel.value;
             const savedEnd = endSel.value;
-            
-            // Startpunkt kan være hvilket som helst rør/komponent i DENNE streng
             const localComps = Array.from(card.querySelectorAll('.ror-container > tr[data-id]'));
-            
             startSel.innerHTML = localComps.map(el => {
                 const name = state.names.get(el.dataset.id) || el.dataset.id;
                 return `<option value="${el.dataset.id}">${name}</option>`;
             }).join('');
             
+            const optionsCircEnd = `<option value="">Ingen</option>` + buildOpts(returParentsList, "Beholder").replace('Beholder', 'Beholder (Retur)');
             endSel.innerHTML = optionsCircEnd;
             
-            // Gendan
             if (savedStart) startSel.value = savedStart;
-            // Hvis start er tom (ny streng), vælg sidste rør som default
             if (!startSel.value && localComps.length > 0) startSel.value = localComps[localComps.length - 1].dataset.id;
-            
             endSel.value = savedEnd;
         }
     });
 
-    // 5. TEGN DIAGRAM
     buildNetworkAndRender();
 }
+
+
 
 function getDisplayName(id) {
     if (state.useNames && state.names.has(id)) return state.names.get(id);
@@ -4167,16 +4202,35 @@ function getDataForSave() {
 /**
  * Hjælper: Trækker data ud af en tabelrække baseret på typen.
  * Håndterer Rør, Tapsteder, Ventiler og nu også Boostere/Reducere.
+ * OPDATERET: Forstår kontekst (KV vs VV) og gemmer parent korrekt som parent_kv eller parent_vv.
  */
 function extractComponentData(el) {
     const type = el.dataset.type;
+    
+    // Bestem kontekst (Hvor sidder denne række?)
+    const isKVContainer = el.closest('#strengeContainerKV') !== null;
+    const isVVContainer = el.closest('#strengeContainerVV') !== null || el.closest('#strengeContainer') !== null;
+    
     const base = {
         id: el.dataset.id,
-        type: type, // Vigtigt: Gem typen eksplicit
-        parent: el.querySelector('.parent')?.value || '',
+        type: type,
     };
+    
+    // Hent den valgte forælder fra dropdownen
+    const rawParent = el.querySelector('.parent')?.value || '';
 
-    // RØR (VV, KV, Cirkulation)
+    // Hvis det er et Tapsted, skal vi gemme forælderen i det rigtige felt
+    if (type === 'tapsted') {
+        if (isKVContainer) base.parent_kv = rawParent;
+        if (isVVContainer) base.parent_vv = rawParent;
+        // Vi gemmer også 'parent' som fallback/legacy
+        base.parent = rawParent;
+    } else {
+        // Rør/Ventiler har kun én fysisk forælder
+        base.parent = rawParent;
+    }
+
+    // RØR DATA
     if (type.includes('ror') || type === 'cirkulation_vv') {
         Object.assign(base, {
             material: el.querySelector('.material')?.value,
@@ -4188,7 +4242,7 @@ function extractComponentData(el) {
         });
     }
     
-    // TAPSTEDER
+    // TAPSTED DATA
     if (type === 'tapsted') {
         const sel = el.querySelector('.tapType');
         Object.assign(base, {
@@ -4200,23 +4254,16 @@ function extractComponentData(el) {
         });
     }
     
-    // VENTILER
+    // VENTIL / BOOSTER
     if (type === 'valve') {
-        Object.assign(base, {
-            valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType
-        });
+        Object.assign(base, { valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType });
     }
-
-    // BOOSTER / REDUCER
     if (type === 'booster' || type === 'reducer') {
-        Object.assign(base, {
-            pressure_change: parseFloat(el.querySelector('.pressure-change')?.value) || 0
-        });
+        Object.assign(base, { pressure_change: parseFloat(el.querySelector('.pressure-change')?.value) || 0 });
     }
     
     return base;
 }
-
 
 
 /**
@@ -4690,6 +4737,7 @@ function loadProjectData(data) {
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
  * Håndterer Rør, Tapsteder, Ventiler og Komponenter.
+ * Tapsteder har TO parent-dropdowns (VV og KV).
  */
 function createRowHTML(id, type) {
     // 1. BOOSTER / REDUCER
@@ -4718,19 +4766,29 @@ function createRowHTML(id, type) {
         return tr;
     }
 
-    // 2. TAPSTED
+    // 2. TAPSTED (MED DOBBELT DROPDOWN)
     if (type === 'tapsted') {
         const tr = document.createElement('tr');
         tr.dataset.id = id;
         tr.dataset.type = type;
         
         let tapOpts = ''; 
-        // Vi bruger custom + standard, da custom allerede er indlæst i ST ved load
         Object.keys(ST).forEach(k => tapOpts += `<option value="${ST[k].qf_hot}">${k}</option>`);
 
         tr.innerHTML = `
-            <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-            <td><select class="form-select form-select-sm parent"></select></td>
+            <td>
+                <span class="input-group input-group-sm">
+                    <span class="input-group-text id-text">${id}</span>
+                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn">
+                </span>
+            </td>
+            <td>
+                <div class="d-flex flex-column gap-1">
+                    <select class="form-select form-select-sm parent-vv" title="Tilslutning Varmt Vand" style="border-left: 3px solid #dc3545; display:none;"></select>
+                    <select class="form-select form-select-sm parent-kv" title="Tilslutning Koldt Vand" style="border-left: 3px solid #0d6efd; display:none;"></select>
+                    <input type="hidden" class="parent"> 
+                </div>
+            </td>
             <td><select class="form-select form-select-sm tapType" onchange="handleInputChange(event)">${tapOpts}</select></td>
             <td><input type="number" class="form-control form-control-sm qf" step="0.01"></td>
             <td><input type="number" class="form-control form-control-sm kote allow-negative"></td>
@@ -4762,35 +4820,23 @@ function createRowHTML(id, type) {
     tr.dataset.type = type;
     const listId = `list-${id}`;
     
-    // Cirkulation (Specifik Materialeliste)
-    if (type === 'cirkulation_vv') {
-         tr.innerHTML = `
-            <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-            <td><select class="form-select form-select-sm parent"></select></td>
-            <td><select class="form-select form-select-sm material"><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="Kobber">Kobber</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
-            <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-            <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions"></td>
-            <td><input type="text" class="form-control form-control-sm dim-input dim" list="${listId}"><datalist id="${listId}"></datalist></td>
-            <td><input type="number" min="0" class="form-control form-control-sm len"></td>
-            <td><input type="number" min="0" class="form-control form-control-sm fittings"></td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
-        `;
-    } else {
-        // Standard (VV / KV)
-        tr.innerHTML = `
-            <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-            <td><select class="form-select form-select-sm parent"></select></td>
-            <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option></select></td>
-            <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-            <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions"></td>
-            <td><input type="text" class="form-control form-control-sm dim-input dim" list="${listId}"><datalist id="${listId}"></datalist></td>
-            <td><input type="number" min="0" class="form-control form-control-sm len"></td>
-            <td><input type="number" min="0" class="form-control form-control-sm fittings"></td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
-        `;
-    }
+    let matOpts = '<option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option>';
+    if(type !== 'cirkulation_vv') matOpts += '<option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>';
+
+    tr.innerHTML = `
+        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
+        <td><select class="form-select form-select-sm parent"></select></td>
+        <td><select class="form-select form-select-sm material">${matOpts}</select></td>
+        <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
+        <td><input type="text" class="form-control form-control-sm insulation-class" list="insulationClassOptions"></td>
+        <td><input type="text" class="form-control form-control-sm dim-input dim" list="${listId}"><datalist id="${listId}"></datalist></td>
+        <td><input type="number" min="0" class="form-control form-control-sm len"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm fittings"></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
+    `;
     return tr;
 }
+
 
 /**
  * FUNKTION: Udløses af knappen "Eksport Detaljer (JSON)".
@@ -6653,6 +6699,7 @@ function handleNodeClick(event, d) {
  * Indeholder undermenuer og logik for alle komponenttyper.
  * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel)
  * Ny "Indsæt Komponent" menu med Undermenu til Booster/Reducer/Ventil.
+ * OPDATERET: Inkluderer nu "Tilslut eksisterende Tapsted" for spejlet visning.
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -6661,30 +6708,37 @@ function handleNodeRightClick(event, d) {
     const menu = document.createElement('div');
     menu.id = 'context-menu';
     menu.style.cssText = `
-        position: absolute; left: ${event.pageX}px; top: ${event.pageY}px; 
-        background: white; border: 1px solid #ccc; border-radius: 5px; 
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2); padding: 5px 0; z-index: 1000; 
-        min-width: 240px; font-size: 14px; font-family: sans-serif;
+        position: absolute; 
+        left: ${event.pageX}px; 
+        top: ${event.pageY}px; 
+        background: white; 
+        border: 1px solid #ccc; 
+        border-radius: 5px; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2); 
+        padding: 5px 0; 
+        z-index: 1000; 
+        min-width: 240px;
+        font-size: 14px;
+        font-family: sans-serif;
     `;
 
     const createMenuItem = (text, onClick, hasSubmenu = false) => {
         const item = document.createElement('div');
         item.textContent = text;
         item.className = 'menu-item';
+        item.style.padding = '8px 15px';
+        item.style.cursor = 'pointer';
+        item.style.position = 'relative';
+        
         if (hasSubmenu) {
             item.classList.add('has-submenu');
-            // CSS pil tilføjes via style-tag i head eller inline herunder
             item.style.display = "flex";
             item.style.justifyContent = "space-between";
             item.innerHTML = `${text} <span>▶</span>`;
         }
-        item.style.padding = '8px 15px';
-        item.style.cursor = 'pointer';
-        item.style.position = 'relative'; // For submenu positioning
-        
+
         item.onmouseenter = (e) => {
             item.style.backgroundColor = '#f2f2f2';
-            // Vis submenu hvis den findes
             const sub = item.querySelector('.context-submenu');
             if (sub) sub.style.display = 'block';
         };
@@ -6696,7 +6750,9 @@ function handleNodeRightClick(event, d) {
         
         if (onClick) {
             item.onclick = (e) => { 
-                e.stopPropagation(); onClick(); removeContextMenu(); 
+                e.stopPropagation(); 
+                onClick(); 
+                removeContextMenu(); 
             };
         }
         return item;
@@ -6705,7 +6761,7 @@ function handleNodeRightClick(event, d) {
     const nodeType = d.type;
     const isPipe = ['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType);
     
-    // ANALYSE AF CLIPBOARD (Uændret logik)
+    // ANALYSE AF CLIPBOARD
     let showPasteVV = false, showPasteKV = false, showPasteRetur = false;
     if (state.clipboard) {
         const ct = state.clipboard.type;
@@ -6718,7 +6774,7 @@ function handleNodeRightClick(event, d) {
     // 1. LOKAL UDBYGNING (ØVERST)
     // ============================================================
 
-    // VV Rør
+    // --- VV RØR ---
     if (nodeType === 'ror_vv') {
         menu.appendChild(createMenuItem('➕ Tilføj VV-rør her (Forlæng)', () => {
             const parentId = d.id;
@@ -6726,7 +6782,8 @@ function handleNodeRightClick(event, d) {
             const card = row ? row.closest('.streng-card') : null;
             if (card) addRorSektion(card.querySelector('button'), 'ror_vv', parentId);
         }));
-        menu.appendChild(createMenuItem('🚰 Tilføj Tapsted her', () => {
+        
+        menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
              const parentId = d.id;
              const row = document.querySelector(`tr[data-id="${parentId}"]`);
              const card = row ? row.closest('.streng-card') : null;
@@ -6736,9 +6793,58 @@ function handleNodeRightClick(event, d) {
                  if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
              }
         }));
+
+        // NYT: Tilslut Eksisterende (Spejling) - VV
+        menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
+             const parentId = d.id;
+             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+             
+             if (strengCard) {
+                 // Find tapsteder der IKKE er i VV containeren, men findes i systemet (fx i KV)
+                 // Vi tjekker både den nye og gamle VV container ID for sikkerheds skyld
+                 const vvContext = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
+                 const existingInVV = Array.from(vvContext.querySelectorAll('tr[data-type="tapsted"]')).map(tr => tr.dataset.id);
+                 const allTaps = state.nodes.filter(n => n.type === 'tapsted' && !existingInVV.includes(n.id));
+                 
+                 if (allTaps.length === 0) {
+                     alert("Ingen ledige tapsteder fundet (alle tapsteder er allerede forbundet til Varmt Vand).");
+                     return;
+                 }
+
+                 const tapId = prompt(`Indtast ID på tapsted du vil tilslutte (Tilgængelige: ${allTaps.map(n => getDisplayName(n.id)).join(', ')}):`);
+                 const targetTap = allTaps.find(n => n.id === tapId || getDisplayName(n.id) === tapId);
+                 
+                 if (targetTap) {
+                     const tr = createRowHTML(targetTap.id, 'tapsted');
+                     // Kopier data fra kilden (KV)
+                     const sourceRow = document.querySelector(`tr[data-id="${targetTap.id}"]`);
+                     if (sourceRow) {
+                         const srcSel = sourceRow.querySelector('.tapType');
+                         const newSel = tr.querySelector('.tapType');
+                         newSel.value = srcSel.value;
+                         // Synkroniser index for korrekt tekst-visning
+                         newSel.selectedIndex = srcSel.selectedIndex;
+                         
+                         tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
+                         tr.querySelector('.kote').value = sourceRow.querySelector('.kote').value;
+                         tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
+                         tr.dataset.isApartment = sourceRow.dataset.isApartment;
+                     }
+                     strengCard.querySelector('.tapsted-container').appendChild(tr);
+                     updateAllSelects(); 
+                     tr.querySelector('.parent').value = parentId;
+                     updateAllSelects(); // Kør igen for at gemme valget
+                 }
+             }
+        }));
+        
+        if (showPasteVV) {
+             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+        }
     }
 
-    // KV Rør
+    // --- KV RØR ---
     if (nodeType === 'ror_kv') {
         menu.appendChild(createMenuItem('➕ Tilføj KV-rør her (Forlæng)', () => {
             const parentId = d.id;
@@ -6746,7 +6852,8 @@ function handleNodeRightClick(event, d) {
             const card = row ? row.closest('.streng-card') : null;
             if (card) addRorSektion(card.querySelector('button'), 'ror_kv', parentId);
         }));
-        menu.appendChild(createMenuItem('🚰 Tilføj Tapsted her', () => {
+        
+        menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
              const parentId = d.id;
              const row = document.querySelector(`tr[data-id="${parentId}"]`);
              const card = row ? row.closest('.streng-card') : null;
@@ -6756,70 +6863,108 @@ function handleNodeRightClick(event, d) {
                  if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
              }
         }));
+
+        // NYT: Tilslut Eksisterende (Spejling) - KV
+        menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
+             const parentId = d.id;
+             const rorRow = document.querySelector(`tr[data-id="${parentId}"]`);
+             const strengCard = rorRow ? rorRow.closest('.streng-card') : null;
+             
+             if (strengCard) {
+                 // Find tapsteder der IKKE er i KV containeren
+                 const existingInKV = Array.from(document.querySelectorAll('#strengeContainerKV tr[data-type="tapsted"]')).map(tr => tr.dataset.id);
+                 const allTaps = state.nodes.filter(n => n.type === 'tapsted' && !existingInKV.includes(n.id));
+                 
+                 if (allTaps.length === 0) {
+                     alert("Ingen ledige tapsteder fundet (alle tapsteder er allerede forbundet til Koldt Vand).");
+                     return;
+                 }
+
+                 const tapId = prompt(`Indtast ID på tapsted du vil tilslutte (Tilgængelige: ${allTaps.map(n => getDisplayName(n.id)).join(', ')}):`);
+                 const targetTap = allTaps.find(n => n.id === tapId || getDisplayName(n.id) === tapId);
+                 
+                 if (targetTap) {
+                     const tr = createRowHTML(targetTap.id, 'tapsted');
+                     // Kopier data fra kilden (VV)
+                     const sourceRow = document.querySelector(`tr[data-id="${targetTap.id}"]`);
+                     if (sourceRow) {
+                         const srcSel = sourceRow.querySelector('.tapType');
+                         const newSel = tr.querySelector('.tapType');
+                         newSel.value = srcSel.value;
+                         newSel.selectedIndex = srcSel.selectedIndex;
+                         
+                         tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
+                         tr.querySelector('.kote').value = sourceRow.querySelector('.kote').value;
+                         tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
+                         tr.dataset.isApartment = sourceRow.dataset.isApartment;
+                     }
+                     strengCard.querySelector('.tapsted-container').appendChild(tr);
+                     updateAllSelects();
+                     tr.querySelector('.parent').value = parentId;
+                     updateAllSelects();
+                 }
+             }
+        }));
+        
+        if (showPasteKV) {
+             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
+        }
     }
 
-    // Cirkulation
+    // --- CIRKULATION ---
     if (['cirkulation_vv', 'valve'].includes(nodeType)) {
         menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
             addCirkulationRor();
             const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
             if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
         }));
+        menu.appendChild(createMenuItem('🔧 Tilføj Ventil her', () => {
+            if (typeof addValve === 'function') {
+                addValve();
+                const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
+                if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
+            }
+        }));
+    }
+
+    // --- BEHOLDER ---
+    if (nodeType === 'beholder') {
+        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
+            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
+            document.body.style.cursor = 'crosshair';
+            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
+        }));
     }
 
     // ============================================================
-    // 2. INDSÆT KOMPONENT (NY SUBMENU)
+    // 2. INDSÆT KOMPONENT (Submenu)
     // ============================================================
-    // Tillad på alle "åbne" ender: Rør, Beholder, Vandstik, Ventiler
     if (isPipe || nodeType === 'beholder' || nodeType === 'vandstik' || nodeType === 'valve') {
+        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
+        
         const compItem = createMenuItem('⚙️ Indsæt Komponent', null, true);
         
-        // Submenu Container
         const subMenu = document.createElement('div');
         subMenu.className = 'context-submenu';
-        subMenu.style.cssText = `
-            display: none; position: absolute; left: 100%; top: -5px; 
-            background: white; border: 1px solid #ccc; border-radius: 5px; 
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.2); min-width: 180px; padding: 5px 0;
-        `;
+        subMenu.style.cssText = `display: none; position: absolute; left: 100%; top: -5px; background: white; border: 1px solid #ccc; border-radius: 5px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); min-width: 180px; padding: 5px 0;`;
 
-        // Submenu Items
-        const sub1 = document.createElement('div');
-        sub1.className = 'menu-item';
-        sub1.textContent = '⚡ Trykforøger (Booster)';
-        sub1.style.padding = '8px 15px';
-        sub1.onclick = (e) => { e.stopPropagation(); addComponent('booster', d.id); removeContextMenu(); };
-        sub1.onmouseenter = () => sub1.style.backgroundColor = '#f2f2f2';
-        sub1.onmouseleave = () => sub1.style.backgroundColor = 'transparent';
-        subMenu.appendChild(sub1);
-
-        const sub2 = document.createElement('div');
-        sub2.className = 'menu-item';
-        sub2.textContent = '↘️ Trykreduktionsventil';
-        sub2.style.padding = '8px 15px';
-        sub2.onclick = (e) => { e.stopPropagation(); addComponent('reducer', d.id); removeContextMenu(); };
-        sub2.onmouseenter = () => sub2.style.backgroundColor = '#f2f2f2';
-        sub2.onmouseleave = () => sub2.style.backgroundColor = 'transparent';
-        subMenu.appendChild(sub2);
-
-        // Kun vis cirkulationsventil hvis vi er i cirkulation eller på beholder
+        const mkSub = (txt, type) => {
+            const el = document.createElement('div');
+            el.className = 'menu-item'; el.textContent = txt; el.style.padding = '8px 15px';
+            el.onclick = (e) => { e.stopPropagation(); addComponent(type, d.id); removeContextMenu(); };
+            el.onmouseenter = () => el.style.backgroundColor = '#f2f2f2';
+            el.onmouseleave = () => el.style.backgroundColor = 'transparent';
+            return el;
+        };
+        
+        subMenu.appendChild(mkSub('⚡ Trykforøger (Booster)', 'booster'));
+        subMenu.appendChild(mkSub('↘️ Trykreduktionsventil', 'reducer'));
+        
         if (nodeType === 'cirkulation_vv' || nodeType === 'beholder' || nodeType === 'valve') {
-            const sub3 = document.createElement('div');
-            sub3.className = 'menu-item';
-            sub3.textContent = '🔧 Cirkulationsventil';
-            sub3.style.padding = '8px 15px';
-            sub3.onclick = (e) => { 
-                e.stopPropagation(); 
-                addValve(); 
-                const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
-                if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
-                removeContextMenu(); 
-            };
-            sub3.onmouseenter = () => sub3.style.backgroundColor = '#f2f2f2';
-            sub3.onmouseleave = () => sub3.style.backgroundColor = 'transparent';
-            subMenu.appendChild(sub3);
+            const vSub = mkSub('🔧 Cirkulationsventil', 'valve');
+            vSub.onclick = (e) => { e.stopPropagation(); addValve(); const el = document.querySelector('#returContainerBody > tr:last-child'); if(el){el.querySelector('.parent').value=d.id; updateAllSelects();} removeContextMenu(); };
+            subMenu.appendChild(vSub);
         }
-
         compItem.appendChild(subMenu);
         menu.appendChild(compItem);
     }
@@ -6828,7 +6973,9 @@ function handleNodeRightClick(event, d) {
     // 3. FORBINDELSER
     // ============================================================
     if (isPipe || nodeType === 'valve' || ['booster', 'reducer'].includes(nodeType)) {
-         menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
+        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
+        
+        menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
         }));
@@ -6840,27 +6987,17 @@ function handleNodeRightClick(event, d) {
             document.body.style.cursor = 'crosshair';
         }));
     }
-    
-    if (nodeType === 'beholder') {
-        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
-            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
-            document.body.style.cursor = 'crosshair';
-            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
-        }));
-    }
 
     // ============================================================
     // 4. NY STRENG
     // ============================================================
     if (nodeType === 'beholder' || nodeType === 'ror_vv' || nodeType === 'booster') {
-        menu.appendChild(createMenuItem('🌱 Tilføj ny VV-streng herfra', () => {
-            addStreng_vv(d.id);
-        }));
+        menu.appendChild(createMenuItem('🌱 Tilføj ny VV-streng herfra', () => { addStreng_vv(d.id); }));
+        if (showPasteVV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
     }
     if (nodeType === 'vandstik' || nodeType === 'ror_kv' || nodeType === 'booster') {
-        menu.appendChild(createMenuItem('🌱 Tilføj ny KV-streng herfra', () => {
-            addStreng_kv(d.id);
-        }));
+        menu.appendChild(createMenuItem('🌱 Tilføj ny KV-streng herfra', () => { addStreng_kv(d.id); }));
+        if (showPasteKV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
     }
 
     // ============================================================
@@ -6874,31 +7011,13 @@ function handleNodeRightClick(event, d) {
         menu.appendChild(createMenuItem('📋 Kopier gren', () => copyBranch(d.id)));
     }
     
-    // Paste muligheder (som før...)
-    const hasPasteOptions = (nodeType === 'ror_vv' && showPasteVV) || 
-                            (nodeType === 'ror_kv' && showPasteKV) ||
-                            (['cirkulation_vv', 'valve', 'beholder'].includes(nodeType) && showPasteRetur) ||
-                            (nodeType === 'vandstik' && showPasteKV);
-
-    if (hasPasteOptions) {
-        if (nodeType.includes('ror')) {
-             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
-        }
-        menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
-    }
-
     if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
-        menu.appendChild(document.createElement('hr'));
+        if (!isPipe) menu.appendChild(document.createElement('hr'));
         menu.appendChild(createMenuItem('❌ Slet', () => {
-             const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
-             if (element) {
-                 const delBtn = element.querySelector('button[aria-label*="Fjern"], button.btn-outline-danger');
-                 if (delBtn) delBtn.click();
-                 else {
-                     element.remove();
-                     if (state.names.has(d.id)) state.names.delete(d.id);
-                     updateAllSelects();
-                 }
+             const el = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
+             if (el) {
+                 const btn = el.querySelector('button[aria-label*="Fjern"], button.btn-outline-danger');
+                 if (btn) btn.click(); else { el.remove(); if(state.names.has(d.id)) state.names.delete(d.id); updateAllSelects(); }
                  if (state.beholderConnectionId === d.id) state.beholderConnectionId = null;
                  setProjektErÆndret();
              }
@@ -6908,7 +7027,6 @@ function handleNodeRightClick(event, d) {
     document.body.appendChild(menu);
     setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
-
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
