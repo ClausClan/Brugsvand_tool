@@ -1224,24 +1224,47 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 // --- UI FUNKTIONER ---
 function handleInputChange(e) {
-    // 1. Håndter Tapsted Type ændring (Synkroniseret)
+    // 1. Håndter Tapsted Type ændring (Differentieret Hot/Cold)
     if (e.target.classList.contains('tapType')) {
         const sourceTr = e.target.closest('tr');
         const id = sourceTr.dataset.id;
         
-        // Hent data fra kilden
+        // Hent den valgte type
         const selectedOption = e.target.options[e.target.selectedIndex];
         const typeName = selectedOption.text;
-        const newVal = selectedOption.value;
+        const newVal = selectedOption.value; // Dette er qf_hot fra createRowHTML
         const isApt = selectedOption.dataset.isApartment === 'true';
         
+        // Slå værdier op i ST (Standard Tapsteder)
+        let flowHot = 0;
+        let flowCold = 0;
+        
+        if (ST[typeName]) {
+            if (typeof ST[typeName] === 'object') {
+                flowHot = ST[typeName].qf_hot;
+                flowCold = ST[typeName].qf_cold;
+            } else {
+                // Legacy format (kun tal)
+                flowHot = ST[typeName];
+                // Simpel logik for legacy cold
+                if (typeName.includes('WC') || typeName.includes('Toilet')) flowCold = 0.13;
+                else flowCold = flowHot; 
+            }
+        } else if (state.customTapsteder[typeName]) {
+            flowHot = state.customTapsteder[typeName].qf_hot || 0;
+            flowCold = state.customTapsteder[typeName].qf_cold || 0;
+        } else {
+            // Fallback hvis typen er ukendt, brug værdien fra optionen
+            flowHot = parseFloat(newVal) || 0;
+            flowCold = flowHot; 
+        }
+
         // Opdater ALLE rækker med dette ID (Spejling)
         const allMirrors = document.querySelectorAll(`tr[data-id="${id}"]`);
         
         allMirrors.forEach(tr => {
-            // Opdater Dropdown
+            // Opdater Dropdown valg
             const sel = tr.querySelector('.tapType');
-            // Prøv at sætte index baseret på tekst for nøjagtighed
             let found = false;
             for(let i=0; i<sel.options.length; i++) {
                 if(sel.options[i].text === typeName) {
@@ -1250,18 +1273,27 @@ function handleInputChange(e) {
             }
             if(!found) sel.value = newVal;
 
-            // Opdater qf feltet
+            // Opdater qf feltet baseret på KONTEKST (VV eller KV)
             const qfInput = tr.querySelector('.qf');
-            if (qfInput) qfInput.value = newVal;
+            if (qfInput) {
+                // Er vi i KV containeren?
+                if (tr.closest('#strengeContainerKV')) {
+                    qfInput.value = flowCold;
+                } else {
+                    // Ellers antager vi VV
+                    qfInput.value = flowHot;
+                }
+            }
             
             // Opdater dataset
             tr.dataset.isApartment = isApt;
         });
 
-        // Opdater Noden i State
+        // Opdater State
         const node = state.nodes.find(n => n.id === id);
         if (node) {
             node.tapType = typeName;
+            // Vi opdaterer diagrammet for at vise evt. navneændring
             updateDiagram(); 
         }
         
@@ -1274,33 +1306,23 @@ function handleInputChange(e) {
     if (e.target.classList.contains('name-text')) {
         const id = e.target.closest('[data-id]').dataset.id;
         const newName = e.target.value;
-        
-        // Gem i state
         state.names.set(id, newName);
         
-        // Opdater alle spejlinger i UI
         document.querySelectorAll(`[data-id="${id}"] .name-text`).forEach(inp => {
             if (inp !== e.target) inp.value = newName;
         });
-        
-        updateAllSelects(); // Opdater dropdown-lister med det nye navn
+        updateAllSelects(); 
     }
     
-    // 3. Håndter andre inputs (qf, len, dim osv.)
-    if (e.target.classList.contains('qf')) {
-        const id = e.target.closest('tr').dataset.id;
-        const newVal = e.target.value;
-        // Synkroniser qf manuelt hvis brugeren overskriver standarden
-        document.querySelectorAll(`tr[data-id="${id}"] .qf`).forEach(inp => {
-            if (inp !== e.target) inp.value = newVal;
-        });
-    }
+    // 3. Håndter Flow (qf) ændring manuelt
+    // OBS: Hvis man retter manuelt, synkroniserer vi IKKE automatisk, 
+    // da man typisk kun vil rette den ene side (f.eks. koldt flow på en vask).
+    // extractComponentData gemmer værdien fra den specifikke række.
 
     if (typeof setProjektErÆndret === 'function') {
         setProjektErÆndret();
     }
 }
-
 
 function toggleGlobalOptimizationInputs() {
     const principle = document.getElementById('dimPrinciple').value;
@@ -1971,34 +1993,39 @@ function addTapsted(btn) {
     
     // Sæt standardværdier
     const defaultType = "Lejlighed (standard)";
-    const defaultQf = ST[defaultType].qf_hot;
     
+    // Find Hot/Cold værdier for standardtypen
+    let defHot = 0, defCold = 0;
+    if (ST[defaultType]) {
+        defHot = ST[defaultType].qf_hot;
+        defCold = ST[defaultType].qf_cold;
+    }
+
     const typeSelect = tr.querySelector('.tapType');
     let foundIdx = Array.from(typeSelect.options).findIndex(opt => opt.text === defaultType);
     if (foundIdx !== -1) typeSelect.selectedIndex = foundIdx;
     
-    tr.querySelector('.qf').value = defaultQf;
-    tr.dataset.isApartment = 'true'; 
+    // Bestem hvilken værdi der skal i feltet baseret på kontekst
+    const isKV = card.closest('#strengeContainerKV') !== null;
+    tr.querySelector('.qf').value = isKV ? defCold : defHot;
     
+    tr.dataset.isApartment = 'true'; 
     tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
     container.appendChild(tr);
     
-    // Smart Parent: Sæt parent til det sidste rør i strengen som standard
+    // Smart Parent
     const rorInStreng = card.querySelectorAll('.ror-container > tr[data-id]');
     const lastRorId = rorInStreng.length > 0 ? rorInStreng[rorInStreng.length-1].dataset.id : '';
-    
     if (lastRorId) {
         tr.dataset.defaultParent = lastRorId;
     }
 
-    // Opdater state-noden
     const newNode = state.nodes.find(n => n.id === id);
     if (newNode) newNode.tapType = defaultType;
 
     updateAllSelects();
 }
-
 
 
 let valveCounter = 0;
