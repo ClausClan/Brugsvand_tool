@@ -6630,54 +6630,49 @@ function clearHighlight() {
  * @param {object} event - Klik-eventet.
  * @param {object} d - Data-objektet for den klikkede node.
  * Håndterer nu også 'connect_mirror_tap' logikken (Spejling ved klik).
+ * Håndterer venstre-klik på en node.
+ * OPDATERET: Scroller nu til den række, der er SYNLIG (afhængig af hvilken fane der er åben).
+ * Håndterer både VV og KV rækker for Unified Tapsteder.
  */
 function handleNodeClick(event, d) {
-    // Tjek om vi er i en aktiv "mode"
+    // Tjek om vi er i en aktiv "mode" (Forbindelse / Spejling)
     if (state.connectingNodeInfo) {
         event.preventDefault();
         event.stopPropagation();
 
         const info = state.connectingNodeInfo;
         
-        // --- NY MODE: SPEJL TAPSTED ---
+        // --- MODE: SPEJL TAPSTED ---
         if (info.mode === 'connect_mirror_tap') {
-            // 1. Validering: Skal klikke på et tapsted
             if (d.type !== 'tapsted') {
                 alert("Du skal klikke på et Tapsted for at tilslutte det.");
                 return;
             }
 
-            // 2. Find målet (Røret vi startede fra)
             const targetPipeId = info.parentId;
             const targetRow = document.querySelector(`tr[data-id="${targetPipeId}"]`);
             const targetCard = targetRow ? targetRow.closest('.streng-card') : null;
 
             if (targetCard) {
-                // Tjek om det allerede findes i denne container (undgå dubletter i visningen)
                 const container = targetCard.querySelector('.tapsted-container');
                 const existing = Array.from(container.querySelectorAll('tr')).find(tr => tr.dataset.id === d.id);
                 
                 if (existing) {
                     alert("Dette tapsted er allerede vist i denne streng.");
-                    // Reset
                     state.connectingNodeInfo = null;
                     document.body.style.cursor = 'default';
                     return;
                 }
 
-                // 3. Opret Spejlet Række (UI)
+                // Opret Spejlet Række
                 const tr = createRowHTML(d.id, 'tapsted');
                 
-                // 4. Hent data fra kilden (State eller DOM)
-                // Vi henter fra DOM for at få de nyeste values (hvis brugeren lige har rettet flowet)
+                // Hent data fra kilden (DOM)
                 const sourceRow = document.querySelector(`tr[data-id="${d.id}"]`);
                 if (sourceRow) {
-                    // Synkroniser dropdown tekst/index
                     const srcSel = sourceRow.querySelector('.tapType');
                     const newSel = tr.querySelector('.tapType');
-                    // Kopier værdi og tekst
                     newSel.value = srcSel.value;
-                    // Sæt index for at vise rigtigt navn
                     newSel.selectedIndex = srcSel.selectedIndex;
                     
                     tr.querySelector('.qf').value = sourceRow.querySelector('.qf').value;
@@ -6685,7 +6680,7 @@ function handleNodeClick(event, d) {
                     tr.querySelector('.syst').checked = sourceRow.querySelector('.syst').checked;
                     tr.dataset.isApartment = sourceRow.dataset.isApartment;
                 } else {
-                    // Fallback til state data hvis DOM er drilsk (bør ikke ske)
+                    // Fallback state
                     const nData = state.nodes.find(n => n.id === d.id);
                     if (nData) {
                          tr.querySelector('.qf').value = nData.qf;
@@ -6693,35 +6688,27 @@ function handleNodeClick(event, d) {
                     }
                 }
 
-                // 5. Indsæt og Forbind
                 container.appendChild(tr);
-                
-                // Opdater dropdowns så 'parent' selectoren bliver fyldt
                 updateAllSelects(); 
                 
-                // Sæt forælderen til det rør, vi startede højreklikket på
                 const pSel = tr.querySelector('.parent');
                 if (pSel) pSel.value = targetPipeId;
                 
-                // Gem og opdater alt
                 updateAllSelects(); 
                 setProjektErÆndret();
                 
-                // Feedback
                 console.log(`Tapsted ${d.id} spejlet til rør ${targetPipeId}`);
             }
             
-            // 6. Afslut mode
             state.connectingNodeInfo = null;
             document.body.style.cursor = 'default';
             return;
         }
 
-        // --- EKSISTERENDE MODES (Parent / Return / Cold Feed) ---
+        // --- MODE: STANDARD FORBINDELSER ---
         const sourceId = info.nodeData ? info.nodeData.id : null;
         const targetNodeData = d;
         
-        // Forbindelse af Parents
         if (info.type === 'parent') {
             const sourceElement = document.querySelector(`tr[data-id="${sourceId}"]`);
             if (sourceElement) {
@@ -6729,20 +6716,17 @@ function handleNodeClick(event, d) {
                 const isTargetReturn = ['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type);
                 const isTargetSupply = ['ror_vv', 'ror_kv', 'beholder', 'vandstik', 'booster', 'reducer'].includes(targetNodeData.type);
 
-                // Validering
                 const isValidConnection = (isSourceReturn && isTargetReturn) || (!isSourceReturn && isTargetSupply);
                 
                 if (isValidConnection && sourceId !== targetNodeData.id && targetNodeData.type !== 'tapsted') {
                     sourceElement.querySelector('.parent').value = targetNodeData.id;
-                    updateAllSelects(); // Gem og tegn
+                    updateAllSelects(); 
                 }
             }
         }
         
-        // Forbindelse til Retur (Streng-afslutning)
         if (info.mode === 'connect_return') {
              if (['cirkulation_vv', 'valve', 'beholder'].includes(targetNodeData.type)) {
-                // Find streng-kortet
                 const row = document.querySelector(`tr[data-id="${sourceId}"]`);
                 const card = row ? row.closest('.streng-card') : null;
                 if (card) {
@@ -6753,7 +6737,6 @@ function handleNodeClick(event, d) {
             }
         }
 
-        // Forbindelse Koldt Vand -> Beholder
         if (info.mode === 'connect_cold_feed') {
             if (d.type !== 'ror_kv' && d.type !== 'vandstik') {
                 alert('Beholderen skal tilsluttes et koldtvandsrør eller vandstikket.');
@@ -6764,22 +6747,66 @@ function handleNodeClick(event, d) {
             updateAllSelects();
         }
         
-        // Fælles afslutning
         state.connectingNodeInfo = null;
         document.body.style.cursor = 'default';
         return;
     }
 
-    // --- NORMAL KLIK (Highlight) ---
-    const element = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
-    if (element) {
-        document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
-        element.classList.add('highlighted-row');
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setTimeout(() => element.classList.remove('highlighted-row'), 2500);
-    }
-}
+    // --- NORMAL KLIK: HIGHLIGHT & SCROLL (RETTET) ---
+    
+    // 1. Fjern gamle highlights
+    document.querySelectorAll('.highlighted-row').forEach(el => el.classList.remove('highlighted-row'));
 
+    // 2. Find mulige rækker (Både i VV og KV containere)
+    const rowVV = document.querySelector(`#strengeContainerVV tr[data-id="${d.id}"], #strengeContainer tr[data-id="${d.id}"]`);
+    const rowKV = document.querySelector(`#strengeContainerKV tr[data-id="${d.id}"]`);
+    const rowRetur = document.querySelector(`#returContainerBody tr[data-id="${d.id}"]`);
+
+    let targetToScroll = null;
+    let targetsToHighlight = [];
+
+    // 3. Tjek synlighed (offsetParent er null hvis elementet er skjult i en lukket accordion)
+    const isVVVisible = rowVV && rowVV.offsetParent !== null;
+    const isKVVisible = rowKV && rowKV.offsetParent !== null;
+    
+    // 4. Vælg mål baseret på hvilken fane der er åben
+    if (isKVVisible) {
+        targetsToHighlight.push(rowKV);
+        targetToScroll = rowKV; // Prioriter Koldt Vand hvis den er åben
+    }
+    
+    if (isVVVisible) {
+        targetsToHighlight.push(rowVV);
+        // Hvis KV ikke var åben, eller hvis vi vil highlighte begge, men scrolle til den første...
+        // Hvis vi ikke har valgt et scroll-target endnu (dvs. KV var lukket), så scroll til VV
+        if (!targetToScroll) targetToScroll = rowVV;
+    }
+
+    // Cirkulation / Retur håndtering
+    if (rowRetur) {
+        targetsToHighlight.push(rowRetur);
+        if (!targetToScroll) targetToScroll = rowRetur;
+    }
+
+    // Fallback: Hvis intet er synligt (begge accordions lukket), vælg VV som default
+    if (!targetToScroll) {
+        if (rowVV) targetToScroll = rowVV;
+        else if (rowKV) targetToScroll = rowKV;
+    }
+
+    // 5. Udfør highlight og scroll
+    targetsToHighlight.forEach(el => el.classList.add('highlighted-row'));
+
+    if (targetToScroll) {
+        targetToScroll.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Lille hack: Hvis accordion er lukket, vil scroll ikke virke optimalt, 
+        // men vi har gjort vores bedste ved at vælge den "åbne".
+    }
+
+    setTimeout(() => {
+        targetsToHighlight.forEach(el => el.classList.remove('highlighted-row'));
+    }, 2500);
+}
 
 /**
  * Håndterer højre-klik på en node for at vise en kontekstmenu.
