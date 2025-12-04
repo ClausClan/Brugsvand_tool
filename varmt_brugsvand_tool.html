@@ -2148,128 +2148,87 @@ function toggleAutoDim(isAuto) {
  * Inkluderer nu ALLE komponenter (Rør, Booster, Reducer) som gyldige forældre.
  * Opdaterer dropdowns.
  * Styrer synlighed af parent-vv og parent-kv baseret på tapstedets 'mode'.
+ * Kontekst-afhængig. Viser kun relevante forældre baseret på listen.
  */
 function updateAllSelects() {
     // 1. INDSAML POTENTIELLE FORÆLDRE
     const vvContainer = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
-    const vvParentsList = Array.from(vvContainer ? vvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
-    
     const kvContainer = document.getElementById('strengeContainerKV');
-    const kvParentsList = Array.from(kvContainer ? kvContainer.querySelectorAll('.ror-container > tr[data-id]') : []);
-    
     const returParentsList = Array.from(document.querySelectorAll('#returContainerBody > tr[data-id]')); 
 
-    // Helper
-    const buildOpts = (list, rootName) => {
+    // Helper til at bygge options
+    const buildOpts = (container, rootName) => {
+        const list = Array.from(container ? container.querySelectorAll('.ror-container > tr[data-id]') : []);
         return `<option value="${rootName}">${rootName}</option>` + 
                list.map(el => {
                    const id = el.dataset.id;
                    const name = state.names.get(id) || id;
-                   const type = el.dataset.type;
-                   const suffix = (type === 'booster') ? ' (Booster)' : (type === 'reducer' ? ' (Reduktion)' : '');
+                   const suffix = (el.dataset.type === 'booster') ? ' (Booster)' : (el.dataset.type === 'reducer' ? ' (Reduktion)' : '');
                    return `<option value="${id}">${name}${suffix}</option>`;
                }).join('');
     };
 
-    const optionsVV = buildOpts(vvParentsList, "Beholder");
-    const optionsKV = buildOpts(kvParentsList, "Vandstik");
-    const optionsReturParent = buildOpts(returParentsList, "Beholder");
-    
-    // 2. OPDATER TAPSTEDER (Dobbelt Selects)
-    document.querySelectorAll('tr[data-type="tapsted"]').forEach(tr => {
-        const pVV = tr.querySelector('.parent-vv');
-        const pKV = tr.querySelector('.parent-kv');
-        const tapTypeSel = tr.querySelector('.tapType');
-        
-        // Find 'mode' fra ST data
-        let mode = 'both'; // Default
-        if (tapTypeSel && tapTypeSel.selectedIndex >= 0) {
-            const name = tapTypeSel.options[tapTypeSel.selectedIndex].text;
-            if (state.customTapsteder[name]) mode = state.customTapsteder[name].mode || 'hot_only'; 
-            else if (ST[name]) mode = ST[name].mode;
-        }
+    const optionsVV = buildOpts(vvContainer, "Beholder");
+    const optionsKV = buildOpts(kvContainer, "Vandstik");
+    const optionsReturParent = `<option value="Beholder">Beholder</option>` + returParentsList.map(el => `<option value="${el.dataset.id}">${state.names.get(el.dataset.id)||el.dataset.id}</option>`).join('');
 
-        // Gem nuværende værdier
-        const valVV = pVV.value;
-        const valKV = pKV.value;
-
-        // Opdater Options
-        pVV.innerHTML = optionsVV;
-        pKV.innerHTML = optionsKV;
-
-        // LOGIK FOR SYNLIGHED
-        
-        // Varmt Vand Dropdown
-        if (mode === 'hot_only' || mode === 'both') {
-            pVV.style.display = 'block';
-            pVV.value = valVV;
-            // Auto-set hvis tom (og vi er i en VV-streng)
-            if (!pVV.value && tr.closest('#strengeContainerVV')) {
-                pVV.value = tr.dataset.defaultParent || "Beholder";
-            }
-        } else {
-            pVV.style.display = 'none';
-            pVV.value = ""; 
-        }
-
-        // Koldt Vand Dropdown
-        if (mode === 'cold_only' || mode === 'both') {
-            pKV.style.display = 'block';
-            pKV.value = valKV;
-            // Auto-set hvis tom (og vi er i en KV-streng)
-            if (!pKV.value && tr.closest('#strengeContainerKV')) {
-                pKV.value = tr.dataset.defaultParent || "Vandstik";
-            }
-        } else {
-            pKV.style.display = 'none';
-            pKV.value = "";
-        }
-        
-        delete tr.dataset.defaultParent;
-    });
-
-    // 3. OPDATER STANDARD 'PARENT' (Rør, Ventiler)
+    // 2. OPDATER 'PARENT' DROPDOWNS
     document.querySelectorAll('.parent').forEach(s => {
-        // Spring over de skjulte inputs i tapsteder
-        if (s.tagName !== 'SELECT') return;
+        if (s.tagName !== 'SELECT') return; // Skip hvis det ikke er en select
 
         const row = s.closest('tr');
         if (!row) return; 
+        
         const myId = row.dataset.id;
         const currentVal = s.value; 
         
+        // Bestem Kontekst (Hvilken liste er vi i?)
         const isKV = row.closest('#strengeContainerKV') || row.closest('.kv-card');
         const isRetur = row.closest('#returContainerBody');
         
-        if (isRetur) s.innerHTML = optionsReturParent;
-        else if (isKV) s.innerHTML = optionsKV;
-        else s.innerHTML = optionsVV; 
+        // Sæt Indhold
+        if (isRetur) {
+            s.innerHTML = optionsReturParent;
+        } else if (isKV) {
+            // Hvis vi er i Koldt Vand listen, vis kun Koldt Vand rør + Vandstik
+            s.innerHTML = optionsKV;
+        } else {
+            // Standard (Varmt Vand): Vis kun Varmt Vand rør + Beholder
+            s.innerHTML = optionsVV; 
+        }
         
+        // Fjern self-reference (man kan ikke være sin egen far)
         const selfOpt = s.querySelector(`option[value="${myId}"]`);
         if(selfOpt) selfOpt.remove();
         
+        // Gendan værdi
         s.value = currentVal;
+        
+        // Fallback: Hvis valgt forælder ikke findes i den nye liste, nulstil til rod
         if (s.value === "") {
             if (isKV) s.value = "Vandstik";
             else s.value = "Beholder";
         }
     });
 
-    // 4. OPDATER CIRKULATION I STRENGE
+    // 3. OPDATER CIRKULATION (Uændret, men nødvendig for helheden)
     document.querySelectorAll('.streng-card').forEach(card => {
         if (card.closest('#strengeContainerKV') || card.classList.contains('kv-card')) return;
+
         const startSel = card.querySelector('.circ-start');
         const endSel = card.querySelector('.circ-end');
+        
         if (startSel && endSel) {
             const savedStart = startSel.value;
             const savedEnd = endSel.value;
+            
             const localComps = Array.from(card.querySelectorAll('.ror-container > tr[data-id]'));
             startSel.innerHTML = localComps.map(el => {
                 const name = state.names.get(el.dataset.id) || el.dataset.id;
                 return `<option value="${el.dataset.id}">${name}</option>`;
             }).join('');
             
-            const optionsCircEnd = `<option value="">Ingen</option>` + buildOpts(returParentsList, "Beholder").replace('Beholder', 'Beholder (Retur)');
+            const optionsCircEnd = `<option value="">Ingen</option>` + optionsReturParent.replace('Beholder', 'Beholder (Retur)');
             endSel.innerHTML = optionsCircEnd;
             
             if (savedStart) startSel.value = savedStart;
@@ -2278,9 +2237,9 @@ function updateAllSelects() {
         }
     });
 
+    // Opdater diagrammet til sidst
     buildNetworkAndRender();
 }
-
 
 
 function getDisplayName(id) {
@@ -2390,54 +2349,66 @@ function updateTapstedOptions() {
  * Bygger link-strukturen til diagrammet og renderer det.
  * OPDATERET: Bruger container-baseret logik til at bestemme link-type.
  * Dette sikrer, at Boostere/Reducere får korrekte farver (rød/blå).
+ * Bygger link-strukturen til diagrammet.
+ * OPDATERET TIL SPEJLET VISNING: 
+ * Sikrer at noder med samme ID kun oprettes én gang i diagrammet, 
+ * selvom de optræder flere gange i tabellerne.
  */
 function buildNetworkAndRender() {
-    // Gem gamle positioner for at undgå at noder "hopper"
+    // Gem gamle positioner
     const oldNodes = new Map(state.nodes.map(n => [n.id, {fx: n.fx, fy: n.fy}]));
     
-    // Genstart noder (Beholder og Vandstik er faste rødder)
+    // Genstart noder
     state.nodes = [
         {id:"Beholder", type:"beholder", fx: oldNodes.get('Beholder')?.fx, fy: oldNodes.get('Beholder')?.fy},
         {id:"Vandstik", type:"vandstik", fx: oldNodes.get('Vandstik')?.fx || 100, fy: oldNodes.get('Vandstik')?.fy || 100}
     ]; 
-    
     state.links = [];
     
-    // Vælg alle elementer i listerne
+    // Vælg alle rækker
     const elements = document.querySelectorAll('.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]');
     
-    // 1. Opret Noder
-    elements.forEach(el => {
-        const pos = oldNodes.get(el.dataset.id);
-        state.nodes.push({
-            id: el.dataset.id, 
-            type: el.dataset.type, 
-            fx: pos?.fx, 
-            fy: pos?.fy, 
-            displayName: getDisplayName(el.dataset.id)
-        });
-    });
-    
-    // 2. Opret Links (Forbindelser)
-    elements.forEach(el => {
-        const p = el.querySelector('.parent')?.value; 
-        if(p) {
-            let linkType = 'other'; // Fallback
+    // Set til at huske, hvilke ID'er vi allerede har tegnet (for at undgå dubletter)
+    const processedIds = new Set(['Beholder', 'Vandstik']);
 
-            // Logik: Bestem link-farve baseret på containeren
+    elements.forEach(el => {
+        const id = el.dataset.id;
+        
+        // 1. OPRET NODE (Kun hvis den ikke findes i forvejen)
+        if (!processedIds.has(id)) {
+            const pos = oldNodes.get(id);
+            state.nodes.push({
+                id: id, 
+                type: el.dataset.type, 
+                fx: pos?.fx, 
+                fy: pos?.fy, 
+                displayName: getDisplayName(id)
+            });
+            processedIds.add(id);
+        }
+        
+        // 2. OPRET LINKS (Tjek altid for forbindelser)
+        const p = el.querySelector('.parent')?.value; 
+        
+        if(p) {
+            let linkType = 'other';
+
+            // Bestem farve på stregen baseret på HVOR rækken ligger (Kontekst)
+            // Dette er nøglen til at få røde og blå streger til samme tapsted
             if (el.closest('#strengeContainerKV') || el.closest('.kv-card')) {
                 linkType = 'ror_kv'; // Blå
             } else if (el.closest('#strengeContainerVV') || el.closest('#strengeContainer') || el.closest('.streng-card')) {
-                linkType = 'fremløb'; // Rød (VV)
+                linkType = 'fremløb'; // Rød
             } else if (el.closest('#returContainerBody')) {
-                linkType = 'cirkulation_vv'; // Stiplet rød
+                linkType = 'cirkulation_vv'; // Stiplet
             }
             
-            state.links.push({source: p, target: el.dataset.id, type: linkType});
+            // Tilføj linket (D3 accepterer flere links til samme target)
+            state.links.push({source: p, target: id, type: linkType});
         }
     });
     
-    // 3. Cirkulations-sløjfer (De ekstra stiplede linjer)
+    // 3. Cirkulations-sløjfer
     document.querySelectorAll('.streng-card').forEach(c => {
         if (!c.classList.contains('kv-card')) {
             const start = c.querySelector('.circ-start')?.value; 
@@ -2449,25 +2420,17 @@ function buildNetworkAndRender() {
         }
     });
 
-    // 4. Hydraulisk Link (Cyan linje fra KV til Beholder)
+    // 4. Hydraulisk Link
     if (state.beholderConnectionId) {
-        // Tjek om noden findes, før vi linker
-        const targetExists = Array.from(elements).some(el => el.dataset.id === state.beholderConnectionId) || state.beholderConnectionId === 'Vandstik';
-        
-        if (targetExists) {
-            state.links.push({
-                source: state.beholderConnectionId, 
-                target: 'Beholder', 
-                type: 'kv_feed' // Cyan farve (defineres i CSS/updateDiagramStyles)
-            });
+        if (processedIds.has(state.beholderConnectionId) || state.beholderConnectionId === 'Vandstik') {
+            state.links.push({ source: state.beholderConnectionId, target: 'Beholder', type: 'kv_feed' });
         } else {
-            state.beholderConnectionId = null; // Reset hvis linket er dødt
+            state.beholderConnectionId = null;
         }
     }
 
     updateDiagram();
 }
-
 
 /**
  * Opdaterer det visuelle udseende af noder baseret på den aktuelle markering.
