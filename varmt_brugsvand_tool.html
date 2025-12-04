@@ -2867,42 +2867,59 @@ function getGlobalConfig() {
     };
 }
 
+/**
+ * Bygger beregningsmodellen fra DOM'en.
+ * Håndterer 'Unified Taps' ved at linke tapsteder til både VV og KV forældre.
+ */
 function buildModel(config) {
     const model = { 
         tree: {id:'Beholder', type: 'beholder', children:[]}, 
         kvTree: {id:'Vandstik', type: 'vandstik', children:[]}, 
         nodes: new Map(), 
         loops: [], 
-        isAuto: config.isAuto
+        isAuto: config.isAuto 
     };
     
     // Opret start-noder
     model.nodes.set('Beholder', model.tree);
     model.nodes.set('Vandstik', model.kvTree);
 
-    // Læs alle komponenter
     const selector = '.ror-container > tr[data-id], .tapsted-container > tr[data-id], #returContainerBody > tr[data-id]';
     
+    // 1. Opret alle noder først (uden links)
     document.querySelectorAll(selector).forEach(el => {
+        const type = el.dataset.type;
+        const id = el.dataset.id;
+        
         const data = { 
-            id: el.dataset.id, 
-            type: el.dataset.type, 
+            id: id, 
+            type: type, 
             children: [], 
-            parentId: el.querySelector('.parent')?.value, 
-            name: state.names.get(el.dataset.id) || '' 
+            name: state.names.get(id) || '' 
         };
         
-        if (el.dataset.type === 'valve') {
-            data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType;
+        // Hent Parents (Nu differentieret)
+        if (type === 'tapsted') {
+            data.parentVV = el.querySelector('.parent-vv')?.value;
+            data.parentKV = el.querySelector('.parent-kv')?.value;
+            // Fallback til gammel parent (hvis det er en gammel save eller simpel visning)
+            const legacyP = el.querySelector('.parent')?.value;
+            if (!data.parentVV && el.closest('#strengeContainerVV')) data.parentVV = legacyP;
+            if (!data.parentKV && el.closest('#strengeContainerKV')) data.parentKV = legacyP;
+        } else {
+            // Rør har kun én parent
+            data.parentId = el.querySelector('.parent')?.value;
         }
         
-        // Hent trykdata for booster/reducer
-        if (el.dataset.type === 'booster' || el.dataset.type === 'reducer') {
+        // Dataudtræk (Komponent specifikke felter)
+        if (type === 'valve') {
+            data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType;
+        }
+        if (type === 'booster' || type === 'reducer') {
             data.pressure_change = parseFloat(el.querySelector('.pressure-change')?.value) || 0;
         }
 
-        // Data for RØR (VV, KV og Cirkulation)
-        if (['ror_vv', 'cirkulation_vv', 'ror_kv'].includes(data.type)) {
+        if (type.includes('ror') || type === 'cirkulation_vv') {
             Object.assign(data, { 
                 L: parseFloat(el.querySelector('.len')?.value) || 0, 
                 zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
@@ -2910,51 +2927,59 @@ function buildModel(config) {
                 location: el.querySelector('.location')?.value || 'heated',
                 insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto'
             });
-            
-            if (!config.isAuto) {
-                data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
-            }
+            if (!config.isAuto) data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
         }
         
-        // Data for TAPSTEDER
-        if (data.type === 'tapsted') {
+        if (type === 'tapsted') {
+            // Hent basisdata (bruges som fallback eller display)
             data.qf = parseFloat(el.querySelector('.qf')?.value) || 0;
             data.isSyst = el.querySelector('.syst')?.checked || false;
             data.isApartment = el.dataset.isApartment === 'true';
             data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
             
-            // Gem typenavnet så vi kan slå koldt flow op senere
             const tapSelect = el.querySelector('.tapType');
             if (tapSelect && tapSelect.selectedIndex >= 0) {
                 data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
             }
         }
         
-        model.nodes.set(data.id, data);
+        model.nodes.set(id, data);
     });
 
-    // Byg træstrukturen (Link børn til forældre)
+    // 2. Byg Træstrukturen (Linking)
     model.nodes.forEach(n => { 
-        if(n.parentId && model.nodes.has(n.parentId)) {
-            model.nodes.get(n.parentId).children.push(n); 
+        if (n.type === 'tapsted') {
+            // Link til VV Træet
+            if (n.parentVV && model.nodes.has(n.parentVV)) {
+                model.nodes.get(n.parentVV).children.push(n);
+            }
+            // Link til KV Træet (Samme node, tilføjet til en anden parents børn)
+            if (n.parentKV && model.nodes.has(n.parentKV)) {
+                model.nodes.get(n.parentKV).children.push(n);
+            }
+        } else {
+            // Standard (Rør/Komponenter)
+            if (n.parentId && model.nodes.has(n.parentId)) {
+                model.nodes.get(n.parentId).children.push(n); 
+            }
         }
     });
     
-    // Læs Cirkulations-loops (VV)
+    // 3. Cirkulations loops
     document.querySelectorAll('.streng-card').forEach(c => {
-        // Kun VV strenge har cirkulation
         if (!c.classList.contains('kv-card')) {
-            const start = c.querySelector('.circ-start').value;
-            const end = c.querySelector('.circ-end').value;
-            const zeta = parseFloat(c.querySelector('.circ-zeta').value) || 0;
+            const start = c.querySelector('.circ-start')?.value;
+            const end = c.querySelector('.circ-end')?.value;
+            const zeta = parseFloat(c.querySelector('.circ-zeta')?.value) || 0;
             if(start && end) {
-                model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id) || '', startNodeId: start, endNodeId: end, zeta });
+                model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id)||'', startNodeId: start, endNodeId: end, zeta });
             }
         }
     });
     
     return model;
 }
+
 // =============================================================================
 // == ISOLERINGS BEREGNING (DS 452)
 // =============================================================================
@@ -3307,23 +3332,36 @@ function calculateQd_VV(model) {
         let downstream_qf_random = 0, downstream_qf_syst = 0;
         
         if (node.type === 'tapsted') {
-            if (node.isSyst) downstream_qf_syst = node.qf; 
-            else downstream_qf_random = node.qf;
+            // Hent Varmt Flow specifikt
+            let val = 0;
+            if (ST[node.tapType]) {
+                // Håndter både objekt-format {qf_hot, qf_cold} og legacy tal-format
+                val = (typeof ST[node.tapType] === 'object') ? ST[node.tapType].qf_hot : ST[node.tapType];
+            } else if (state.customTapsteder[node.tapType]) {
+                val = state.customTapsteder[node.tapType].qf_hot || node.qf;
+            } else {
+                val = node.qf; // Fallback til input-feltets værdi
+            }
+
+            if (node.isSyst) downstream_qf_syst = val; 
+            else downstream_qf_random = val;
         } else {
-            // Rør, Beholder, Booster, Reducer...
+            // Traverser børn (Rør, etc.)
             node.children.forEach(child => {
+                // VIGTIGT: Et tapsted kan være barn af både KV og VV.
+                // Vi skal sikre, at vi kun følger "varmtvands-stien" ned?
+                // Nej, buildModel har kun sat tapstedet som barn af dette rør, hvis parentVV pegede her.
+                // Så vi kan trygt traversere alle børn.
                 const flows = traverse(child);
                 downstream_qf_random += flows.random; 
                 downstream_qf_syst += flows.syst;
             });
         }
 
-        // Gem data på relevante komponenter (Rør, Beholder, Booster, Reducer)
         if(node.type === 'ror_vv' || node.type === 'beholder' || node.type === 'booster' || node.type === 'reducer') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             
-            // Beregn qd (DS 439 formel)
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
             node.qd = qd_random + downstream_qf_syst;
         }
@@ -3331,9 +3369,10 @@ function calculateQd_VV(model) {
         return { random: downstream_qf_random, syst: downstream_qf_syst };
     }
     
-    traverse(model.tree);
+    traverse(model.tree); // Start ved Beholder
     return model;
 }
+
 
 // 2. Dimensioner Fremløb (VV)
 /**
@@ -3457,18 +3496,23 @@ function calculateQd_KV(model) {
         let downstream_qf_syst = 0;
         
         if (node.type === 'tapsted') {
-            let qf_cold = 0;
-            const tName = node.tapType;
-            
-            if (ST[tName]) {
-                if (typeof ST[tName] === 'object') qf_cold = ST[tName].qf_cold;
-                else { qf_cold = ST[tName]; if (tName.includes('WC')) qf_cold = 0.13; }
-            } else if (state.customTapsteder[tName]) {
-                qf_cold = state.customTapsteder[tName].qf_cold || 0;
+            // Hent Koldt Flow specifikt
+            let val = 0;
+            if (ST[node.tapType]) {
+                if (typeof ST[node.tapType] === 'object') {
+                    val = ST[node.tapType].qf_cold;
+                } else {
+                    // Legacy fallback: Hvis vi ikke kender koldt flow, gæt.
+                    // Men WC skal altid have noget.
+                    if (node.tapType.includes('WC') || node.tapType.includes('Toilet')) val = 0.13;
+                    else val = ST[node.tapType]; // Antag samme som varmt (fx håndvask)
+                }
+            } else if (state.customTapsteder[node.tapType]) {
+                val = state.customTapsteder[node.tapType].qf_cold || 0;
             }
             
-            if (node.isSyst) downstream_qf_syst = qf_cold; 
-            else downstream_qf_random = qf_cold;
+            if (node.isSyst) downstream_qf_syst = val; 
+            else downstream_qf_random = val;
         } 
         
         if (node.children) {
@@ -3479,13 +3523,12 @@ function calculateQd_KV(model) {
             });
         }
         
-        // HYDRAULISK LINK
+        // HYDRAULISK LINK (VV -> KV)
         if (node.id === linkId && beholderNode) {
             if (beholderNode.sum_qf_random) downstream_qf_random += beholderNode.sum_qf_random;
             if (beholderNode.sum_qf_syst) downstream_qf_syst += beholderNode.sum_qf_syst;
         }
         
-        // Gem på Rør, Vandstik, Booster, Reducer
         if(node.type === 'ror_kv' || node.type === 'vandstik' || node.type === 'booster' || node.type === 'reducer') { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
@@ -3501,6 +3544,7 @@ function calculateQd_KV(model) {
     }
     return model;
 }
+
 
 // 2. Dimensioner KV
 function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
