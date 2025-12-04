@@ -574,15 +574,15 @@
                                 <ul class="list-group list-group-flush small">
                                     <li class="list-group-item d-flex align-items-center px-0">
                                         <span style="width:20px; height:4px; background-color:#0d6efd; margin-right:10px;"></span>
-                                        <div><b>Koldt Vand (KV)</b><br><span class="text-muted">Forsyning fra Vandstik. Blå farvekode.</span></div>
+                                        <div><b>Koldt Vand (KV)</b><br><span class="text-muted">Forsyning fra Vandstik. Blå farve.</span></div>
                                     </li>
                                     <li class="list-group-item d-flex align-items-center px-0">
                                         <span style="width:20px; height:4px; background-color:#dc3545; margin-right:10px;"></span>
-                                        <div><b>Varmt Vand (VV)</b><br><span class="text-muted">Forsyning fra Beholder. Rød farvekode.</span></div>
+                                        <div><b>Varmt Vand (VV)</b><br><span class="text-muted">Forsyning fra Beholder. Rød farve.</span></div>
                                     </li>
                                     <li class="list-group-item d-flex align-items-center px-0">
                                         <span style="width:20px; height:4px; border-top: 2px dashed #a71d2a; margin-right:10px;"></span>
-                                        <div><b>Cirkulation</b><br><span class="text-muted">Returløb til beholder. Stiplet rød.</span></div>
+                                        <div><b>Cirkulation</b><br><span class="text-muted">Returløb. Stiplet mørkerød.</span></div>
                                     </li>
                                     <li class="list-group-item d-flex align-items-center px-0">
                                         <span style="width:20px; height:4px; background-color:#0dcaf0; margin-right:10px;"></span>
@@ -590,29 +590,49 @@
                                     </li>
                                 </ul>
                             </div>
+
                             <div class="col-md-6">
                                 <h6 class="text-primary border-bottom pb-2">Komponenter</h6>
                                 <ul class="list-group list-group-flush small">
+                                    
                                     <li class="list-group-item d-flex align-items-center px-0">
-                                        <div class="border p-1 rounded text-center me-2" style="width:30px; font-size:12px;">KV</div>
-                                        <div><b>Vandstik</b><br><span class="text-muted">Startpunkt for Koldt Vand (Blå boks).</span></div>
+                                        <div style="width:16px; height:16px; background-color:#0d6efd; border:1px solid #000; margin-right:12px; margin-left:2px;"></div>
+                                        <div><b>Vandstik</b><br><span class="text-muted">Startpunkt for Koldt Vand.</span></div>
                                     </li>
+
                                     <li class="list-group-item d-flex align-items-center px-0">
-                                        <div class="border p-1 rounded text-center me-2" style="width:30px; font-size:12px;">VV</div>
-                                        <div><b>Beholder</b><br><span class="text-muted">Startpunkt for Varmt Vand (Cylinder).</span></div>
+                                        <svg width="20" height="20" viewBox="0 0 20 20" style="margin-right:10px;">
+                                            <rect x="4" y="2" width="12" height="16" rx="2" fill="#f8f9fa" stroke="#343a40" stroke-width="1.5"></rect>
+                                            <line x1="4" y1="6" x2="16" y2="6" stroke="#343a40" stroke-width="1"></line>
+                                        </svg>
+                                        <div><b>Beholder</b><br><span class="text-muted">Startpunkt for Varmt Vand.</span></div>
                                     </li>
+
                                     <li class="list-group-item d-flex align-items-center px-0">
-                                        <div class="text-center me-2" style="width:30px;">⚡</div>
-                                        <div><b>Trykforøger (Booster)</b><br><span class="text-muted">Tilfører tryk til systemet.</span></div>
+                                        <div style="width:12px; height:12px; background-color:#198754; border:1px solid #333; border-radius:50%; margin-right:14px; margin-left:4px;"></div>
+                                        <div><b>Tapsted</b> (Unified)<br><span class="text-muted">Forbrugssted (Brus, Vask mv.).</span></div>
                                     </li>
+
                                     <li class="list-group-item d-flex align-items-center px-0">
-                                        <div class="text-center me-2" style="width:30px;">↘️</div>
-                                        <div><b>Reduktionsventil</b><br><span class="text-muted">Begrænser trykket.</span></div>
+                                        <div style="width:12px; height:12px; background-color:#6f42c1; border:1px solid #333; transform:rotate(45deg); margin-right:14px; margin-left:4px;"></div>
+                                        <div><b>Cirkulationsventil</b><br><span class="text-muted">Strengregulering (STAD/Alpha).</span></div>
                                     </li>
+
                                     <li class="list-group-item d-flex align-items-center px-0">
-                                        <span class="dot" style="background-color:#198754; width:10px; height:10px; border-radius:50%; margin-left:10px; margin-right:10px;"></span>
-                                        <div><b>Tapsted</b> (Unified)<br><span class="text-muted">Fælles komponent for både kold og varm.</span></div>
+                                        <svg width="20" height="20" viewBox="-10 -10 20 20" style="margin-right:10px;">
+                                            <circle r="8" fill="#fff" stroke="#000" stroke-width="1.5"></circle>
+                                            <path d="M -4,2 L 4,2 L 0,-5 Z" fill="#000"></path>
+                                        </svg>
+                                        <div><b>Trykforøger</b> (Booster)<br><span class="text-muted">Tilfører tryk.</span></div>
                                     </li>
+
+                                    <li class="list-group-item d-flex align-items-center px-0">
+                                        <svg width="20" height="20" viewBox="-10 -10 20 20" style="margin-right:10px;">
+                                            <path d="M -7,-5 L 7,-5 L 0,7 Z" fill="#ffcccc" stroke="#000" stroke-width="1"></path>
+                                        </svg>
+                                        <div><b>Reduktionsventil</b><br><span class="text-muted">Begrænser tryk.</span></div>
+                                    </li>
+
                                 </ul>
                             </div>
                         </div>
@@ -643,7 +663,6 @@
                             <li>Vælg <strong>"➡️ Tilslut Koldt Vand"</strong>.</li>
                             <li>Klik på det koldtvandsrør (eller Vandstik), der forsyner beholderen.</li>
                         </ul>
-                        <p class="small text-muted"><em>Systemet beregner nu tryktabet fra vandstikket frem til beholderen og trækker det fra starttrykket til varmtvandet.</em></p>
                     </div>
 
                     <div class="tab-pane fade" id="help-calc" role="tabpanel">
@@ -681,7 +700,6 @@
                                             <li><b>Booster:</b> Indtast et <u>positivt</u> tal (f.eks. 50 kPa). Dette trækkes fra tryktabet (dvs. lægges til trykket).</li>
                                             <li><b>Reduktionsventil:</b> Indtast et <u>negativt</u> tal (f.eks. -30 kPa). Dette lægges til tryktabet.</li>
                                         </ul>
-                                        <p>I cirkulationskredse vil en booster på fremløb/retur automatisk reducere kravet til cirkulationspumpen.</p>
                                     </div>
                                 </div>
                             </div>
@@ -715,12 +733,6 @@
                             </tbody>
                         </table>
                         <p class="small text-muted"><em>Bemærk: Koblingsledninger til varmt vand sættes til Klasse 4 som sikkerhed. Hvis røret er synligt i samme rum som tapstedet, kan du manuelt ændre det til <b>Kl. 0</b>.</em></p>
-                        
-                        <h6 class="text-primary mt-3">Sikkerhedsfaktorer</h6>
-                        <ul class="list-unstyled small">
-                            <li><strong>Fittings Tillæg:</strong> Standard +25% (til tryktab).</li>
-                            <li><strong>Kuldebroer:</strong> Standard +20% (til varmetab).</li>
-                        </ul>
                     </div>
 
                 </div>
