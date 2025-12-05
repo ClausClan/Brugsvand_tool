@@ -6003,6 +6003,7 @@ function showCalculationReport() {
  * - Fixet 'undefined' længde (n.len -> n.L).
  * - Roteret diagrammer (Landscape) for bedre læsbarhed.
  * - Rettet manglende data i indregulering.
+ * - Tvunget beregning af cirkulations-varmetab i tabellen.
  */
 async function generateReportHTML() {
     if (!state.lastModel) { alert("Kør en beregning først."); return; }
@@ -6066,12 +6067,6 @@ async function generateReportHTML() {
 
     // --- FASE 2: DATABEHANDLING ---
 
-    // Helper: Formater Kritisk Vej
-    const formatPath = (set) => {
-        if (!set || set.size === 0) return "Ingen beregnet";
-        return Array.from(set).map(id => getDisplayName(id)).join(" ➝ ");
-    };
-    
     // Helper: Detaljeret tabel for Kritisk Vej
     const generatePathTable = (pathSet) => {
         if (!pathSet || pathSet.size === 0) return '<p><i>Ingen kritisk vej beregnet.</i></p>';
@@ -6113,7 +6108,6 @@ async function generateReportHTML() {
 
     const nodes = Array.from(model.nodes.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
     
-    // Variabler til sektioner (VIGTIGT: Disse navne skal matche template!)
     let htmlVV = '', htmlKV = '', htmlCirc = '', htmlComp = '';
 
     nodes.forEach(n => {
@@ -6125,8 +6119,15 @@ async function generateReportHTML() {
         }
     });
 
+    // Cirkulation / Indregulering (MED FIXET VARMETAB)
     let rowsBalance = '';
     model.loops.forEach(l => {
+        // Beregn varmetab "live" for at være sikker
+        const loopHeatLoss = l.path.reduce((sum, id) => {
+            const node = model.nodes.get(id);
+            return sum + (node ? (node.q_tab || 0) : 0);
+        }, 0);
+
         let valveInfo = 'Ingen ventil';
         let setting = '-';
         if (l.selectedValve) {
@@ -6140,7 +6141,7 @@ async function generateReportHTML() {
                 } else { setting = "Fuldt åben"; }
             } else { setting = "Auto"; }
         }
-        rowsBalance += `<tr><td>${getDisplayName(l.id)}</td><td>${(l.q_tab_tot||0).toFixed(0)} W</td><td>${((l.circ_flow||0)*3600).toFixed(1)} l/h</td><td>${(l.dp_circ_total||0).toFixed(0)} Pa</td><td>${valveInfo}</td><td><strong>${setting}</strong></td></tr>`;
+        rowsBalance += `<tr><td>${getDisplayName(l.id)}</td><td>${loopHeatLoss.toFixed(0)} W</td><td>${((l.circ_flow||0)*3600).toFixed(1)} l/h</td><td>${(l.dp_circ_total||0).toFixed(0)} Pa</td><td>${valveInfo}</td><td><strong>${setting}</strong></td></tr>`;
     });
 
     const kvLoss = model.kv_pressure_loss_to_beholder || 0;
@@ -6170,10 +6171,49 @@ async function generateReportHTML() {
             .status-row { display: flex; justify-content: space-between; border-bottom: 1px dashed #eee; padding: 3px 0; }
             .ok { color: green; font-weight: bold; }
             .danger { color: red; font-weight: bold; }
-            .diagram-page { page-break-before: always; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 95vh; }
-            .landscape-img { transform: rotate(90deg); max-width: 90vh; max-height: 90vw; border: 1px solid #eee; }
-            .caption { margin-top: 10px; font-weight: bold; font-size: 14px; }
-            @media print { .no-print { display: none; } .page-break { page-break-before: always; } .landscape-page { transform-origin: center; } }
+            
+            /* RETTET LAYOUT FOR BILAG */
+            .diagram-page { 
+                page-break-before: always; 
+                position: relative;
+                width: 100%;
+                height: 950px; /* Ca. A4 højde */
+                overflow: hidden;
+                border: 1px solid #eee;
+                margin-bottom: 20px;
+            }
+            .diagram-page .caption { 
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                font-weight: bold; 
+                font-size: 16px; 
+                background: rgba(255,255,255,0.9);
+                padding: 5px;
+                z-index: 10;
+            }
+            .landscape-img { 
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                /* Roter om midten og centrer */
+                transform: translate(-50%, -50%) rotate(90deg); 
+                
+                /* VIGTIGT: Byt om på bredde/højde begrænsning pga rotation */
+                /* Billedets bredde må max være sidens højde */
+                max-width: 140vh; 
+                /* Billedets højde må max være sidens bredde */
+                max-height: 90vw;
+                
+                width: auto;
+                height: auto;
+            }
+            
+            @media print { 
+                .no-print { display: none; } 
+                .page-break { page-break-before: always; } 
+                .diagram-page { height: 100vh; border: none; }
+            }
         </style>
     </head>
     <body>
@@ -6224,6 +6264,8 @@ async function generateReportHTML() {
 
         ${htmlComp ? `<h2>5. Aktive Komponenter</h2><table class="data"><thead><tr><th>ID</th><th>Type</th><th>Indstilling</th><th>Aktuelt Flow</th></tr></thead><tbody>${htmlComp}</tbody></table>` : ''}
 
+        <div class="page-break"></div>
+        
         <div class="diagram-page"><div class="caption">Bilag A: Systemoversigt (Topologi)</div><img src="${imgTopo}" class="landscape-img"></div>
         <div class="diagram-page"><div class="caption">Bilag B: Temperaturfordeling (Koldt/Varmt)</div><img src="${imgTemp}" class="landscape-img"></div>
         <div class="diagram-page"><div class="caption">Bilag C: Kritisk Vej (Markeret med Blåt)</div><img src="${imgCrit}" class="landscape-img"></div>
@@ -6234,6 +6276,7 @@ async function generateReportHTML() {
     win.document.write(html);
     win.document.close();
 }
+
 
 // =================================================================================
 // == FUNKTIONER TIL BEHOLDERBEREGNING (3 METODER)                               ==
