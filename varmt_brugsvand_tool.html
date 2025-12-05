@@ -6004,6 +6004,8 @@ function showCalculationReport() {
  * - Roteret diagrammer (Landscape) for bedre læsbarhed.
  * - Rettet manglende data i indregulering.
  * - Tvunget beregning af cirkulations-varmetab i tabellen.
+ * - Kritisk vej tabel: 'Type' -> 'Materiale', tilføjet 'Pa/m' kolonne.
+ * - Bilag: Diagrammer fylder nu hele siden (CSS justeret).
  */
 async function generateReportHTML() {
     if (!state.lastModel) { alert("Kør en beregning først."); return; }
@@ -6070,40 +6072,88 @@ async function generateReportHTML() {
     // Helper: Detaljeret tabel for Kritisk Vej
     const generatePathTable = (pathSet) => {
         if (!pathSet || pathSet.size === 0) return '<p><i>Ingen kritisk vej beregnet.</i></p>';
+        
         let rows = '';
         let accDp = 0;
         
         pathSet.forEach(id => {
             const n = model.nodes.get(id);
             if (!n || (!n.type.includes('ror') && !['booster','reducer','vandstik'].includes(n.type))) return;
+            
             const flow = n.qd || 0;
             let dp = n.dp_tap || 0; 
+            
+            // Hvis det er en booster/reducer, er dp negativ/positiv (håndteres korrekt i summen)
             accDp += dp;
-            let vel = 0, dimStr = '-';
+            
+            // Beregn hastighed og Pa/m
+            let vel = 0;
+            let pa_pr_m = 0;
+            let dimStr = '-';
+            let matStr = n.material || n.type; // Brug materiale, fallback til type (for vandstik/booster)
+
             if (n.nom_dim) {
                 dimStr = `${n.nom_dim} mm`;
                 if(ID[n.material] && ID[n.material][n.nom_dim]) {
                     const d_i = ID[n.material][n.nom_dim] / 1000;
                     vel = n.L > 0 ? (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2)) : 0;
                 }
+                if (n.L > 0) {
+                    pa_pr_m = dp / n.L;
+                }
+            } else {
+                // For komponenter uden dimension (Booster etc.)
+                matStr = (n.type === 'booster' ? 'Trykforøger' : (n.type === 'reducer' ? 'Reduktion' : n.type));
             }
-            rows += `<tr><td>${getDisplayName(n.id)}</td><td>${n.type}</td><td>${dimStr}</td><td>${(n.L || 0).toFixed(1)} m</td><td>${flow.toFixed(3)}</td><td>${vel.toFixed(2)}</td><td>${dp.toFixed(0)}</td><td><strong>${accDp.toFixed(0)}</strong></td></tr>`;
+
+            rows += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>${matStr}</td>
+                <td>${dimStr}</td>
+                <td>${(n.L || 0).toFixed(1)} m</td>
+                <td>${flow.toFixed(3)}</td>
+                <td>${vel.toFixed(2)}</td>
+                <td>${pa_pr_m.toFixed(0)}</td>
+                <td>${dp.toFixed(0)}</td>
+                <td><strong>${accDp.toFixed(0)}</strong></td>
+            </tr>`;
         });
-        return `<table class="data"><thead><tr><th>ID</th><th>Type</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Σ Δp [Pa]</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+        return `<table class="data critical-path-table">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th>
+                    <th>Flow [l/s]</th><th>v [m/s]</th><th>Pa/m</th><th>Δp [Pa]</th><th>Σ Δp [Pa]</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
     };
 
-    // Helper: Tabelrække
+    // Helper: Tabelrække til Journaler (Uændret)
     const generateRow = (n) => {
         if (!n.nom_dim) return '';
         const isCirc = n.type.includes('cirk') || n.type === 'valve' || n.category?.includes('return');
         const flow = isCirc ? (model.circFlows.get(n.id)||0) : (n.qd||0);
         const dp = isCirc ? (n.dp_circ||0) : (n.dp_tap||0);
+        
         let vel = 0;
         if (ID[n.material] && ID[n.material][n.nom_dim]) {
             const d_i = ID[n.material][n.nom_dim] / 1000;
             vel = n.L > 0 ? (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2)) : 0;
         }
-        return `<tr><td>${getDisplayName(n.id)}</td><td>${n.material}</td><td>${n.nom_dim} mm</td><td>${(n.L||0).toFixed(2)} m</td><td>${flow.toFixed(3)}</td><td>${vel.toFixed(2)}</td><td>${dp.toFixed(0)}</td><td>${n.insulationThickness || 0}</td><td>${((n.q_tab||0)/(n.L||1)).toFixed(1)}</td></tr>`;
+
+        return `<tr>
+            <td>${getDisplayName(n.id)}</td>
+            <td>${n.material}</td>
+            <td>${n.nom_dim} mm</td>
+            <td>${(n.L||0).toFixed(2)} m</td>
+            <td>${flow.toFixed(3)}</td>
+            <td>${vel.toFixed(2)}</td>
+            <td>${dp.toFixed(0)}</td>
+            <td>${n.insulationThickness || 0}</td>
+            <td>${((n.q_tab||0)/(n.L||1)).toFixed(1)}</td>
+        </tr>`;
     };
 
     const nodes = Array.from(model.nodes.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
@@ -6115,14 +6165,18 @@ async function generateReportHTML() {
         else if (n.type === 'ror_kv') htmlKV += generateRow(n);
         else if (n.type === 'cirkulation_vv') htmlCirc += generateRow(n);
         else if (n.type === 'booster' || n.type === 'reducer') {
-            htmlComp += `<tr><td>${getDisplayName(n.id)}</td><td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktion'}</td><td>${(n.pressure_change||0)} kPa</td><td>${(model.circFlows?.get(n.id) || n.qd || 0).toFixed(3)} l/s</td></tr>`;
+            htmlComp += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktion'}</td>
+                <td>${(n.pressure_change||0)} kPa</td>
+                <td>${(model.circFlows?.get(n.id) || n.qd || 0).toFixed(3)} l/s</td>
+            </tr>`;
         }
     });
 
-    // Cirkulation / Indregulering (MED FIXET VARMETAB)
+    // Cirkulation / Indregulering
     let rowsBalance = '';
     model.loops.forEach(l => {
-        // Beregn varmetab "live" for at være sikker
         const loopHeatLoss = l.path.reduce((sum, id) => {
             const node = model.nodes.get(id);
             return sum + (node ? (node.q_tab || 0) : 0);
@@ -6162,62 +6216,72 @@ async function generateReportHTML() {
             h2.kv { border-color: #0d6efd; }
             h2.vv { border-color: #dc3545; }
             h2.cirk { border-color: #a71d2a; }
+            
             table.data { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; page-break-inside: auto; }
             table.data th, table.data td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
             table.data th { background-color: #e9ecef; font-weight: 600; }
             table.data tr:nth-child(even) { background-color: #f8f9fa; }
+            
             .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
             .card { background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
             .status-row { display: flex; justify-content: space-between; border-bottom: 1px dashed #eee; padding: 3px 0; }
             .ok { color: green; font-weight: bold; }
             .danger { color: red; font-weight: bold; }
             
-            /* RETTET LAYOUT FOR BILAG */
+            /* RETTET LAYOUT FOR BILAG (Fuld Side) */
             .diagram-page { 
                 page-break-before: always; 
                 position: relative;
                 width: 100%;
-                height: 950px; /* Ca. A4 højde */
+                height: 100vh; /* Fylder hele siden */
                 overflow: hidden;
-                border: 1px solid #eee;
-                margin-bottom: 20px;
+                border: none;
+                margin: 0; padding: 0;
             }
             .diagram-page .caption { 
                 position: absolute;
                 top: 20px;
                 left: 20px;
                 font-weight: bold; 
-                font-size: 16px; 
+                font-size: 18px; 
                 background: rgba(255,255,255,0.9);
-                padding: 5px;
-                z-index: 10;
+                padding: 10px 15px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                z-index: 100;
+                box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
             }
             .landscape-img { 
                 position: absolute;
                 top: 50%;
                 left: 50%;
-                /* Roter om midten og centrer */
-                transform: translate(-50%, -50%) rotate(90deg); 
+                /* Roter 90 grader */
+                transform: translate(-50%, -50%) rotate(90deg);
                 
-                /* VIGTIGT: Byt om på bredde/højde begrænsning pga rotation */
-                /* Billedets bredde må max være sidens højde */
-                max-width: 140vh; 
-                /* Billedets højde må max være sidens bredde */
-                max-height: 90vw;
-                
-                width: auto;
+                /* TVING STØRRELSE TIL AT FYLDE SIDEN */
+                /* Da den er roteret, skal 'width' matche sidens højde (vh) */
+                width: 90vh; 
                 height: auto;
+                
+                /* Begræns så den ikke bliver bredere end sidens bredde (når roteret) */
+                max-height: 95vw; 
+                
+                border: 1px solid #eee;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             }
             
             @media print { 
                 .no-print { display: none; } 
                 .page-break { page-break-before: always; } 
-                .diagram-page { height: 100vh; border: none; }
+                .diagram-page { height: 100vh; }
+                @page { margin: 0; } /* Fjern marginer for at maksimere diagrammet */
+                body { padding: 1cm; } /* Lidt padding på tekstsider */
+                .diagram-page { padding: 0; }
             }
         </style>
     </head>
     <body>
-        <div class="no-print" style="position:fixed; top:10px; right:10px; background:white; padding:10px; border:1px solid #ccc;">
+        <div class="no-print" style="position:fixed; top:10px; right:10px; background:white; padding:10px; border:1px solid #ccc; z-index:1000;">
             <button onclick="window.print()" style="font-size:14px; padding:5px 15px; cursor:pointer;">🖨️ Udskriv Rapport</button>
         </div>
 
@@ -6276,7 +6340,6 @@ async function generateReportHTML() {
     win.document.write(html);
     win.document.close();
 }
-
 
 // =================================================================================
 // == FUNKTIONER TIL BEHOLDERBEREGNING (3 METODER)                               ==
