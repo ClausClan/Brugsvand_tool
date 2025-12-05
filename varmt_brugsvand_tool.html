@@ -5998,21 +5998,19 @@ function showCalculationReport() {
 
 /**
  * Genererer en detaljeret KS-rapport (HTML) til print/PDF.
- * Indeholder:
- * 1. Forside med Designkriterier.
- * 2. Hydraulisk Link beregning.
- * 3. Detaljerede tabeller for KV, VV, Cirkulation og Komponenter.
- * 4. Snapshots af diagrammet (Topologi, Temperatur, Kritisk Vej).
+ * OPDATERET: 
+ * - Detaljeret tabel for Kritisk Vej (Rør for rør).
+ * - Fixet 'undefined' længde (n.len -> n.L).
+ * - Roteret diagrammer (Landscape) for bedre læsbarhed.
+ * - Rettet manglende data i indregulering.
  */
 async function generateReportHTML() {
     if (!state.lastModel) { alert("Kør en beregning først."); return; }
     
-    // Vis brugeren at vi arbejder (det tager et øjeblik at generere billeder)
+    // Vis brugeren at vi arbejder
     const btn = document.querySelector('button[onclick="generateReportHTML()"]');
     const orgText = btn ? btn.innerText : "";
     if(btn) btn.innerText = "Genererer rapport...";
-
-    // Vent lidt så UI kan opdatere
     await new Promise(r => setTimeout(r, 50));
 
     const model = state.lastModel;
@@ -6020,26 +6018,23 @@ async function generateReportHTML() {
     const now = new Date().toLocaleString();
     const projName = document.getElementById('projectName').value || "Uden Navn";
 
-    // --- FASE 1: TAG SNAPSHOTS (AUTOMATISK) ---
-    // Vi gemmer nuværende tilstand
+    // --- FASE 1: TAG SNAPSHOTS ---
     const currentVisMode = document.querySelector('input[name="visMode"]:checked').value;
     const currentCrit = document.getElementById('visKritisk').checked;
     const currentLegend = document.getElementById('visLegend').checked;
     
-    // Funktion til at tage snapshot af SVG
     const getSnapshot = () => {
         const svgEl = document.querySelector("#diagram svg");
         if (!svgEl) return "";
         const serializer = new XMLSerializer();
         let source = serializer.serializeToString(svgEl);
-        // Namespace fix for at billedet virker i <img> tag
         if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
             source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
         }
         return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(source)));
     };
 
-    // 1. Topologi Snapshot
+    // 1. Topologi
     document.getElementById('visLegend').checked = true;
     document.getElementById('visKritisk').checked = false;
     applyColorGradient('none');
@@ -6047,12 +6042,12 @@ async function generateReportHTML() {
     updateDiagramStyles();
     const imgTopo = getSnapshot();
 
-    // 2. Temperatur Snapshot
+    // 2. Temperatur
     applyColorGradient('temp');
     updateLegend();
     const imgTemp = getSnapshot();
 
-    // 3. Kritisk Vej Snapshot
+    // 3. Kritisk Vej
     applyColorGradient('none');
     document.getElementById('visKritisk').checked = true;
     updateDiagramStyles();
@@ -6069,58 +6064,96 @@ async function generateReportHTML() {
 
     // --- FASE 2: DATABEHANDLING ---
 
-    // Hjælper: Formater Kritisk Vej
-    const formatPath = (set) => {
-        if (!set || set.size === 0) return "Ingen beregnet";
-        // Vis sti som tekst: A -> B -> C
-        return Array.from(set).map(id => getDisplayName(id)).join(" ➝ ");
+    // Helper: Generer detaljeret tabel for en sti (Kritisk Vej)
+    const generatePathTable = (pathSet) => {
+        if (!pathSet || pathSet.size === 0) return '<p><i>Ingen kritisk vej beregnet.</i></p>';
+        
+        let rows = '';
+        let accDp = 0;
+        
+        pathSet.forEach(id => {
+            const n = model.nodes.get(id);
+            // Vis kun rør og relevante komponenter i listen
+            if (!n || (!n.type.includes('ror') && !['booster','reducer','vandstik'].includes(n.type))) return;
+            
+            // Hent data
+            const flow = n.qd || 0;
+            let dp = n.dp_tap || 0; 
+            
+            // Hvis det er en booster/reducer, er dp negativ/positiv (håndteres korrekt i summen)
+            accDp += dp;
+            
+            // Beregn hastighed
+            let vel = 0;
+            let dimStr = '-';
+            if (n.nom_dim) {
+                dimStr = `${n.nom_dim} mm`;
+                if(ID[n.material] && ID[n.material][n.nom_dim]) {
+                    const d_i = ID[n.material][n.nom_dim] / 1000;
+                    vel = n.L > 0 ? (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2)) : 0;
+                }
+            }
+
+            rows += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>${n.type}</td>
+                <td>${dimStr}</td>
+                <td>${(n.L || 0).toFixed(1)} m</td>
+                <td>${flow.toFixed(3)}</td>
+                <td>${vel.toFixed(2)}</td>
+                <td>${dp.toFixed(0)}</td>
+                <td><strong>${accDp.toFixed(0)}</strong></td>
+            </tr>`;
+        });
+
+        return `<table class="data">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Type</th><th>Dim</th><th>Længde</th>
+                    <th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Σ Δp [Pa]</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
     };
 
-    // Sorter noder
-    const nodes = Array.from(model.nodes.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
-
-    // Byg Rør Tabeller
-    let rowsKV = '', rowsVV = '', rowsCirc = '';
-    
-    const pipeRow = (n) => {
-        const isCirc = n.type === 'cirkulation_vv';
+    // Helper: Tabelrække til Journaler
+    const generateRow = (n) => {
+        if (!n.nom_dim) return '';
+        const isCirc = n.type.includes('cirk') || n.type === 'valve' || n.category?.includes('return');
         const flow = isCirc ? (model.circFlows.get(n.id)||0) : (n.qd||0);
         const dp = isCirc ? (n.dp_circ||0) : (n.dp_tap||0);
         
-        let vel = 0, dp_m = 0;
+        let vel = 0;
         if (ID[n.material] && ID[n.material][n.nom_dim]) {
             const d_i = ID[n.material][n.nom_dim] / 1000;
             vel = n.L > 0 ? (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2)) : 0;
-            // Beregn rent rørtab pr m for kontrol
-            const temp = (n.type==='ror_kv') ? 10 : (isCirc ? (config.T_v - config.dT/2) : config.T_v);
-            const dp_pure = getDP(flow, d_i, RH[n.material]/1000, 1, 0, 0, temp);
-            dp_m = dp_pure;
         }
 
+        // Fix: Brug n.L i stedet for n.len
         return `<tr>
             <td>${getDisplayName(n.id)}</td>
             <td>${n.material}</td>
             <td>${n.nom_dim} mm</td>
-            <td>${n.len} m</td>
+            <td>${(n.L||0).toFixed(2)} m</td>
             <td>${flow.toFixed(3)}</td>
             <td>${vel.toFixed(2)}</td>
-            <td>${dp_m.toFixed(0)}</td>
             <td>${dp.toFixed(0)}</td>
-            <td>Kl. ${n.insulationClass} (${n.insulationThickness||0}mm)</td>
+            <td>${n.insulationThickness || 0}</td>
+            <td>${((n.q_tab||0)/(n.L||1)).toFixed(1)}</td>
         </tr>`;
     };
 
-    nodes.forEach(n => {
-        if (n.type === 'ror_kv') rowsKV += pipeRow(n);
-        else if (n.type === 'ror_vv') rowsVV += pipeRow(n);
-        else if (n.type === 'cirkulation_vv') rowsCirc += pipeRow(n);
-    });
+    // Sorter noder
+    const nodes = Array.from(model.nodes.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
+    let htmlVV = '', htmlKV = '', htmlCirc = '', htmlComp = '';
 
-    // Byg Komponent Tabel
-    let rowsComp = '';
     nodes.forEach(n => {
-        if (n.type === 'booster' || n.type === 'reducer') {
-            rowsComp += `<tr>
+        if (n.type === 'ror_vv') htmlVV += generateRow(n);
+        else if (n.type === 'ror_kv') htmlKV += generateRow(n);
+        else if (n.type === 'cirkulation_vv') htmlCirc += generateRow(n);
+        else if (n.type === 'booster' || n.type === 'reducer') {
+            htmlComp += `<tr>
                 <td>${getDisplayName(n.id)}</td>
                 <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktion'}</td>
                 <td>${(n.pressure_change||0)} kPa</td>
@@ -6129,7 +6162,7 @@ async function generateReportHTML() {
         }
     });
 
-    // Byg Cirkulation / Indregulering Tabel
+    // Cirkulation / Indregulering
     let rowsBalance = '';
     model.loops.forEach(l => {
         let valveInfo = 'Ingen ventil';
@@ -6137,7 +6170,6 @@ async function generateReportHTML() {
         if (l.selectedValve) {
             valveInfo = `${l.selectedValve.valveName || ''} (VVS: ${l.selectedValve.vvsNr || '-'})`;
             if (l.selectedValve.isStatic) {
-                // Beregn Kv
                 const flowLS = l.circ_flow || 0;
                 const reqDp = Math.max(0, model.max_dp_circ - (l.dp_circ_total - l.selectedValve.minDp));
                 if (reqDp > 0) {
@@ -6147,7 +6179,7 @@ async function generateReportHTML() {
                     setting = "Fuldt åben";
                 }
             } else {
-                setting = "Auto (Min. Δp)";
+                setting = "Auto";
             }
         }
         rowsBalance += `<tr>
@@ -6160,7 +6192,6 @@ async function generateReportHTML() {
         </tr>`;
     });
 
-    // Nøgletal
     const kvLoss = model.kv_pressure_loss_to_beholder || 0;
     const vvStart = model.vv_start_pressure || config.pln;
     const totalCircFlow = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
@@ -6173,173 +6204,139 @@ async function generateReportHTML() {
         <meta charset="UTF-8">
         <title>KS Rapport: ${projName}</title>
         <style>
-            body { font-family: 'Segoe UI', Arial, sans-serif; color: #333; line-height: 1.4; padding: 20px; max-width: 1100px; margin: 0 auto; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; color: #333; line-height: 1.4; padding: 20px; max-width: 1200px; margin: 0 auto; }
+            h1 { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 5px; }
+            h2 { margin-top: 30px; background: #f8f9fa; padding: 8px; border-left: 6px solid #555; break-after: avoid; }
+            h2.kv { border-color: #0d6efd; }
+            h2.vv { border-color: #dc3545; }
+            h2.cirk { border-color: #a71d2a; }
             
-            /* Header & Layout */
-            .header-table { width: 100%; border-bottom: 2px solid #333; margin-bottom: 20px; }
-            .header-table td { padding: 5px; vertical-align: bottom; }
-            h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }
-            h2 { margin-top: 30px; font-size: 18px; border-bottom: 1px solid #ccc; padding-bottom: 5px; color: #0056b3; page-break-after: avoid; }
-            h3 { font-size: 16px; margin-top: 20px; color: #555; }
-            
-            /* Tabeller */
             table.data { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; page-break-inside: auto; }
             table.data th, table.data td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
-            table.data th { background-color: #f8f9fa; font-weight: 600; border-bottom: 2px solid #ddd; }
-            table.data tr:nth-child(even) { background-color: #fafafa; }
+            table.data th { background-color: #e9ecef; font-weight: 600; }
+            table.data tr:nth-child(even) { background-color: #f8f9fa; }
             
-            /* Status Boxes */
-            .status-box { background: #eef7ff; border: 1px solid #cce5ff; padding: 15px; border-radius: 4px; margin-bottom: 20px; page-break-inside: avoid; }
-            .status-row { display: flex; justify-content: space-between; margin-bottom: 5px; border-bottom: 1px dashed #dae0e5; padding-bottom: 2px; }
-            .status-row:last-child { border: none; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+            .card { background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
             
-            /* Billeder */
-            .img-container { text-align: center; margin: 20px 0; border: 1px solid #eee; padding: 10px; page-break-inside: avoid; }
-            .img-container img { max-width: 100%; height: auto; max-height: 400px; }
-            .img-caption { font-style: italic; color: #666; font-size: 12px; margin-top: 5px; }
+            .status-row { display: flex; justify-content: space-between; border-bottom: 1px dashed #eee; padding: 3px 0; }
+            .ok { color: green; font-weight: bold; }
+            .danger { color: red; font-weight: bold; }
 
-            /* Print */
+            /* DIAGRAM STYLES - Landscape & Full Page */
+            .diagram-page { 
+                page-break-before: always; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                justify-content: center; 
+                height: 95vh; /* Fylder hele siden */
+            }
+            
+            .landscape-img {
+                /* Roter billede til Landskab hvis nødvendigt */
+                transform: rotate(90deg);
+                max-width: 90vh; /* Tilpas til sidens højde når roteret */
+                max-height: 90vw;
+                border: 1px solid #eee;
+            }
+            .caption { margin-top: 10px; font-weight: bold; font-size: 14px; }
+
             @media print {
                 .no-print { display: none; }
-                body { padding: 0; }
-                h2 { break-after: avoid; }
-                table { break-inside: auto; }
-                tr { break-inside: avoid; break-after: auto; }
                 .page-break { page-break-before: always; }
+                /* Tving rotation på print */
+                .landscape-page { transform-origin: center; }
             }
         </style>
     </head>
     <body>
-        <div class="no-print" style="position:fixed; top:10px; right:10px; background:white; padding:10px; border:1px solid #ccc; box-shadow:0 2px 5px rgba(0,0,0,0.2);">
+        <div class="no-print" style="position:fixed; top:10px; right:10px; background:white; padding:10px; border:1px solid #ccc;">
             <button onclick="window.print()" style="font-size:14px; padding:5px 15px; cursor:pointer;">🖨️ Udskriv Rapport</button>
         </div>
 
-        <table class="header-table">
-            <tr>
-                <td>
-                    <h1>Beregning & Dokumentation</h1>
-                    <div>Varmt & Koldt Brugsvand</div>
-                </td>
-                <td style="text-align:right;">
-                    <div><strong>Sag:</strong> ${projName}</div>
-                    <div><strong>Dato:</strong> ${now}</div>
-                    <div><strong>Program:</strong> v0.21</div>
-                </td>
-            </tr>
-        </table>
+        <h1>${projName}</h1>
+        <p>Genereret: ${now} | Værktøj v0.21</p>
 
-        <h2>1. Designkriterier & Konklusion</h2>
-        <table class="data" style="width:100%">
-            <tr>
-                <th width="30%">Grundlag</th>
-                <td>DS 439:2024 (Dimensionering), DS 452 (Isolering)</td>
-            </tr>
-            <tr>
-                <th>Designkriterier</th>
-                <td>
-                    Maks Hastighed: <b>${config.max_v_f} m/s</b><br>
-                    Maks Tryktab: <b>${config.max_dp_m} Pa/m</b><br>
-                    Temperaturkrav: <b>${config.T_v}°C</b> (VV) / <b>${config.T_k}°C</b> (KV)
-                </td>
-            </tr>
-            <tr>
-                <th>Status (Koldt)</th>
-                <td>
-                    Resttryk: <b>${(config.pln - (model.max_dp_kv||0)).toFixed(0)} Pa</b> 
-                    <span style="color:${(config.pln - (model.max_dp_kv||0)) > 100000 ? 'green' : 'orange'}">
-                        (${(config.pln - (model.max_dp_kv||0)) > 100000 ? 'OK' : 'LAVT'})
-                    </span>
-                </td>
-            </tr>
-            <tr>
-                <th>Status (Varmt)</th>
-                <td>
-                    Resttryk: <b>${(vvStart - model.max_dp_tapning).toFixed(0)} Pa</b>
-                    <span style="color:${(vvStart - model.max_dp_tapning) > config.min_tap_tryk ? 'green' : 'red'}">
-                        (${(vvStart - model.max_dp_tapning) > config.min_tap_tryk ? 'OK' : 'KRITISK'})
-                    </span>
-                </td>
-            </tr>
-        </table>
-
-        <h2>2. Koldt Vand (Hydraulik)</h2>
-        <div class="status-box">
-            <div class="status-row"><span>Forsyningstryk (Vandstik):</span> <strong>${config.pln} Pa</strong></div>
-            <div class="status-row"><span>Maksimalt tryktab (Værste streng):</span> <strong>-${(model.max_dp_kv||0).toFixed(0)} Pa</strong></div>
-            <div class="status-row"><span>Værste streng (ID):</span> <small>${formatPath(model.criticalPathKV)}</small></div>
+        <div class="info-grid">
+            <div class="card">
+                <h3>💧 Koldt Vand (KV)</h3>
+                <div class="status-row"><span>Forsyningstryk:</span> <strong>${config.pln} Pa</strong></div>
+                <div class="status-row"><span>Maks tryktab:</span> <strong>${(model.max_dp_kv || 0).toFixed(0)} Pa</strong></div>
+                <div class="status-row">
+                    <span>Resttryk v/ Værste Tapsted:</span> 
+                    <strong>${(config.pln - (model.max_dp_kv || 0)).toFixed(0)} Pa</strong>
+                </div>
+            </div>
+            <div class="card">
+                <h3>🔥 Varmt Vand (VV)</h3>
+                <div class="status-row"><span>Starttryk (fra KV):</span> <strong>${vvStart.toFixed(0)} Pa</strong></div>
+                <div class="status-row"><span>Maks tryktab:</span> <strong>${(model.max_dp_tapning || 0).toFixed(0)} Pa</strong></div>
+                <div class="status-row">
+                    <span>Resttryk v/ Værste Tapsted:</span> 
+                    <strong class="${(vvStart - model.max_dp_tapning) < config.min_tap_tryk ? 'danger' : 'ok'}">
+                        ${(vvStart - model.max_dp_tapning).toFixed(0)} Pa
+                    </strong>
+                </div>
+            </div>
         </div>
+
+        <h2 class="kv">2. Koldt Vand: Hydraulisk Analyse</h2>
+        <p><strong>Detaljeret beregning af den kritiske vej (største tryktab):</strong></p>
+        ${generatePathTable(model.criticalPathKV)}
         
         <h3>Rørjournal - Koldt Vand</h3>
         <table class="data">
-            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Pa/m</th><th>Total Δp</th><th>Isolering</th></tr></thead>
-            <tbody>${rowsKV || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
+            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Isolering</th><th>W/m</th></tr></thead>
+            <tbody>${htmlKV || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
         </table>
-
-        <h2>3. Hydraulisk Kobling (KV → VV)</h2>
-        <div class="status-box" style="background-color:#e0f7fa; border-color:#26c6da;">
-            <p style="margin:0 0 10px 0;"><strong>Beregning af starttryk til Varmtvandsbeholder:</strong></p>
-            <div class="status-row"><span>Forsyningstryk:</span> <span>${config.pln} Pa</span></div>
-            <div class="status-row"><span>- Tryktab i Koldt Vand (frem til beholder):</span> <span style="color:red">-${kvLoss.toFixed(0)} Pa</span></div>
-            <div class="status-row" style="border-top:2px solid #333; font-weight:bold;">
-                <span>= Starttryk Varmt Vand:</span> <span>${vvStart.toFixed(0)} Pa</span>
-            </div>
-            <div style="margin-top:10px; font-size:11px; color:#555;">
-                <em>Note: Beholderen er tilsluttet noden: ${getDisplayName(state.beholderConnectionId || 'Ikke tilsluttet')}</em>
-            </div>
-        </div>
 
         <div class="page-break"></div>
 
-        <h2>4. Varmt Vand (Hydraulik)</h2>
-        <div class="status-box">
-            <div class="status-row"><span>Starttryk (Beholder):</span> <strong>${vvStart.toFixed(0)} Pa</strong></div>
-            <div class="status-row"><span>Maksimalt tryktab (Værste streng):</span> <strong>-${(model.max_dp_tapning||0).toFixed(0)} Pa</strong></div>
-            <div class="status-row"><span>Værste streng (ID):</span> <small>${formatPath(model.criticalPath)}</small></div>
+        <h2 class="vv">3. Varmt Vand: Hydraulisk Analyse</h2>
+        <div class="status-box" style="background-color:#fff3cd; border:1px solid #ffeeba; padding:10px;">
+            <strong>Hydraulisk Link:</strong> Tryktab i KV-forsyning frem til beholder (${kvLoss.toFixed(0)} Pa) er trukket fra forsyningstrykket (${config.pln} Pa).
         </div>
+        <p><strong>Detaljeret beregning af den kritiske vej:</strong></p>
+        ${generatePathTable(model.criticalPath)}
 
         <h3>Rørjournal - Varmt Vand</h3>
         <table class="data">
-            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Pa/m</th><th>Total Δp</th><th>Isolering</th></tr></thead>
-            <tbody>${rowsVV || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
+            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Isolering</th><th>W/m</th></tr></thead>
+            <tbody>${htmlVV || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
         </table>
 
-        <h2>5. Cirkulation & Indregulering</h2>
-        <div class="status-box">
-            <div class="status-row"><span>Total Cirkulationsflow:</span> <strong>${totalCircFlow.toFixed(1)} l/h</strong></div>
-            <div class="status-row"><span>Nødvendigt Pumpetryk (Løftehøjde):</span> <strong>${(model.max_dp_circ||0).toFixed(0)} Pa</strong></div>
-        </div>
-
+        <h2 class="cirk">4. Cirkulation & Indregulering</h2>
+        <div class="status-row"><span>Total Flow:</span> <strong>${totalCircFlow.toFixed(1)} l/h</strong></div>
+        <div class="status-row"><span>Pumpe Løftehøjde:</span> <strong>${(model.max_dp_circ||0).toFixed(0)} Pa</strong></div>
+        
         <h3>Indreguleringsskema</h3>
         <table class="data">
-            <thead><tr><th>Streng</th><th>Varmetab</th><th>Flow</th><th>Tryktab i streng</th><th>Ventil Type</th><th>Indstilling</th></tr></thead>
+            <thead><tr><th>Streng</th><th>Total Varmetab</th><th>Flow</th><th>Tryktab i streng</th><th>Ventil</th><th>Indstilling</th></tr></thead>
             <tbody>${rowsBalance || '<tr><td colspan="6">Ingen cirkulation</td></tr>'}</tbody>
         </table>
         
-        <h3>Returledninger (Journal)</h3>
+        <h3>Cirkulationsledninger (Journal)</h3>
         <table class="data">
-            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Pa/m</th><th>Total Δp</th><th>Isolering</th></tr></thead>
-            <tbody>${rowsCirc || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
+            <thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Isolering</th><th>W/m</th></tr></thead>
+            <tbody>${htmlCirc || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody>
         </table>
 
-        ${rowsComp ? `<h2>6. Aktive Komponenter</h2><table class="data"><thead><tr><th>ID</th><th>Type</th><th>Indstilling</th><th>Flow</th></tr></thead><tbody>${rowsComp}</tbody></table>` : ''}
+        ${rowsComp ? `<h2>5. Aktive Komponenter</h2><table class="data"><thead><tr><th>ID</th><th>Type</th><th>Indstilling</th><th>Aktuelt Flow</th></tr></thead><tbody>${rowsComp}</tbody></table>` : ''}
 
-        <div class="page-break"></div>
-
-        <h2>Bilag A: Systemdiagrammer</h2>
-        
-        <div class="img-container">
-            <img src="${imgTopo}">
-            <div class="img-caption">Figur 1: Systemoversigt og ID-numre.</div>
+        <div class="diagram-page">
+            <div class="caption">Bilag A: Systemoversigt (Topologi)</div>
+            <img src="${imgTopo}" class="landscape-img">
         </div>
 
-        <div class="img-container">
-            <img src="${imgTemp}">
-            <div class="img-caption">Figur 2: Temperaturfordeling. Viser afkøling i cirkulation og opvarmning i KV.</div>
+        <div class="diagram-page">
+            <div class="caption">Bilag B: Temperaturfordeling (Koldt/Varmt)</div>
+            <img src="${imgTemp}" class="landscape-img">
         </div>
 
-        <div class="img-container">
-            <img src="${imgCrit}">
-            <div class="img-caption">Figur 3: Kritisk vej (Blå markering) - Strengen med størst tryktab.</div>
+        <div class="diagram-page">
+            <div class="caption">Bilag C: Kritisk Vej (Markeret med Blåt)</div>
+            <img src="${imgCrit}" class="landscape-img">
         </div>
 
     </body>
@@ -6349,7 +6346,6 @@ async function generateReportHTML() {
     win.document.write(html);
     win.document.close();
 }
-
 
 // =================================================================================
 // == FUNKTIONER TIL BEHOLDERBEREGNING (3 METODER)                               ==
