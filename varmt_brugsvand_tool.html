@@ -4345,9 +4345,10 @@ function autoSaveProject() {
  * - Både VV (S-strenge) og KV (K-strenge).
  * - Globale tællere for Boostere (B), Reducere (Red) og Ventiler (V).
  * - Korrekt sortering af rør og tapsteder.
+ * - Håndterer Unified Taps korrekt ved ikke at omdøbe dem to gange.
  */
 function renumberAndSortProject() {
-    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle strenge og komponenter nye, logiske numre (S1, K1, B1...).\n2. Sortere tabellerne efter flow-retning.\n3. Opdatere alle referencer.")) {
+    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle strenge og komponenter nye, logiske numre (S1, K1, B1...).\n2. Sortere tabellerne efter flow-retning.\n3. Bevare forbindelser for Unified Tapsteder.")) {
         return;
     }
 
@@ -4401,6 +4402,7 @@ function renumberAndSortProject() {
         };
         
         // Start traversering fra forældre udenfor strengen (Rødder)
+        // Her skal vi passe på: En rod kan være et rør fra en anden streng, eller Beholder/Vandstik
         const roots = components.filter(c => !nodesInString.has(c.parent));
         roots.forEach(root => {
             sorted.push(root);
@@ -4422,6 +4424,14 @@ function renumberAndSortProject() {
         
         components.forEach(c => {
             const oldId = c.id;
+            
+            // VIGTIG RETTELSE: Tjek om vi allerede har omdøbt denne komponent
+            // Dette sker for Unified Tapsteder, der ligger i både VV og KV listerne.
+            if (idMap.has(oldId)) {
+                c.id = idMap.get(oldId);
+                return; // Hop videre - vi skal ikke give den et nyt K-nummer
+            }
+
             let newId;
 
             // Bestem ID baseret på type
@@ -4446,18 +4456,17 @@ function renumberAndSortProject() {
     };
 
     // --- A. BEHANDL VV STRENGE (S) ---
+    // Vi tager VV først, så fælles tapsteder får "S"-numre (f.eks. S1-T1), hvilket er standard
     if (data.strenge_vv) {
         data.strenge_vv.forEach((streng, index) => {
             const newStringId = `S${index + 1}`;
             idMap.set(streng.id, newStringId);
             streng.id = newStringId;
 
-            // Saml, Sorter, Omdøb
             let comps = [...(streng.ror || []), ...(streng.tapsted || [])];
             comps = sortComponentsInString(comps);
             renameComponents(comps, newStringId);
 
-            // Læg tilbage i arrays
             streng.ror = comps.filter(c => c.type !== 'tapsted');
             streng.tapsted = comps.filter(c => c.type === 'tapsted');
         });
@@ -4472,6 +4481,8 @@ function renumberAndSortProject() {
 
             let comps = [...(streng.ror || []), ...(streng.tapsted || [])];
             comps = sortComponentsInString(comps);
+            
+            // Her vil renameComponents nu genbruge ID'et for fælles tapsteder
             renameComponents(comps, newStringId);
 
             streng.ror = comps.filter(c => c.type !== 'tapsted');
@@ -4480,14 +4491,13 @@ function renumberAndSortProject() {
     }
 
     // --- C. BEHANDL RETUR / CIRKULATION ---
-    // Saml alt fra retur_komponenter, cirkulation_vv og valves
     let returComps = [
         ...(data.retur_komponenter || []), 
         ...(data.cirkulation_vv || []), 
         ...(data.valves || [])
     ];
     
-    // Fjern dubletter (hvis data er gemt redundant)
+    // Fjern dubletter
     const uniqueRetur = [];
     const seenIds = new Set();
     returComps.forEach(c => {
@@ -4499,8 +4509,13 @@ function renumberAndSortProject() {
         
         sortedRetur.forEach(c => {
             const oldId = c.id;
-            let newId;
+            
+            if (idMap.has(oldId)) {
+                 c.id = idMap.get(oldId);
+                 return;
+            }
 
+            let newId;
             if (c.type === 'valve') {
                 counts.V++;
                 newId = `V${counts.V}`;
@@ -4511,7 +4526,6 @@ function renumberAndSortProject() {
                 counts.Red++;
                 newId = `Red${counts.Red}`;
             } else {
-                // Cirkulationsrør
                 counts.Retur++;
                 newId = `Retur${counts.Retur}`;
             }
@@ -4519,21 +4533,18 @@ function renumberAndSortProject() {
             c.id = newId;
         });
 
-        // Gem tilbage i den nye fælles liste (og tøm de gamle for at undgå rod)
         data.retur_komponenter = sortedRetur;
         data.cirkulation_vv = [];
         data.valves = [];
     }
 
-    // --- D. OPDATER REFERENCER (Parent, Links, Navne) ---
+    // --- D. OPDATER REFERENCER ---
     const updateId = (id) => idMap.has(id) ? idMap.get(id) : id;
     
-    // Opdater parents i alle lister
     const updateListParents = (list) => {
         if (!list) return;
         list.forEach(item => {
             item.parent = updateId(item.parent);
-            // Opdater også special-parents for Unified Taps
             if (item.parent_vv) item.parent_vv = updateId(item.parent_vv);
             if (item.parent_kv) item.parent_kv = updateId(item.parent_kv);
         });
@@ -4553,7 +4564,7 @@ function renumberAndSortProject() {
 
     updateListParents(data.retur_komponenter);
 
-    // Opdater Navne-map
+    // Opdater navne
     const newNames = [];
     if (data.names) {
         data.names.forEach(([oldId, name]) => {
@@ -4562,7 +4573,7 @@ function renumberAndSortProject() {
     }
     data.names = newNames;
 
-    // Opdater Positioner
+    // Opdater positioner
     if (data.nodePositions) {
         data.nodePositions.forEach(pos => {
             if (idMap.has(pos.id)) pos.id = idMap.get(pos.id);
@@ -4575,10 +4586,11 @@ function renumberAndSortProject() {
     }
 
     // --- E. GENINDLÆS ---
-    console.log("Renumbering færdig.", idMap);
+    console.log("Renumbering færdig (Unified Taps bevaret).", idMap);
     loadProjectData(data);
     autoSaveProject(); 
 }
+
 
 /**
  * NY FUNKTION (TRIN 3): Sætter "dirty flag" for at indikere, at der er ændringer.
