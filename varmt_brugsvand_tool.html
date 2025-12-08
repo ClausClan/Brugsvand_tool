@@ -2130,6 +2130,7 @@ function addComponent(type, parentId = null) {
     updateAllSelects();
 }
 
+/* FUNKTION IKKE I BRUG LÆNGERE
 function createInputElement(id, type) {
     const div = document.createElement('div');
     div.className = 'input-group input-group-sm mb-2'; div.dataset.id = id; div.dataset.type = type;
@@ -2152,6 +2153,7 @@ function createInputElement(id, type) {
     }
     return div;
 }
+*/
 
 function removeElement(btn) { 
     // Find det element, der skal fjernes (enten en tr, en div.retur-ror, en div[data-type=valve] or en .streng-card)
@@ -4013,6 +4015,7 @@ function calculateBeholder(model) {
     return model;
 }
 
+/* Funktion ikke i brug længere kan slettes
 function solveBeholder(model) {
     const N = model.N;
     if (!N || N <= 0) return;
@@ -4035,6 +4038,7 @@ function solveBeholder(model) {
         document.getElementById('userEffekt').value = '';
     }
 }
+*/
 
 function calculateTemperatures_VV(model, config) {
     // Brug dynamisk faktor
