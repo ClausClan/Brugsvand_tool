@@ -4338,122 +4338,218 @@ function autoSaveProject() {
  * 1. Gemmer nuværende tilstand.
  * 2. Analyserer flow-strukturen.
  * 3. Tildeler nye ID'er (S1-R1, S1-R2...) i flow-rækkefølge.
- * 4. Genindlæser projektet.
+ * - Både VV (S-strenge) og KV (K-strenge).
+ * - Globale tællere for Boostere (B), Reducere (Red) og Ventiler (V).
+ * - Korrekt sortering af rør og tapsteder.
  */
 function renumberAndSortProject() {
-    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle komponenter nye, logiske numre (f.eks. S1-R1).\n2. Konvertere data til nyeste format (VV).\n3. Sortere tabellerne efter flow-retning.")) {
+    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle strenge og komponenter nye, logiske numre (S1, K1, B1...).\n2. Sortere tabellerne efter flow-retning.\n3. Opdatere alle referencer.")) {
         return;
     }
 
-    // 1. Gem nuværende tilstand for at få fat i data-objektet
+    // 1. Gem og hent data
     autoSaveProject(); 
     const rawData = localStorage.getItem('varmtBrugsvandAutoSave');
     if (!rawData) return;
     
     const data = JSON.parse(rawData);
     const idMap = new Map(); 
+    
+    // Faste noder
     idMap.set('Beholder', 'Beholder');
+    idMap.set('Vandstik', 'Vandstik');
 
-    // Håndter både nye og gamle feltnavne
-    const strengeData = data.strenge_vv || data.strenge;
-    const cirkulationData = data.cirkulation_vv || data.retur;
+    // Globale tællere
+    let counts = {
+        B: 0,   // Booster
+        Red: 0, // Reducer
+        V: 0,   // Ventil
+        Retur: 0 // Retur-rør
+    };
 
-    // --- A. OMDØB STRENGE & FREMLØB (VV) ---
-    if (strengeData) {
-        strengeData.sort((a, b) => {
-            const numA = parseInt(a.id.replace('S', '')) || 0;
-            const numB = parseInt(b.id.replace('S', '')) || 0;
-            return numA - numB;
+    // --- HJÆLPER: Sorteringsfunktion (Graf-baseret) ---
+    const sortComponentsInString = (components) => {
+        const adjacency = new Map();
+        const nodesInString = new Set(components.map(c => c.id));
+        
+        components.forEach(c => {
+            const p = c.parent;
+            if (!adjacency.has(p)) adjacency.set(p, []);
+            adjacency.get(p).push(c);
         });
 
-        strengeData.forEach((streng, index) => {
+        const sorted = [];
+        const traverse = (parentId) => {
+            const children = adjacency.get(parentId) || [];
+            // Sorter: Rør før Tapsteder/Komponenter
+            children.sort((a, b) => {
+                const typeA = a.type.includes('ror') ? 0 : 1;
+                const typeB = b.type.includes('ror') ? 0 : 1;
+                return typeA - typeB;
+            });
+            
+            children.forEach(child => {
+                if (nodesInString.has(child.id)) {
+                    sorted.push(child);
+                    traverse(child.id);
+                }
+            });
+        };
+        
+        // Start traversering fra forældre udenfor strengen (Rødder)
+        const roots = components.filter(c => !nodesInString.has(c.parent));
+        roots.forEach(root => {
+            sorted.push(root);
+            traverse(root.id);
+        });
+        
+        // Fang "forældreløse" (sikkerhedsnet)
+        components.forEach(c => {
+            if (!sorted.includes(c)) sorted.push(c);
+        });
+        
+        return sorted;
+    };
+
+    // --- HJÆLPER: Omdøb Komponenter i en streng ---
+    const renameComponents = (components, stringPrefix) => {
+        let rCount = 0; // Rør i streng
+        let tCount = 0; // Tapsteder i streng
+        
+        components.forEach(c => {
+            const oldId = c.id;
+            let newId;
+
+            // Bestem ID baseret på type
+            if (c.type === 'booster') {
+                counts.B++;
+                newId = `B${counts.B}`;
+            } else if (c.type === 'reducer') {
+                counts.Red++;
+                newId = `Red${counts.Red}`;
+            } else if (c.type === 'tapsted') {
+                tCount++;
+                newId = `${stringPrefix}-T${tCount}`;
+            } else {
+                // Rør (ror_vv, ror_kv)
+                rCount++;
+                newId = `${stringPrefix}-R${rCount}`;
+            }
+            
+            idMap.set(oldId, newId);
+            c.id = newId;
+        });
+    };
+
+    // --- A. BEHANDL VV STRENGE (S) ---
+    if (data.strenge_vv) {
+        data.strenge_vv.forEach((streng, index) => {
             const newStringId = `S${index + 1}`;
             idMap.set(streng.id, newStringId);
             streng.id = newStringId;
 
-            const components = [...(streng.ror || []), ...(streng.tapsted || [])];
-            
-            // Simpel sortering: Sorter efter om de har en forælder i samme streng (Graf-sortering er bedre, men dette virker til husbehov)
-            // En bedre løsning er at bruge den eksisterende graf-traversering hvis muligt, men her laver vi en simpel ID-baseret rensning
-            
-            // Tildel nye ID'er
-            let rCount = 0, tCount = 0;
-            
-            // Vi prøver at bevare den relative rækkefølge fra arrayet, da brugeren ofte har oprettet dem i rækkefølge
-            components.forEach(c => {
-                const oldId = c.id;
-                let newId;
-                
-                // Tjek type
-                if (c.hasOwnProperty('material')) { // Rør
-                    rCount++;
-                    newId = `${newStringId}-R${rCount}`;
-                } else { // Tapsted
-                    tCount++;
-                    newId = `${newStringId}-T${tCount}`;
-                }
-                
-                idMap.set(oldId, newId);
-                c.id = newId;
-            });
+            // Saml, Sorter, Omdøb
+            let comps = [...(streng.ror || []), ...(streng.tapsted || [])];
+            comps = sortComponentsInString(comps);
+            renameComponents(comps, newStringId);
+
+            // Læg tilbage i arrays
+            streng.ror = comps.filter(c => c.type !== 'tapsted');
+            streng.tapsted = comps.filter(c => c.type === 'tapsted');
         });
-        
-        // GEM I NY STRUKTUR OG SLET GAMMEL
-        data.strenge_vv = strengeData;
-        delete data.strenge;
     }
 
-    // --- B. OMDØB CIRKULATION (VV) & VENTILER ---
-    if (cirkulationData || data.valves) {
-        const returComps = [...(cirkulationData || []), ...(data.valves || [])];
-        
-        // Sorter efter eksisterende ID nummer for at bevare en vis orden
-        returComps.sort((a,b) => {
-             const nA = parseInt(a.id.replace(/\D/g, '')) || 0;
-             const nB = parseInt(b.id.replace(/\D/g, '')) || 0;
-             return nA - nB;
-        });
+    // --- B. BEHANDL KV STRENGE (K) ---
+    if (data.strenge_kv) {
+        data.strenge_kv.forEach((streng, index) => {
+            const newStringId = `K${index + 1}`;
+            idMap.set(streng.id, newStringId);
+            streng.id = newStringId;
 
-        let returCount = 0, valveCount = 0;
+            let comps = [...(streng.ror || []), ...(streng.tapsted || [])];
+            comps = sortComponentsInString(comps);
+            renameComponents(comps, newStringId);
+
+            streng.ror = comps.filter(c => c.type !== 'tapsted');
+            streng.tapsted = comps.filter(c => c.type === 'tapsted');
+        });
+    }
+
+    // --- C. BEHANDL RETUR / CIRKULATION ---
+    // Saml alt fra retur_komponenter, cirkulation_vv og valves
+    let returComps = [
+        ...(data.retur_komponenter || []), 
+        ...(data.cirkulation_vv || []), 
+        ...(data.valves || [])
+    ];
+    
+    // Fjern dubletter (hvis data er gemt redundant)
+    const uniqueRetur = [];
+    const seenIds = new Set();
+    returComps.forEach(c => {
+        if(!seenIds.has(c.id)) { uniqueRetur.push(c); seenIds.add(c.id); }
+    });
+
+    if (uniqueRetur.length > 0) {
+        const sortedRetur = sortComponentsInString(uniqueRetur);
         
-        returComps.forEach(c => {
+        sortedRetur.forEach(c => {
             const oldId = c.id;
             let newId;
-            
-            if (c.hasOwnProperty('valveType')) { // Ventil
-                valveCount++;
-                newId = `V${valveCount}`;
-            } else { // Cirkulationsrør
-                returCount++;
-                newId = `Retur${returCount}`; // Vi beholder "Retur" navnet i ID'et, selvom typen er cirkulation_vv
+
+            if (c.type === 'valve') {
+                counts.V++;
+                newId = `V${counts.V}`;
+            } else if (c.type === 'booster') {
+                counts.B++;
+                newId = `B${counts.B}`;
+            } else if (c.type === 'reducer') {
+                counts.Red++;
+                newId = `Red${counts.Red}`;
+            } else {
+                // Cirkulationsrør
+                counts.Retur++;
+                newId = `Retur${counts.Retur}`;
             }
             idMap.set(oldId, newId);
             c.id = newId;
         });
 
-        // Split data igen og gem i nye felter
-        data.cirkulation_vv = returComps.filter(c => !c.hasOwnProperty('valveType'));
-        delete data.retur;
-        
-        data.valves = returComps.filter(c => c.hasOwnProperty('valveType'));
+        // Gem tilbage i den nye fælles liste (og tøm de gamle for at undgå rod)
+        data.retur_komponenter = sortedRetur;
+        data.cirkulation_vv = [];
+        data.valves = [];
     }
 
-    // --- C. OPDATER REFERENCER ---
+    // --- D. OPDATER REFERENCER (Parent, Links, Navne) ---
     const updateId = (id) => idMap.has(id) ? idMap.get(id) : id;
-    const updateParents = (list) => { if (list) list.forEach(i => i.parent = updateId(i.parent)); };
     
-    if (data.strenge_vv) {
-        data.strenge_vv.forEach(s => {
-            updateParents(s.ror);
-            updateParents(s.tapsted);
-            s.circ_start = updateId(s.circ_start);
-            s.circ_end = updateId(s.circ_end);
+    // Opdater parents i alle lister
+    const updateListParents = (list) => {
+        if (!list) return;
+        list.forEach(item => {
+            item.parent = updateId(item.parent);
+            // Opdater også special-parents for Unified Taps
+            if (item.parent_vv) item.parent_vv = updateId(item.parent_vv);
+            if (item.parent_kv) item.parent_kv = updateId(item.parent_kv);
         });
-    }
-    updateParents(data.cirkulation_vv);
-    updateParents(data.valves);
+    };
 
-    // Opdater navne
+    if (data.strenge_vv) data.strenge_vv.forEach(s => {
+        updateListParents(s.ror);
+        updateListParents(s.tapsted);
+        s.circ_start = updateId(s.circ_start);
+        s.circ_end = updateId(s.circ_end);
+    });
+
+    if (data.strenge_kv) data.strenge_kv.forEach(s => {
+        updateListParents(s.ror);
+        updateListParents(s.tapsted);
+    });
+
+    updateListParents(data.retur_komponenter);
+
+    // Opdater Navne-map
     const newNames = [];
     if (data.names) {
         data.names.forEach(([oldId, name]) => {
@@ -4461,20 +4557,24 @@ function renumberAndSortProject() {
         });
     }
     data.names = newNames;
-    
-    // Opdater positioner
+
+    // Opdater Positioner
     if (data.nodePositions) {
         data.nodePositions.forEach(pos => {
             if (idMap.has(pos.id)) pos.id = idMap.get(pos.id);
         });
     }
+    
+    // Opdater Beholder Link
+    if (data.beholderConnectionId) {
+        data.beholderConnectionId = updateId(data.beholderConnectionId);
+    }
 
-    // --- D. GENINDLÆS ---
-    console.log("Refactoring færdig. Migreret til VV-format.", idMap);
+    // --- E. GENINDLÆS ---
+    console.log("Renumbering færdig.", idMap);
     loadProjectData(data);
-    autoSaveProject(); // Gem det nye rene format
+    autoSaveProject(); 
 }
-
 
 /**
  * NY FUNKTION (TRIN 3): Sætter "dirty flag" for at indikere, at der er ændringer.
