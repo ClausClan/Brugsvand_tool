@@ -4876,14 +4876,13 @@ function importProject(file) {
  * Håndterer Unified Taps, Vandmålere, Boostere og Koldt Vand.
  */
 function loadProjectData(data) {
-    resetProject(); // Ryd først
+    resetProject(); 
 
     if (!data) return;
 
-    // 1. Gendan Projektnavn & Config
+    // 1. Projektnavn & Config
     if (data.projectName) document.getElementById('projectName').value = data.projectName;
     
-    // Sæt inputs (Generelt)
     if (data.config) {
         for (const [key, val] of Object.entries(data.config)) {
             const el = document.getElementById(key);
@@ -4892,43 +4891,106 @@ function loadProjectData(data) {
                 else el.value = val;
             }
         }
-        // Håndter radio buttons for global optimering
         if (data.config.optimizationMode) {
             const radio = document.querySelector(`input[name="optimizationMode"][value="${data.config.optimizationMode}"]`);
             if (radio) radio.checked = true;
         }
     }
 
-    // 2. Gendan Navne
+    // 2. Navne & Custom Taps
     if (data.names) {
-        state.names = new Map(data.names);
+        if (Array.isArray(data.names)) state.names = new Map(data.names);
+        else state.names = new Map(Object.entries(data.names));
     }
+    if (data.customTapsteder) state.customTapsteder = data.customTapsteder;
 
-    // 3. Gendan Custom Tapsteder
-    if (data.customTapsteder) {
-        state.customTapsteder = data.customTapsteder;
-        // Genopbyg UI listen (hvis du har en funktion til det, ellers skip)
-        // updateCustomTapstedList(); 
-    }
+    // --- HJÆLPER: UDFYLD DATA PÅ EN RÆKKE ---
+    const applyRowData = (tr, item) => {
+        // Navn
+        const nameInput = tr.querySelector('.name-text');
+        if (nameInput && state.names.has(item.id)) nameInput.value = state.names.get(item.id);
 
-    // --- HJÆLPER: GENOPBYG TABEL ---
+        // Parent (Gemmes midlertidigt indtil updateAllSelects)
+        const parentSel = tr.querySelector('.parent');
+        if (parentSel) parentSel.dataset.loadedValue = item.parent;
+
+        // Unified Taps
+        if (item.type === 'tapsted') {
+            const pVV = tr.querySelector('.parent-vv');
+            const pKV = tr.querySelector('.parent-kv');
+            if (pVV && item.parent_vv) pVV.dataset.loadedValue = item.parent_vv;
+            if (pKV && item.parent_kv) pKV.dataset.loadedValue = item.parent_kv;
+            
+            // Fallback for parent hvis parent_vv mangler (bagudkompatibilitet)
+            if (pVV && !item.parent_vv && item.parent) pVV.dataset.loadedValue = item.parent;
+
+            const tapSel = tr.querySelector('.tapType');
+            if (tapSel) tapSel.value = item.tapType;
+            // Søg på tekst hvis value ikke matcher
+            if (tapSel && tapSel.selectedIndex === -1) {
+                Array.from(tapSel.options).forEach((opt, idx) => {
+                    if (opt.text === item.tapType) tapSel.selectedIndex = idx;
+                });
+            }
+
+            if (tr.querySelector('.qf')) tr.querySelector('.qf').value = item.qf;
+            if (tr.querySelector('.kote')) tr.querySelector('.kote').value = item.kote;
+            if (tr.querySelector('.syst')) tr.querySelector('.syst').checked = item.syst;
+            tr.dataset.isApartment = item.isApartment;
+        }
+
+        // Rør, Cirkulation & Komponenter
+        if (item.type.includes('ror') || item.type === 'cirkulation_vv') {
+            if (tr.querySelector('.material')) tr.querySelector('.material').value = item.material;
+            if (tr.querySelector('.dim')) tr.querySelector('.dim').value = item.dim;
+            if (tr.querySelector('.len')) tr.querySelector('.len').value = item.len;
+            if (tr.querySelector('.fittings')) tr.querySelector('.fittings').value = item.fittings;
+            if (tr.querySelector('.insulation-class')) tr.querySelector('.insulation-class').value = item.insulationClassSelection || 'Auto';
+            if (tr.querySelector('.location')) tr.querySelector('.location').value = item.location;
+        }
+
+        if (item.type === 'valve') {
+            const vSel = tr.querySelector('.valve-type-select');
+            if (vSel) vSel.value = item.valveType;
+            tr.dataset.valveType = item.valveType;
+        }
+
+        if (item.type === 'booster' || item.type === 'reducer') {
+            const pInput = tr.querySelector('.pressure-change');
+            if(pInput) pInput.value = item.pressure_change;
+        }
+
+        // NY: VANDMÅLER HÅNDTERING
+        if (item.type === 'water_meter') {
+            const mSel = tr.querySelector('.meter-size');
+            const mInp = tr.querySelector('.pressure-change');
+            if (mSel) {
+                // Sæt dropdown (default 'auto' hvis feltet mangler i gammel save)
+                mSel.value = item.meterSize || 'auto';
+                
+                // Håndter inputfeltet
+                if (item.meterSize === 'custom') {
+                    mInp.disabled = false;
+                    mInp.value = item.manualKv || '';
+                } else {
+                    mInp.disabled = true;
+                    // Vis standard Kv for valgte størrelse (visuelt)
+                    if (METER_STANDARDS && METER_STANDARDS[item.meterSize]) {
+                        mInp.value = METER_STANDARDS[item.meterSize].kv;
+                    }
+                }
+            }
+        }
+    };
+
+    // --- HJÆLPER: GENOPBYG LISTE ---
     const restoreList = (list, containerId, context) => {
         if (!list) return;
         const container = document.getElementById(containerId);
-        if (!container) return; // Sikkerhed
+        if (!container) return; 
 
         list.forEach(item => {
-            // Find streng-kortet (hvis det er rør/tapsteder) eller brug containeren direkte
-            let targetContainer = container;
-            
-            // Hvis det er en streng (VV/KV), skal vi først oprette kortet
             if (context === 'streng_vv' || context === 'streng_kv') {
-                // Tilføj streng
-                const addFunc = context === 'streng_kv' ? addStreng_kv : addStreng_vv;
-                // Vi snyder lidt og kalder addStreng, men retter ID bagefter
-                // Men vent, addStreng laver et NYT ID. 
-                // Bedre strategi: Vi genskaber DOM manuelt via template
-                
                 const templateId = context === 'streng_kv' ? 'kvStrengTemplate' : 'vvStrengTemplate';
                 const clone = document.getElementById(templateId).content.cloneNode(true);
                 const card = clone.querySelector('.card');
@@ -4936,25 +4998,21 @@ function loadProjectData(data) {
                 card.dataset.id = item.id;
                 card.querySelector('.streng-id-display').textContent = item.id;
                 
-                // Cirkulation i strengen
                 if (item.circ_start) card.querySelector('.circ-start').value = item.circ_start;
-                if (item.circ_end) card.querySelector('.circ-end').value = item.circ_end; // Sættes rigtigt til sidst
+                if (item.circ_end) card.querySelector('.circ-end').value = item.circ_end; 
                 if (item.zeta) card.querySelector('.circ-zeta').value = item.zeta;
 
                 container.appendChild(card);
                 
-                // Nu skal vi tilføje rør og tapsteder til denne streng
                 const rorBody = card.querySelector('.ror-container');
                 const tapBody = card.querySelector('.tapsted-container');
 
-                // Gendan Rør
                 if (item.ror) item.ror.forEach(r => {
                     const tr = createRowHTML(r.id, r.type);
                     applyRowData(tr, r);
                     rorBody.appendChild(tr);
                 });
 
-                // Gendan Tapsteder
                 if (item.tapsted) item.tapsted.forEach(t => {
                     const tr = createRowHTML(t.id, t.type);
                     applyRowData(tr, t);
@@ -4962,7 +5020,6 @@ function loadProjectData(data) {
                 });
             } 
             else if (context === 'retur') {
-                // Direkte i retur-tabellen
                 const tr = createRowHTML(item.id, item.type);
                 applyRowData(tr, item);
                 container.appendChild(tr);
@@ -4970,119 +5027,49 @@ function loadProjectData(data) {
         });
     };
 
-    // --- HJÆLPER: UDFYLD DATA PÅ EN RÆKKE ---
-    const applyRowData = (tr, data) => {
-        // Navn
-        const nameInput = tr.querySelector('.name-text');
-        if (nameInput && state.names.has(data.id)) nameInput.value = state.names.get(data.id);
+    // 3. Kør Gendannelsen
+    // Vi antager at 'data.strenge_vv' og 'data.strenge_kv' findes, da vi taler om den nyeste version.
+    // Hvis du vil være helt sikker, kan du beholde den lille "if (!data.strenge_vv)" migration fra før, 
+    // men her går vi ud fra dit seneste scenarie.
+    
+    if (data.strenge_vv) restoreList(data.strenge_vv, 'strengeContainerVV', 'streng_vv');
+    else if (data.strenge) restoreList(data.strenge, 'strengeContainerVV', 'streng_vv'); // Fallback
 
-        // Parent (Standard)
-        const parentSel = tr.querySelector('.parent');
-        if (parentSel) {
-            // Vi sætter værdien, men den valideres først ved updateAllSelects
-            // Vi gemmer den midlertidigt i en data-attribut for at være sikker
-            parentSel.dataset.loadedValue = data.parent;
-        }
+    if (data.strenge_kv) restoreList(data.strenge_kv, 'strengeContainerKV', 'streng_kv');
+    
+    if (data.retur_komponenter) restoreList(data.retur_komponenter, 'returContainerBody', 'retur');
 
-        // Unified Taps (Spejling)
-        if (data.type === 'tapsted') {
-            const pVV = tr.querySelector('.parent-vv');
-            const pKV = tr.querySelector('.parent-kv');
-            if (pVV && data.parent_vv) pVV.dataset.loadedValue = data.parent_vv;
-            if (pKV && data.parent_kv) pKV.dataset.loadedValue = data.parent_kv;
-            
-            const tapSel = tr.querySelector('.tapType');
-            if (tapSel) tapSel.value = data.tapType; // Prøv at sætte værdi direkte (hvis value matcher)
-            
-            // Hvis value ikke matcher (fordi option value er et tal), må vi søge på tekst
-            if (tapSel && tapSel.selectedIndex === -1) {
-                Array.from(tapSel.options).forEach((opt, idx) => {
-                    if (opt.text === data.tapType) tapSel.selectedIndex = idx;
-                });
-            }
-
-            if (tr.querySelector('.qf')) tr.querySelector('.qf').value = data.qf;
-            if (tr.querySelector('.kote')) tr.querySelector('.kote').value = data.kote;
-            if (tr.querySelector('.syst')) tr.querySelector('.syst').checked = data.syst;
-            tr.dataset.isApartment = data.isApartment;
-        }
-
-        // Rør & Cirkulation
-        if (data.type.includes('ror') || data.type === 'cirkulation_vv') {
-            if (tr.querySelector('.material')) tr.querySelector('.material').value = data.material;
-            if (tr.querySelector('.dim')) tr.querySelector('.dim').value = data.dim;
-            if (tr.querySelector('.len')) tr.querySelector('.len').value = data.len;
-            if (tr.querySelector('.fittings')) tr.querySelector('.fittings').value = data.fittings;
-            if (tr.querySelector('.insulation-class')) tr.querySelector('.insulation-class').value = data.insulationClassSelection || 'Auto';
-            if (tr.querySelector('.location')) tr.querySelector('.location').value = data.location;
-        }
-
-        // Ventil
-        if (data.type === 'valve') {
-            const vSel = tr.querySelector('.valve-type-select');
-            if (vSel) vSel.value = data.valveType;
-            tr.dataset.valveType = data.valveType;
-        }
-
-        // Booster / Reducer
-        if (data.type === 'booster' || data.type === 'reducer') {
-            if (tr.querySelector('.pressure-change')) tr.querySelector('.pressure-change').value = data.pressure_change;
-        }
-
-        // Vandmåler (NY)
-        if (data.type === 'water_meter') {
-            const mSel = tr.querySelector('.meter-size');
-            const mInp = tr.querySelector('.pressure-change');
-            if (mSel) {
-                mSel.value = data.meterSize || 'auto';
-                // Trigger change logic
-                if (data.meterSize === 'custom') {
-                    mInp.disabled = false;
-                    mInp.value = data.manualKv || '';
-                } else {
-                    mInp.disabled = true;
-                    // Hent standardværdi hvis muligt, ellers lad stå
-                    if (METER_STANDARDS && METER_STANDARDS[data.meterSize]) {
-                        mInp.value = METER_STANDARDS[data.meterSize].kv;
-                    }
-                }
-            }
-        }
-    };
-
-    // 4. Kør Gendannelsen
-    restoreList(data.strenge_vv, 'strengeContainerVV', 'streng_vv'); // eller 'strengeContainer' hvis du bruger det gamle ID
-    restoreList(data.strenge_kv, 'strengeContainerKV', 'streng_kv');
-    restoreList(data.retur_komponenter, 'returContainerBody', 'retur'); // Inkluderer nu ventiler/målere/rør i retur
-
-    // 5. Beholder Link
+    // 4. Beholder Link
     state.beholderConnectionId = data.beholderConnectionId;
 
-    // 6. Opdater UI (Dropdowns & Links)
+    // 5. Opdater UI (Dropdowns & Links)
     updateAllSelects();
 
-    // 7. Påfør gemte forældre-værdier (som nu er tilgængelige i listerne)
+    // 6. Påfør gemte forældre-værdier (Parent Sync)
     document.querySelectorAll('select.parent, select.parent-vv, select.parent-kv, select.circ-start, select.circ-end').forEach(sel => {
         if (sel.dataset.loadedValue) {
             sel.value = sel.dataset.loadedValue;
-            delete sel.dataset.loadedValue; // Ryd op
+            delete sel.dataset.loadedValue; 
         }
     });
     
-    // Cirkulation loops specifikt (da de ikke er rækker)
+    // 7. Cirkulation loops specifikt
+    // (Sikrer at circ-end dropdownen bliver sat korrekt efter updateAllSelects har fyldt den)
     if (data.strenge_vv) {
         data.strenge_vv.forEach(s => {
             const card = document.querySelector(`.card[data-id="${s.id}"]`);
-            if (card) {
-                if (s.circ_end) card.querySelector('.circ-end').value = s.circ_end;
+            if (card && s.circ_end) {
+                const endSel = card.querySelector('.circ-end');
+                if(endSel) endSel.value = s.circ_end;
             }
         });
     }
 
     // 8. Final render
     buildNetworkAndRender();
-    console.log("Projekt indlæst.");
+    console.log("Projekt indlæst (v0.21 ready).");
 }
+
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
