@@ -1413,7 +1413,7 @@ function handleMaterialChange(e) {
 function addStreng_vv(startParentId = null) {
     state.sC++;
     const id = `S${state.sC}`;
-    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+    const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
     const card = clone.querySelector('.card');
     card.dataset.id = id;
     card.querySelector('.id-text').textContent = `VV-Streng ${id}`;
