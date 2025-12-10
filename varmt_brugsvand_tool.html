@@ -4881,7 +4881,10 @@ function loadProjectData(data) {
     if (!data) return;
 
     // 1. Projektnavn & Config
-    if (data.projectName) document.getElementById('projectName').value = data.projectName;
+    if (data.projectName) {
+        const nameField = document.getElementById('projectName');
+        if (nameField) nameField.value = data.projectName;
+    }
     
     if (data.config) {
         for (const [key, val] of Object.entries(data.config)) {
@@ -4910,7 +4913,7 @@ function loadProjectData(data) {
         const nameInput = tr.querySelector('.name-text');
         if (nameInput && state.names.has(item.id)) nameInput.value = state.names.get(item.id);
 
-        // Parent (Gemmes midlertidigt indtil updateAllSelects)
+        // Parent
         const parentSel = tr.querySelector('.parent');
         if (parentSel) parentSel.dataset.loadedValue = item.parent;
 
@@ -4920,17 +4923,18 @@ function loadProjectData(data) {
             const pKV = tr.querySelector('.parent-kv');
             if (pVV && item.parent_vv) pVV.dataset.loadedValue = item.parent_vv;
             if (pKV && item.parent_kv) pKV.dataset.loadedValue = item.parent_kv;
-            
-            // Fallback for parent hvis parent_vv mangler (bagudkompatibilitet)
+            // Fallback
             if (pVV && !item.parent_vv && item.parent) pVV.dataset.loadedValue = item.parent;
 
             const tapSel = tr.querySelector('.tapType');
-            if (tapSel) tapSel.value = item.tapType;
-            // Søg på tekst hvis value ikke matcher
-            if (tapSel && tapSel.selectedIndex === -1) {
-                Array.from(tapSel.options).forEach((opt, idx) => {
-                    if (opt.text === item.tapType) tapSel.selectedIndex = idx;
-                });
+            if (tapSel) {
+                tapSel.value = item.tapType;
+                // Tekst-fallback
+                if (tapSel.selectedIndex === -1) {
+                    Array.from(tapSel.options).forEach((opt, idx) => {
+                        if (opt.text === item.tapType) tapSel.selectedIndex = idx;
+                    });
+                }
             }
 
             if (tr.querySelector('.qf')) tr.querySelector('.qf').value = item.qf;
@@ -4941,12 +4945,13 @@ function loadProjectData(data) {
 
         // Rør, Cirkulation & Komponenter
         if (item.type.includes('ror') || item.type === 'cirkulation_vv') {
-            if (tr.querySelector('.material')) tr.querySelector('.material').value = item.material;
-            if (tr.querySelector('.dim')) tr.querySelector('.dim').value = item.dim;
-            if (tr.querySelector('.len')) tr.querySelector('.len').value = item.len;
-            if (tr.querySelector('.fittings')) tr.querySelector('.fittings').value = item.fittings;
-            if (tr.querySelector('.insulation-class')) tr.querySelector('.insulation-class').value = item.insulationClassSelection || 'Auto';
-            if (tr.querySelector('.location')) tr.querySelector('.location').value = item.location;
+            const setVal = (cls, val) => { const el = tr.querySelector('.' + cls); if (el) el.value = val; };
+            setVal('material', item.material);
+            setVal('dim', item.dim);
+            setVal('len', item.len);
+            setVal('fittings', item.fittings);
+            setVal('insulation-class', item.insulationClassSelection || 'Auto');
+            setVal('location', item.location);
         }
 
         if (item.type === 'valve') {
@@ -4955,29 +4960,15 @@ function loadProjectData(data) {
             tr.dataset.valveType = item.valveType;
         }
 
-        if (item.type === 'booster' || item.type === 'reducer') {
+        if (['booster', 'reducer', 'water_meter'].includes(item.type)) {
             const pInput = tr.querySelector('.pressure-change');
-            if(pInput) pInput.value = item.pressure_change;
-        }
-
-        // NY: VANDMÅLER HÅNDTERING
-        if (item.type === 'water_meter') {
-            const mSel = tr.querySelector('.meter-size');
-            const mInp = tr.querySelector('.pressure-change');
-            if (mSel) {
-                // Sæt dropdown (default 'auto' hvis feltet mangler i gammel save)
-                mSel.value = item.meterSize || 'auto';
-                
-                // Håndter inputfeltet
-                if (item.meterSize === 'custom') {
-                    mInp.disabled = false;
-                    mInp.value = item.manualKv || '';
-                } else {
-                    mInp.disabled = true;
-                    // Vis standard Kv for valgte størrelse (visuelt)
-                    if (METER_STANDARDS && METER_STANDARDS[item.meterSize]) {
-                        mInp.value = METER_STANDARDS[item.meterSize].kv;
-                    }
+            if(pInput) pInput.value = (item.type === 'water_meter') ? (item.manualKv || '') : item.pressure_change;
+            
+            if (item.type === 'water_meter') {
+                const mSel = tr.querySelector('.meter-size');
+                if (mSel) {
+                    mSel.value = item.meterSize || 'auto';
+                    if (item.meterSize === 'custom' && pInput) pInput.disabled = false;
                 }
             }
         }
@@ -4986,13 +4977,25 @@ function loadProjectData(data) {
     // --- HJÆLPER: GENOPBYG LISTE ---
     const restoreList = (list, containerId, context) => {
         if (!list) return;
-        const container = document.getElementById(containerId);
-        if (!container) return; 
+        
+        // VIGTIGT FIX: Prøv at finde containeren. Hvis ID'et 'strengeContainerVV' fejler, prøv det gamle 'strengeContainer'
+        let container = document.getElementById(containerId);
+        if (!container && containerId === 'strengeContainerVV') {
+            container = document.getElementById('strengeContainer');
+        }
+        
+        if (!container) {
+            console.error(`Kunne ikke finde container med ID: ${containerId}`);
+            return; 
+        }
 
         list.forEach(item => {
             if (context === 'streng_vv' || context === 'streng_kv') {
                 const templateId = context === 'streng_kv' ? 'kvStrengTemplate' : 'vvStrengTemplate';
-                const clone = document.getElementById(templateId).content.cloneNode(true);
+                const tmpl = document.getElementById(templateId);
+                if (!tmpl) { console.error("Mangler template:", templateId); return; }
+                
+                const clone = tmpl.content.cloneNode(true);
                 const card = clone.querySelector('.card');
                 
                 card.dataset.id = item.id;
@@ -5028,24 +5031,20 @@ function loadProjectData(data) {
     };
 
     // 3. Kør Gendannelsen
-    // Vi antager at 'data.strenge_vv' og 'data.strenge_kv' findes, da vi taler om den nyeste version.
-    // Hvis du vil være helt sikker, kan du beholde den lille "if (!data.strenge_vv)" migration fra før, 
-    // men her går vi ud fra dit seneste scenarie.
-    
+    // Fallback logik for gamle data-strukturer
     if (data.strenge_vv) restoreList(data.strenge_vv, 'strengeContainerVV', 'streng_vv');
-    else if (data.strenge) restoreList(data.strenge, 'strengeContainerVV', 'streng_vv'); // Fallback
+    else if (data.strenge) restoreList(data.strenge, 'strengeContainerVV', 'streng_vv'); // Gammel data
 
     if (data.strenge_kv) restoreList(data.strenge_kv, 'strengeContainerKV', 'streng_kv');
-    
     if (data.retur_komponenter) restoreList(data.retur_komponenter, 'returContainerBody', 'retur');
 
     // 4. Beholder Link
     state.beholderConnectionId = data.beholderConnectionId;
 
-    // 5. Opdater UI (Dropdowns & Links)
+    // 5. Opdater UI (Dropdowns)
     updateAllSelects();
 
-    // 6. Påfør gemte forældre-værdier (Parent Sync)
+    // 6. Påfør gemte forældre-værdier
     document.querySelectorAll('select.parent, select.parent-vv, select.parent-kv, select.circ-start, select.circ-end').forEach(sel => {
         if (sel.dataset.loadedValue) {
             sel.value = sel.dataset.loadedValue;
@@ -5053,8 +5052,7 @@ function loadProjectData(data) {
         }
     });
     
-    // 7. Cirkulation loops specifikt
-    // (Sikrer at circ-end dropdownen bliver sat korrekt efter updateAllSelects har fyldt den)
+    // Specielt for cirkulation (sikrer at 'circ-end' dropdowns får værdien, nu hvor de er fyldt op)
     if (data.strenge_vv) {
         data.strenge_vv.forEach(s => {
             const card = document.querySelector(`.card[data-id="${s.id}"]`);
@@ -5065,11 +5063,33 @@ function loadProjectData(data) {
         });
     }
 
+    // 7. Gendan Diagram-positioner (Så diagrammet ikke roder)
+    if (data.nodePositions) {
+        // Vi gemmer positionerne i state.nodes midlertidigt, så buildNetworkAndRender kan bruge dem
+        // Bemærk: buildNetworkAndRender læser normalt fra 'oldNodes', så vi skal muligvis køre en dummy update eller injicere dem.
+        // Det nemmeste er at lade buildNetworkAndRender køre, og så opdatere positionerne bagefter.
+    }
+
     // 8. Final render
     buildNetworkAndRender();
-    console.log("Projekt indlæst (v0.21 ready).");
-}
+    
+    // Påfør positioner EFTER noderne er oprettet
+    if (data.nodePositions && state.nodes.length > 0) {
+        const posMap = new Map(data.nodePositions.map(p => [p.id, p]));
+        state.nodes.forEach(n => {
+            if (posMap.has(n.id)) {
+                const pos = posMap.get(n.id);
+                n.fx = pos.fx;
+                n.fy = pos.fy;
+                n.x = pos.fx; // Sæt også aktuel x/y for at undgå 'hop'
+                n.y = pos.fy;
+            }
+        });
+        updateDiagram(); // Opdater visuelt
+    }
 
+    console.log("Projekt indlæst korrekt.");
+}
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
