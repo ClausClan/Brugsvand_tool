@@ -632,6 +632,14 @@
                                         </svg>
                                         <div><b>Reduktionsventil</b><br><span class="text-muted">Begrænser tryk.</span></div>
                                     </li>
+                                    
+                                    <li class="list-group-item d-flex align-items-center px-0">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" style="margin-right:10px;">
+                                            <rect x="2" y="2" width="20" height="20" rx="2" fill="#fff" stroke="#333" stroke-width="1.5"></rect>
+                                            <text x="12" y="16" text-anchor="middle" font-size="10" font-weight="bold" fill="#333">m³</text>
+                                        </svg>
+                                        <div><b>Vandmåler</b><br><span class="text-muted">Måler flow og beregner tryktab.</span></div>
+                                    </li>
 
                                 </ul>
                             </div>
@@ -1070,6 +1078,27 @@ const VALVE_TYPES = {
         type: 'static',
         data: STATIC_VALVE_DATA["IMI STAD-D"]
     }
+};
+
+
+// ================================================================================
+// MÅLERTYPER                                                                   ===
+// Standard Vandmålere (MID)                                                    ===
+// q3: Permanent flow [m3/h]                                                    === 
+// kv: Flowkapacitet ved 1 bar tryktab [m3/h]                                   ===
+// Mulighed for AUTO og Manuel indtastning af kv.                               ===
+// ================================================================================
+
+
+const METER_STANDARDS = {
+    "auto":    { label: "Auto Dimensionering", q3: 0, kv: 0 },
+    "q3_1.6":  { label: "Q3=1.6 (Dn15)", q3: 1.6, kv: 2.5 },
+    "q3_2.5":  { label: "Q3=2.5 (Dn20)", q3: 2.5, kv: 4.0 },
+    "q3_4.0":  { label: "Q3=4.0 (Dn25)", q3: 4.0, kv: 6.3 },
+    "q3_6.3":  { label: "Q3=6.3 (Dn25/32)", q3: 6.3, kv: 10.0 },
+    "q3_10":   { label: "Q3=10 (Dn40)", q3: 10.0, kv: 16.0 },
+    "q3_16":   { label: "Q3=16 (Dn50)", q3: 16.0, kv: 25.0 },
+    "custom":  { label: "Manuel (Indtast Kv)", q3: 0, kv: 0 }
 };
 
 // Data fra DS 452: Nødvendig tykkelse [mm] for Klasse 6 ved λ=0.037 W/mK
@@ -2579,8 +2608,8 @@ function updateDiagram() {
                 .attr("text-anchor", "middle")
                 .attr("font-size", "10px")
                 .attr("font-weight", "bold")
-                .attr("fill", "#343a40");
-            
+                .attr("fill", "#343a40");      
+
         } else if (d.type === 'vandstik') {
             // NYT SYMBOL: Vandstik (Blå boks)
             group.append("rect")
@@ -2597,7 +2626,34 @@ function updateDiagram() {
                 .attr("font-size", "11px")
                 .attr("font-weight", "bold")
                 .attr("fill", "white");
-            
+
+        } else if (d.type === 'water_meter') {
+            // Firkantet boks
+            const size = 24;
+            enter.append('rect')
+                .attr('width', size)
+                .attr('height', size)
+                .attr('x', -size/2)
+                .attr('y', -size/2)
+                .attr('rx', 2) // Lidt afrundede hjørner
+                .attr('stroke', d => {
+                    // Blå kant for KV, Rød for VV
+                    if (state.links.find(l => l.target.id === d.id && l.type === 'ror_kv')) return '#0d6efd';
+                    return '#dc3545';
+                })
+                .attr('stroke-width', 2)
+                .attr('fill', '#fff');
+
+            // Tekst indeni
+            enter.append('text')
+                .attr('dy', 4)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '10px')
+                .style('font-weight', 'bold')
+                .style('fill', '#333')
+                .style('pointer-events', 'none')
+                .text('m³');
+                    
         } else if (d.type === 'tapsted') {
             // Tapsted: Grøn
             group.append("circle").attr("r", 5).attr("fill", "#198754").attr("stroke", "#333");
@@ -3560,6 +3616,67 @@ function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
         startNode[dp_prop] = -1 * pChange;
     }
     
+    if (node.type === 'water_meter') {
+    const qd_ls = node.qd || 0;
+    const qd_m3h = qd_ls * 3.6; // Konverter l/s -> m3/h
+    
+    let kv_value = 0;
+    let selectedKey = node.meterSize || 'auto';
+    let label = "";
+
+    // 1. Bestem Kv-værdi
+    if (selectedKey === 'custom') {
+        kv_value = node.manualKv || 1.0; // Fallback
+        label = `Manuel (Kv ${kv_value})`;
+    } 
+    else if (selectedKey === 'auto') {
+        // Find den mindste måler hvor Q3 >= Qd
+        // Vi springer 'auto' og 'custom' over i loopet
+        let bestFit = null;
+        for (const [key, data] of Object.entries(METER_STANDARDS)) {
+            if (key === 'auto' || key === 'custom') continue;
+            if (data.q3 >= qd_m3h) {
+                bestFit = data;
+                selectedKey = key; // Gem hvad vi valgte
+                break;
+            }
+        }
+        // Hvis flowet er for stort til største måler, vælg den største
+        if (!bestFit) {
+            bestFit = METER_STANDARDS["q3_16"];
+            selectedKey = "q3_16";
+        }
+        kv_value = bestFit.kv;
+        label = `Auto: ${bestFit.label}`;
+    } 
+    else {
+        // Specifik størrelse valgt
+        kv_value = METER_STANDARDS[selectedKey] ? METER_STANDARDS[selectedKey].kv : 2.5;
+        label = METER_STANDARDS[selectedKey].label;
+    }
+
+    // 2. Beregn Tryktab
+    // Formel: dp (bar) = (Q / Kv)^2
+    // dp (Pa) = dp (bar) * 100000
+    if (kv_value > 0) {
+        const dp_bar = Math.pow(qd_m3h / kv_value, 2);
+        node.dp_tap = dp_bar * 100000;
+    } else {
+        node.dp_tap = 0;
+    }
+
+    // Gem data på noden til rapporten
+    node.meterResult = {
+        size: label,
+        kv: kv_value,
+        flow_m3h: qd_m3h,
+        loadPct: (selectedKey !== 'custom' && METER_STANDARDS[selectedKey]) ? (qd_m3h / METER_STANDARDS[selectedKey].q3 * 100) : 0
+    };
+    
+    // Vandmålere har ikke noget flow-bidrag til børn, men de viderefører flowet
+    // (Dette håndteres af calculateQd)
+    }
+
     if (startNode.children) {
         startNode.children.forEach(c => calculatePressureDrop_VV(c, dp_prop, flow_prop, config));
     }
@@ -3575,6 +3692,67 @@ function calculatePressureDrop_KV(startNode, config) {
         startNode.dp_tap = getDP(startNode.qd, d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
     
+    if (node.type === 'water_meter') {
+    const qd_ls = node.qd || 0;
+    const qd_m3h = qd_ls * 3.6; // Konverter l/s -> m3/h
+    
+    let kv_value = 0;
+    let selectedKey = node.meterSize || 'auto';
+    let label = "";
+
+    // 1. Bestem Kv-værdi
+    if (selectedKey === 'custom') {
+        kv_value = node.manualKv || 1.0; // Fallback
+        label = `Manuel (Kv ${kv_value})`;
+    } 
+    else if (selectedKey === 'auto') {
+        // Find den mindste måler hvor Q3 >= Qd
+        // Vi springer 'auto' og 'custom' over i loopet
+        let bestFit = null;
+        for (const [key, data] of Object.entries(METER_STANDARDS)) {
+            if (key === 'auto' || key === 'custom') continue;
+            if (data.q3 >= qd_m3h) {
+                bestFit = data;
+                selectedKey = key; // Gem hvad vi valgte
+                break;
+            }
+        }
+        // Hvis flowet er for stort til største måler, vælg den største
+        if (!bestFit) {
+            bestFit = METER_STANDARDS["q3_16"];
+            selectedKey = "q3_16";
+        }
+        kv_value = bestFit.kv;
+        label = `Auto: ${bestFit.label}`;
+    } 
+    else {
+        // Specifik størrelse valgt
+        kv_value = METER_STANDARDS[selectedKey] ? METER_STANDARDS[selectedKey].kv : 2.5;
+        label = METER_STANDARDS[selectedKey].label;
+    }
+
+    // 2. Beregn Tryktab
+    // Formel: dp (bar) = (Q / Kv)^2
+    // dp (Pa) = dp (bar) * 100000
+    if (kv_value > 0) {
+        const dp_bar = Math.pow(qd_m3h / kv_value, 2);
+        node.dp_tap = dp_bar * 100000;
+    } else {
+        node.dp_tap = 0;
+    }
+
+    // Gem data på noden til rapporten
+    node.meterResult = {
+        size: label,
+        kv: kv_value,
+        flow_m3h: qd_m3h,
+        loadPct: (selectedKey !== 'custom' && METER_STANDARDS[selectedKey]) ? (qd_m3h / METER_STANDARDS[selectedKey].q3 * 100) : 0
+    };
+    
+    // Vandmålere har ikke noget flow-bidrag til børn, men de viderefører flowet
+    // (Dette håndteres af calculateQd)
+    }
+
     // NYT: Komponenter i KV
     if (startNode.type === 'booster' || startNode.type === 'reducer') {
         const pChange = (startNode.pressure_change || 0) * 1000; 
@@ -4299,6 +4477,13 @@ function extractComponentData(el) {
         Object.assign(base, { pressure_change: parseFloat(el.querySelector('.pressure-change')?.value) || 0 });
     }
     
+    if (type === 'water_meter') {
+    Object.assign(base, { 
+        meterSize: el.querySelector('.meter-size')?.value || 'auto',
+        manualKv: parseFloat(el.querySelector('.pressure-change')?.value) || 0
+    });
+    }
+
     return base;
 }
 
@@ -4346,9 +4531,11 @@ function autoSaveProject() {
  * - Globale tællere for Boostere (B), Reducere (Red) og Ventiler (V).
  * - Korrekt sortering af rør og tapsteder.
  * - Håndterer Unified Taps korrekt ved ikke at omdøbe dem to gange.
+ * - Vandmålere (M1, M2...).
+ * - Boostere (B), Reducere (Red), Ventiler (V).
  */
 function renumberAndSortProject() {
-    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle strenge og komponenter nye, logiske numre (S1, K1, B1...).\n2. Sortere tabellerne efter flow-retning.\n3. Bevare forbindelser for Unified Tapsteder.")) {
+    if (!confirm("Vil du omdøbe og sortere hele projektet?\n\nDette vil:\n1. Give alle strenge og komponenter nye, logiske numre (S1, K1, M1...).\n2. Sortere tabellerne efter flow-retning.\n3. Bevare forbindelser for Unified Tapsteder.")) {
         return;
     }
 
@@ -4369,6 +4556,7 @@ function renumberAndSortProject() {
         B: 0,   // Booster
         Red: 0, // Reducer
         V: 0,   // Ventil
+        M: 0,   // Vandmåler (NY)
         Retur: 0 // Retur-rør
     };
 
@@ -4386,10 +4574,10 @@ function renumberAndSortProject() {
         const sorted = [];
         const traverse = (parentId) => {
             const children = adjacency.get(parentId) || [];
-            // Sorter: Rør før Tapsteder/Komponenter
+            // Sorter: Rør/Målere før Tapsteder
             children.sort((a, b) => {
-                const typeA = a.type.includes('ror') ? 0 : 1;
-                const typeB = b.type.includes('ror') ? 0 : 1;
+                const typeA = (a.type.includes('ror') || a.type === 'water_meter') ? 0 : 1;
+                const typeB = (b.type.includes('ror') || b.type === 'water_meter') ? 0 : 1;
                 return typeA - typeB;
             });
             
@@ -4401,15 +4589,14 @@ function renumberAndSortProject() {
             });
         };
         
-        // Start traversering fra forældre udenfor strengen (Rødder)
-        // Her skal vi passe på: En rod kan være et rør fra en anden streng, eller Beholder/Vandstik
+        // Start traversering fra rødder
         const roots = components.filter(c => !nodesInString.has(c.parent));
         roots.forEach(root => {
             sorted.push(root);
             traverse(root.id);
         });
         
-        // Fang "forældreløse" (sikkerhedsnet)
+        // Fang evt. "øer"
         components.forEach(c => {
             if (!sorted.includes(c)) sorted.push(c);
         });
@@ -4425,11 +4612,10 @@ function renumberAndSortProject() {
         components.forEach(c => {
             const oldId = c.id;
             
-            // VIGTIG RETTELSE: Tjek om vi allerede har omdøbt denne komponent
-            // Dette sker for Unified Tapsteder, der ligger i både VV og KV listerne.
+            // Unified Taps Check: Hvis allerede omdøbt, brug det ID
             if (idMap.has(oldId)) {
                 c.id = idMap.get(oldId);
-                return; // Hop videre - vi skal ikke give den et nyt K-nummer
+                return; 
             }
 
             let newId;
@@ -4441,11 +4627,14 @@ function renumberAndSortProject() {
             } else if (c.type === 'reducer') {
                 counts.Red++;
                 newId = `Red${counts.Red}`;
+            } else if (c.type === 'water_meter') {
+                counts.M++;
+                newId = `M${counts.M}`; // Vandmåler
             } else if (c.type === 'tapsted') {
                 tCount++;
                 newId = `${stringPrefix}-T${tCount}`;
             } else {
-                // Rør (ror_vv, ror_kv)
+                // Rør
                 rCount++;
                 newId = `${stringPrefix}-R${rCount}`;
             }
@@ -4456,7 +4645,6 @@ function renumberAndSortProject() {
     };
 
     // --- A. BEHANDL VV STRENGE (S) ---
-    // Vi tager VV først, så fælles tapsteder får "S"-numre (f.eks. S1-T1), hvilket er standard
     if (data.strenge_vv) {
         data.strenge_vv.forEach((streng, index) => {
             const newStringId = `S${index + 1}`;
@@ -4481,8 +4669,6 @@ function renumberAndSortProject() {
 
             let comps = [...(streng.ror || []), ...(streng.tapsted || [])];
             comps = sortComponentsInString(comps);
-            
-            // Her vil renameComponents nu genbruge ID'et for fælles tapsteder
             renameComponents(comps, newStringId);
 
             streng.ror = comps.filter(c => c.type !== 'tapsted');
@@ -4525,6 +4711,9 @@ function renumberAndSortProject() {
             } else if (c.type === 'reducer') {
                 counts.Red++;
                 newId = `Red${counts.Red}`;
+            } else if (c.type === 'water_meter') {
+                counts.M++;
+                newId = `M${counts.M}`;
             } else {
                 counts.Retur++;
                 newId = `Retur${counts.Retur}`;
@@ -4586,11 +4775,10 @@ function renumberAndSortProject() {
     }
 
     // --- E. GENINDLÆS ---
-    console.log("Renumbering færdig (Unified Taps bevaret).", idMap);
+    console.log("Renumbering færdig.", idMap);
     loadProjectData(data);
     autoSaveProject(); 
 }
-
 
 /**
  * NY FUNKTION (TRIN 3): Sætter "dirty flag" for at indikere, at der er ændringer.
@@ -4685,237 +4873,216 @@ function importProject(file) {
 /**
  * OPDATERET: Indlæser projektdata og håndterer KV/VV opdeling korrekt.
  * Resetter hele UI'et før indlæsning for at undgå dubletter.
+ * Håndterer Unified Taps, Vandmålere, Boostere og Koldt Vand.
  */
 function loadProjectData(data) {
+    resetProject(); // Ryd først
+
     if (!data) return;
-    console.log("Starter indlæsning af version:", data.version || "Ukendt");
+
+    // 1. Gendan Projektnavn & Config
+    if (data.projectName) document.getElementById('projectName').value = data.projectName;
     
-    // 1. NULSTIL UI & STATE
-    const vvCont = document.getElementById('strengeContainerVV') || document.getElementById('strengeContainer');
-    if (vvCont) vvCont.innerHTML = '';
-    
-    const kvCont = document.getElementById('strengeContainerKV');
-    if (kvCont) kvCont.innerHTML = '';
-    
-    const returCont = document.getElementById('returContainerBody');
-    if (returCont) returCont.innerHTML = ''; 
-    
-    document.getElementById('customTapsteder').innerHTML = '';
-    
-    state.sC = 0; state.sC_kv = 0; state.rC = 0; state.tC = 0; window.valveCounter = 0; window.compCounter = 0;
-    
-    // 2. INDLÆS KONFIG
+    // Sæt inputs (Generelt)
     if (data.config) {
-        Object.entries(data.config).forEach(([k, v]) => {
-            const el = document.getElementById(k);
+        for (const [key, val] of Object.entries(data.config)) {
+            const el = document.getElementById(key);
             if (el) {
-                if (el.type === 'checkbox') el.checked = v;
-                else el.value = v;
+                if (el.type === 'checkbox') el.checked = val;
+                else el.value = val;
+            }
+        }
+        // Håndter radio buttons for global optimering
+        if (data.config.optimizationMode) {
+            const radio = document.querySelector(`input[name="optimizationMode"][value="${data.config.optimizationMode}"]`);
+            if (radio) radio.checked = true;
+        }
+    }
+
+    // 2. Gendan Navne
+    if (data.names) {
+        state.names = new Map(data.names);
+    }
+
+    // 3. Gendan Custom Tapsteder
+    if (data.customTapsteder) {
+        state.customTapsteder = data.customTapsteder;
+        // Genopbyg UI listen (hvis du har en funktion til det, ellers skip)
+        // updateCustomTapstedList(); 
+    }
+
+    // --- HJÆLPER: GENOPBYG TABEL ---
+    const restoreList = (list, containerId, context) => {
+        if (!list) return;
+        const container = document.getElementById(containerId);
+        if (!container) return; // Sikkerhed
+
+        list.forEach(item => {
+            // Find streng-kortet (hvis det er rør/tapsteder) eller brug containeren direkte
+            let targetContainer = container;
+            
+            // Hvis det er en streng (VV/KV), skal vi først oprette kortet
+            if (context === 'streng_vv' || context === 'streng_kv') {
+                // Tilføj streng
+                const addFunc = context === 'streng_kv' ? addStreng_kv : addStreng_vv;
+                // Vi snyder lidt og kalder addStreng, men retter ID bagefter
+                // Men vent, addStreng laver et NYT ID. 
+                // Bedre strategi: Vi genskaber DOM manuelt via template
+                
+                const templateId = context === 'streng_kv' ? 'kvStrengTemplate' : 'vvStrengTemplate';
+                const clone = document.getElementById(templateId).content.cloneNode(true);
+                const card = clone.querySelector('.card');
+                
+                card.dataset.id = item.id;
+                card.querySelector('.streng-id-display').textContent = item.id;
+                
+                // Cirkulation i strengen
+                if (item.circ_start) card.querySelector('.circ-start').value = item.circ_start;
+                if (item.circ_end) card.querySelector('.circ-end').value = item.circ_end; // Sættes rigtigt til sidst
+                if (item.zeta) card.querySelector('.circ-zeta').value = item.zeta;
+
+                container.appendChild(card);
+                
+                // Nu skal vi tilføje rør og tapsteder til denne streng
+                const rorBody = card.querySelector('.ror-container');
+                const tapBody = card.querySelector('.tapsted-container');
+
+                // Gendan Rør
+                if (item.ror) item.ror.forEach(r => {
+                    const tr = createRowHTML(r.id, r.type);
+                    applyRowData(tr, r);
+                    rorBody.appendChild(tr);
+                });
+
+                // Gendan Tapsteder
+                if (item.tapsted) item.tapsted.forEach(t => {
+                    const tr = createRowHTML(t.id, t.type);
+                    applyRowData(tr, t);
+                    tapBody.appendChild(tr);
+                });
+            } 
+            else if (context === 'retur') {
+                // Direkte i retur-tabellen
+                const tr = createRowHTML(item.id, item.type);
+                applyRowData(tr, item);
+                container.appendChild(tr);
             }
         });
-        toggleAutoDim(data.config.isAuto);
-    }
-    
-    state.names = new Map(data.names);
-    state.beholderConnectionId = data.beholderConnectionId || null;
-    state.nodes = data.nodePositions || [];
-    state.customTapsteder = data.customTapsteder || {};
+    };
 
-    // Genskab Custom Tapsteder
-    Object.keys(state.customTapsteder).forEach(k => {
-        const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
-        clone.querySelector('.input-group-text').dataset.key = k;
-        clone.querySelector('.input-group-text').textContent = k;
-        const val = state.customTapsteder[k];
-        clone.querySelector('.qf').value = val.qf_hot !== undefined ? val.qf_hot : val.qf;
-        clone.querySelector('.is-apartment').checked = val.isApartment;
-        document.getElementById('customTapsteder').appendChild(clone);
-    });
-    Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}])) : {});
-    updateTapstedOptions();
+    // --- HJÆLPER: UDFYLD DATA PÅ EN RÆKKE ---
+    const applyRowData = (tr, data) => {
+        // Navn
+        const nameInput = tr.querySelector('.name-text');
+        if (nameInput && state.names.has(data.id)) nameInput.value = state.names.get(data.id);
 
-    // 3. SCAN ID'ER (Tællere) - Uændret logik
-    const scanList = (list, prefix) => {
-        if (!list) return;
-        list.forEach(item => {
-            const idNum = parseInt(item.id.replace(/\D/g, '') || 0, 10);
-            if (prefix && item.id.startsWith(prefix)) {
-                if (prefix === 'S' && idNum > state.sC) state.sC = idNum;
-                if (prefix === 'K' && idNum > state.sC_kv) state.sC_kv = idNum;
-            } else if (item.type === 'valve') {
-                if (idNum > window.valveCounter) window.valveCounter = idNum;
-            } else if (item.type === 'booster' || item.type === 'reducer') {
-                if (idNum > window.compCounter) window.compCounter = idNum;
-            } else if (item.type && item.type.includes('cirkulation')) {
-                if (idNum > state.rC) state.rC = idNum;
-            }
-            if (item.ror || item.tapsted) {
-                [...(item.ror||[]), ...(item.tapsted||[])].forEach(c => {
-                    const cNum = parseInt(c.id.match(/\d+$/)?.[0] || 0, 10);
-                    if (cNum > state.tC) state.tC = cNum;
-                    if (c.type === 'booster' || c.type === 'reducer') {
-                        const compNum = parseInt(c.id.replace(/\D/g, '') || 0, 10);
-                        if (compNum > window.compCounter) window.compCounter = compNum;
-                    }
+        // Parent (Standard)
+        const parentSel = tr.querySelector('.parent');
+        if (parentSel) {
+            // Vi sætter værdien, men den valideres først ved updateAllSelects
+            // Vi gemmer den midlertidigt i en data-attribut for at være sikker
+            parentSel.dataset.loadedValue = data.parent;
+        }
+
+        // Unified Taps (Spejling)
+        if (data.type === 'tapsted') {
+            const pVV = tr.querySelector('.parent-vv');
+            const pKV = tr.querySelector('.parent-kv');
+            if (pVV && data.parent_vv) pVV.dataset.loadedValue = data.parent_vv;
+            if (pKV && data.parent_kv) pKV.dataset.loadedValue = data.parent_kv;
+            
+            const tapSel = tr.querySelector('.tapType');
+            if (tapSel) tapSel.value = data.tapType; // Prøv at sætte værdi direkte (hvis value matcher)
+            
+            // Hvis value ikke matcher (fordi option value er et tal), må vi søge på tekst
+            if (tapSel && tapSel.selectedIndex === -1) {
+                Array.from(tapSel.options).forEach((opt, idx) => {
+                    if (opt.text === data.tapType) tapSel.selectedIndex = idx;
                 });
             }
-        });
-    };
-    scanList(data.strenge_vv, 'S');
-    scanList(data.strenge_kv, 'K');
-    scanList(data.retur_komponenter || data.cirkulation_vv || []);
 
-    // 4. GENERER ELEMENTER (Helper)
-    const applyData = (tr, item) => {
-        tr.dataset.tempParent = item.parent;
-        const setVal = (sel, val) => { if(tr.querySelector(sel)) tr.querySelector(sel).value = val; };
-        setVal('.material', item.material);
-        setVal('.location', item.location);
-        setVal('.insulation-class', item.insulationClassSelection);
-        setVal('.dim', item.dim);
-        setVal('.len', item.len);
-        setVal('.fittings', item.fittings);
-        setVal('.pressure-change', item.pressure_change);
-        setVal('.qf', item.qf);
-        setVal('.kote', item.kote);
-        if(tr.querySelector('.syst')) tr.querySelector('.syst').checked = item.syst;
-        if(item.isApartment !== undefined) tr.dataset.isApartment = item.isApartment;
-        
-        if (item.type === 'valve') {
+            if (tr.querySelector('.qf')) tr.querySelector('.qf').value = data.qf;
+            if (tr.querySelector('.kote')) tr.querySelector('.kote').value = data.kote;
+            if (tr.querySelector('.syst')) tr.querySelector('.syst').checked = data.syst;
+            tr.dataset.isApartment = data.isApartment;
+        }
+
+        // Rør & Cirkulation
+        if (data.type.includes('ror') || data.type === 'cirkulation_vv') {
+            if (tr.querySelector('.material')) tr.querySelector('.material').value = data.material;
+            if (tr.querySelector('.dim')) tr.querySelector('.dim').value = data.dim;
+            if (tr.querySelector('.len')) tr.querySelector('.len').value = data.len;
+            if (tr.querySelector('.fittings')) tr.querySelector('.fittings').value = data.fittings;
+            if (tr.querySelector('.insulation-class')) tr.querySelector('.insulation-class').value = data.insulationClassSelection || 'Auto';
+            if (tr.querySelector('.location')) tr.querySelector('.location').value = data.location;
+        }
+
+        // Ventil
+        if (data.type === 'valve') {
             const vSel = tr.querySelector('.valve-type-select');
-            if (vSel) {
-                vSel.value = item.valveType || "";
-                tr.dataset.valveType = item.valveType;
-                const idTxt = tr.querySelector('.id-text');
-                if(idTxt) idTxt.textContent = `${item.id} (${(item.valveType||'').substring(0,8)}...)`;
-            }
+            if (vSel) vSel.value = data.valveType;
+            tr.dataset.valveType = data.valveType;
         }
-        const tapSel = tr.querySelector('.tapType');
-        if(tapSel && item.tapType) {
-            let found = false;
-            for(let i=0; i<tapSel.options.length; i++) {
-                if(tapSel.options[i].text === item.tapType) { tapSel.selectedIndex = i; found = true; break; }
-            }
-            if(!found) tapSel.value = item.qf;
+
+        // Booster / Reducer
+        if (data.type === 'booster' || data.type === 'reducer') {
+            if (tr.querySelector('.pressure-change')) tr.querySelector('.pressure-change').value = data.pressure_change;
         }
-        const matSel = tr.querySelector('.material');
-        if(matSel) { matSel.value = item.material; updateDimOptions(matSel); if(item.dim) tr.querySelector('.dim').value = item.dim; }
-        const nameInp = tr.querySelector('.name-text');
-        if(nameInp) {
-            const savedName = state.names.get(item.id);
-            if(savedName) nameInp.value = savedName;
-            nameInp.onchange = (e) => state.names.set(item.id, e.target.value);
+
+        // Vandmåler (NY)
+        if (data.type === 'water_meter') {
+            const mSel = tr.querySelector('.meter-size');
+            const mInp = tr.querySelector('.pressure-change');
+            if (mSel) {
+                mSel.value = data.meterSize || 'auto';
+                // Trigger change logic
+                if (data.meterSize === 'custom') {
+                    mInp.disabled = false;
+                    mInp.value = data.manualKv || '';
+                } else {
+                    mInp.disabled = true;
+                    // Hent standardværdi hvis muligt, ellers lad stå
+                    if (METER_STANDARDS && METER_STANDARDS[data.meterSize]) {
+                        mInp.value = METER_STANDARDS[data.meterSize].kv;
+                    }
+                }
+            }
         }
     };
 
-    // --- BYG VV STRENGE ---
-    (data.strenge_vv || data.strenge || []).forEach(s => {
-        const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
-        const card = clone.querySelector('.card');
-        card.dataset.id = s.id;
-        card.querySelector('.id-text').textContent = `VV-Streng ${s.id}`;
-        card.dataset.tempCircStart = s.circ_start;
-        card.dataset.tempCircEnd = s.circ_end;
-        if(s.circ_zeta) card.querySelector('.circ-zeta').value = s.circ_zeta;
-        vvCont.appendChild(clone);
-        
-        const rorCont = card.querySelector('.ror-container');
-        const tapCont = card.querySelector('.tapsted-container');
-        
-        (s.ror || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'ror_vv' hvis den mangler, men bevar booster/reducer
-            let type = item.type;
-            if (!type || type === 'ror') type = 'ror_vv'; 
-            if (type === 'booster' || type === 'reducer') type = item.type; // Behold komponenter
+    // 4. Kør Gendannelsen
+    restoreList(data.strenge_vv, 'strengeContainerVV', 'streng_vv'); // eller 'strengeContainer' hvis du bruger det gamle ID
+    restoreList(data.strenge_kv, 'strengeContainerKV', 'streng_kv');
+    restoreList(data.retur_komponenter, 'returContainerBody', 'retur'); // Inkluderer nu ventiler/målere/rør i retur
 
-            const tr = createRowHTML(item.id, type);
-            applyData(tr, item);
-            rorCont.appendChild(tr);
-        });
-        
-        (s.tapsted || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'tapsted'
-            const tr = createRowHTML(item.id, 'tapsted');
-            applyData(tr, item);
-            tapCont.appendChild(tr);
-        });
-    });
+    // 5. Beholder Link
+    state.beholderConnectionId = data.beholderConnectionId;
 
-    // --- BYG KV STRENGE ---
-    (data.strenge_kv || []).forEach(s => {
-        const clone = document.getElementById('kvStrengTemplate').content.cloneNode(true);
-        const card = clone.querySelector('.card');
-        card.dataset.id = s.id;
-        card.querySelector('.id-text').textContent = `KV-Streng ${s.id}`;
-        kvCont.appendChild(clone);
-        
-        const rorCont = card.querySelector('.ror-container');
-        const tapCont = card.querySelector('.tapsted-container');
-        
-        (s.ror || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'ror_kv' hvis den mangler
-            let type = item.type;
-            if (!type || type === 'ror') type = 'ror_kv';
-            if (type === 'booster' || type === 'reducer') type = item.type;
-
-            const tr = createRowHTML(item.id, type);
-            applyData(tr, item);
-            rorCont.appendChild(tr);
-        });
-        (s.tapsted || []).forEach(item => {
-            const tr = createRowHTML(item.id, 'tapsted');
-            applyData(tr, item);
-            tapCont.appendChild(tr);
-        });
-    });
-
-    // --- BYG RETUR / KOMPONENTER ---
-    const returItems = data.retur_komponenter || [...(data.cirkulation_vv||[]), ...(data.retur||[]), ...(data.valves||[])];
-    returItems.forEach(item => {
-        // Fallback logik for gamle data
-        let type = item.type;
-        if (!type) {
-            if (item.valveType) type = 'valve';
-            else type = 'cirkulation_vv';
-        }
-        if (type === 'retur') type = 'cirkulation_vv';
-        
-        const tr = createRowHTML(item.id, type);
-        applyData(tr, item);
-        returCont.appendChild(tr);
-    });
-
-    // 5. GENDAN FORBINDELSER
+    // 6. Opdater UI (Dropdowns & Links)
     updateAllSelects();
 
-    document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
-        const pSel = tr.querySelector('.parent');
-        const savedP = tr.dataset.tempParent;
-        if(pSel && savedP) {
-            pSel.value = savedP;
-            if(pSel.value === "") {
-                if(tr.dataset.type === 'ror_kv') pSel.value = "Vandstik";
-                else pSel.value = "Beholder";
-            }
+    // 7. Påfør gemte forældre-værdier (som nu er tilgængelige i listerne)
+    document.querySelectorAll('select.parent, select.parent-vv, select.parent-kv, select.circ-start, select.circ-end').forEach(sel => {
+        if (sel.dataset.loadedValue) {
+            sel.value = sel.dataset.loadedValue;
+            delete sel.dataset.loadedValue; // Ryd op
         }
-        delete tr.dataset.tempParent;
     });
-
-    document.querySelectorAll('.streng-card').forEach(card => {
-        const sSel = card.querySelector('.circ-start');
-        const eSel = card.querySelector('.circ-end');
-        if(sSel && card.dataset.tempCircStart) sSel.value = card.dataset.tempCircStart;
-        if(eSel && card.dataset.tempCircEnd) eSel.value = card.dataset.tempCircEnd;
-        delete card.dataset.tempCircStart; delete card.dataset.tempCircEnd;
-    });
-
-    updateAllSelects();
-    toggleDisplayNames(state.useNames);
-    setTimeout(zoomToFit, 100);
     
-    console.log("Projekt indlæst komplet og typer repareret.");
-}
+    // Cirkulation loops specifikt (da de ikke er rækker)
+    if (data.strenge_vv) {
+        data.strenge_vv.forEach(s => {
+            const card = document.querySelector(`.card[data-id="${s.id}"]`);
+            if (card) {
+                if (s.circ_end) card.querySelector('.circ-end').value = s.circ_end;
+            }
+        });
+    }
 
+    // 8. Final render
+    buildNetworkAndRender();
+    console.log("Projekt indlæst.");
+}
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
@@ -4994,6 +5161,56 @@ function createRowHTML(id, type) {
         vSel.innerHTML = vOpts;
         vSel.onchange = (e) => tr.dataset.valveType = e.target.value;
         
+        return tr;
+    }
+
+    // NY: VANDMÅLER
+    if (type === 'water_meter') {
+        const clone = document.getElementById('componentTRTemplate').content.cloneNode(true);
+        const tr = clone.querySelector('tr');
+        tr.dataset.id = id;
+        tr.dataset.type = type;
+        
+        tr.querySelector('.id-text').textContent = id;
+        const label = tr.querySelector('.component-label'); // Bruges her til valg af størrelse
+        const icon = tr.querySelector('.icon-placeholder');
+        const pInput = tr.querySelector('.pressure-change'); // Genbruges til Kv-værdi visning/input
+        
+        // Konverter label-inputtet til en Select
+        const parentDiv = label.parentNode;
+        const select = document.createElement('select');
+        select.className = 'form-select form-select-sm meter-size';
+        
+        let opts = '';
+        for (const [key, val] of Object.entries(METER_STANDARDS)) {
+            opts += `<option value="${key}">${val.label}</option>`;
+        }
+        select.innerHTML = opts;
+        
+        // Erstat tekstfelt med select
+        parentDiv.replaceChild(select, label);
+        
+        // Opsætning
+        icon.innerHTML = '<div style="border:1px solid #333; padding:0 2px; font-size:10px; font-weight:bold;">m³</div>';
+        pInput.placeholder = "Kv";
+        pInput.title = "Manuel Kv-værdi (kun ved 'Manuel')";
+        pInput.disabled = true; // Låst som standard (Auto)
+
+        // Event listener for dropdown
+        select.onchange = (e) => {
+            const val = e.target.value;
+            const input = tr.querySelector('.pressure-change');
+            if (val === 'custom') {
+                input.disabled = false;
+                input.focus();
+            } else {
+                input.disabled = true;
+                if (METER_STANDARDS[val]) input.value = METER_STANDARDS[val].kv;
+            }
+            setProjektErÆndret();
+        };
+
+        tr.style.backgroundColor = "#e7f1ff"; // Let blålig nuance
         return tr;
     }
 
@@ -6288,7 +6505,19 @@ async function generateReportHTML() {
                 <td>${(model.circFlows?.get(n.id) || n.qd || 0).toFixed(3)} l/s</td>
             </tr>`;
         }
-    });
+        else if (n.type === 'water_meter') {
+            const res = n.meterResult || { size: '-', kv: 0 };
+            const loadStr = res.loadPct > 0 ? ` (${res.loadPct.toFixed(0)}% af Q3)` : '';
+            
+            htmlComp += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>Vandmåler</td>
+                <td>${res.size} <br><small>Kv=${res.kv}${loadStr}</small></td>
+                <td>${(n.qd || 0).toFixed(3)} l/s <br><small>${(n.meterResult?.flow_m3h||0).toFixed(2)} m³/h</small></td>
+                <td>Tryktab: <strong>${(n.dp_tap||0).toFixed(0)} Pa</strong></td>
+            </tr>`;
+            }
+        });
 
     // Cirkulation / Indregulering
     let rowsBalance = '';
@@ -7144,6 +7373,7 @@ function handleNodeRightClick(event, d) {
         
         subMenu.appendChild(mkSub('⚡ Trykforøger (Booster)', 'booster'));
         subMenu.appendChild(mkSub('↘️ Trykreduktionsventil', 'reducer'));
+        subMenu.appendChild(mkSub('🔢 Vandmåler', 'water_meter'));
         
         if (nodeType === 'cirkulation_vv' || nodeType === 'beholder' || nodeType === 'valve') {
             const vSub = mkSub('🔧 Cirkulationsventil', 'valve');
