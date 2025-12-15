@@ -1159,98 +1159,62 @@ let projektErÆndret = false;
 const gridSize = 10;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. INITIALISER DIAGRAMMET FØRST (Så det er klar til data)
     initDiagram();
-
-    // 2. Initialiser Popovers
+    
+    // Init popovers
     const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
-    [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {
-        trigger: 'hover focus'
-    }));
+    [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl));
 
-    // 3. TJEK FOR AUTO-GEM
     let autoSaveData = null;
-    try {
-        autoSaveData = localStorage.getItem('varmtBrugsvandAutoSave');
-    } catch (err) {
-        console.error("Kunne ikke læse fra localStorage:", err);
-    }
+    try { autoSaveData = localStorage.getItem('varmtBrugsvandAutoSave'); } catch (err) {}
 
     let projectLoaded = false;
-
     if (autoSaveData) {
-        if (confirm("Vi fandt et auto-gemt projekt. Vil du gendanne det?\n\n[OK] = Gendan\n[Annuller] = Start et nyt projekt (sletter auto-gem)")) {
+        if (confirm("Gendan auto-gemt projekt?")) {
             try {
-                const data = JSON.parse(autoSaveData);
-                loadProjectData(data); // Nu virker dette, fordi diagrammet er klar
+                loadProjectData(JSON.parse(autoSaveData));
                 projectLoaded = true;
-                console.log("Auto-gemt projekt er gendannet.");
-            } catch (err) {
-                alert("Fejl: Kunne ikke gendanne auto-gemt projekt. Starter et nyt projekt.");
-                localStorage.removeItem('varmtBrugsvandAutoSave');
-            }
+            } catch (e) { console.error("Kunne ikke gendanne:", e); }
         } else {
             localStorage.removeItem('varmtBrugsvandAutoSave');
-            console.log("Auto-gem er slettet af brugeren.");
         }
     }
-    
-        // 4. HVIS INTET PROJEKT BLEV INDLÆST -> OPRET STANDARD PROJEKT
-        if (!projectLoaded) {
+
+    if (!projectLoaded) {
+        // Opret standard Varmt Vand streng
         addStreng_vv();
-        const btnRor = document.querySelector('.streng-card .btn-outline-secondary:last-of-type');
-        addRorSektion(btnRor, 'ror_vv'); 
-        addTapsted(btnRor);
-        addCirkulationRor();
-        
-        // Sæt standard-forbindelser
-        updateAllSelects(); // Opdater lister først
-        
-        const startSelect = document.querySelector('.circ-start');
-        const endSelect = document.querySelector('.circ-end');
-        if(startSelect && startSelect.options.length > 0) startSelect.value = startSelect.options[0].value;
-        if(endSelect && endSelect.options.length > 0) endSelect.value = endSelect.options[0].value;
-        
-        // Opdater igen for at gemme forbindelserne
-        updateAllSelects();
+        // Vent et øjeblik på at DOM opdateres, eller find knappen specifikt i den nye streng
+        setTimeout(() => {
+            const vvCard = document.querySelector('#strengeContainerVV .streng-card');
+            if (vvCard) {
+                // Find knapperne i denne specifikke streng
+                const btnRor = vvCard.querySelectorAll('button')[1]; // Antagelse: knap nr 2 er "Tilføj rør"
+                const btnTap = vvCard.querySelectorAll('button')[2]; // Antagelse: knap nr 3 er "Tilføj tapsted"
+                
+                if (btnRor) addRorSektion(btnRor, 'ror_vv');
+                if (btnTap) addTapsted(btnTap);
+            }
+            addCirkulationRor();
+            updateAllSelects();
+            
+            // Standard forbindelser for cirkulation
+            const startSel = document.querySelector('.circ-start');
+            const endSel = document.querySelector('.circ-end');
+            if(startSel && startSel.options.length > 0) startSel.selectedIndex = 0;
+            if(endSel && endSel.options.length > 0) endSel.selectedIndex = 0;
+            updateAllSelects();
+        }, 50);
     }
     
     toggleAutoDim(document.getElementById('autoDimToggle').checked);
-
-    // === TRIN 3: OPSÆTNING AF AUTO-GEM TRRIGGERS ===
     
-    // 1. Generelle lyttere (Event Delegation)
-    const accordion = document.getElementById('inputAccordion');
-    if (accordion) {
-        accordion.addEventListener('input', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') setProjektErÆndret();
-        });
-        accordion.addEventListener('change', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') setProjektErÆndret();
-        });
-        accordion.addEventListener('click', (e) => {
-            if (e.target.tagName === 'BUTTON' && (e.target.textContent.includes('+') || e.target.textContent.includes('×'))) {
-                setProjektErÆndret();
-            }
-        });
-    }
-    
-    // 2. Interval-Gem (5 minutter)
-    setInterval(checkAndAutoSave, 300000); 
-
-    // 3. Panik-Gem (ved luk/reload)
-    window.addEventListener('beforeunload', (event) => {
-        if (projektErÆndret) {
-            console.log("Gemmer ulagrede ændringer før siden lukkes...");
-            autoSaveProject(); // Vi gemmer stadig for en sikkerheds skyld
-            
-            // GENAKTIVERET: Vis standard browser-advarsel
-            event.preventDefault(); 
-            event.returnValue = ''; 
-        }
-    });
+    // Auto-save listeners
+    document.body.addEventListener('change', () => setProjektErÆndret());
+    setInterval(checkAndAutoSave, 300000);
+    window.addEventListener('beforeunload', (e) => { if(projektErÆndret) e.returnValue = ''; });
 });
-	
+
+
 // --- UI FUNKTIONER ---
 function handleInputChange(e) {
     // 1. Håndter Tapsted Type ændring (Differentieret Hot/Cold)
@@ -4334,7 +4298,7 @@ function interpolate(x, x_pts, y_pts) {
     while (x > x_pts[i]) i++;
     return y_pts[i-1] + (y_pts[i] - y_pts[i-1]) * (x - x_pts[i-1]) / (x_pts[i] - x_pts[i-1]);
 }
-//... import/export funktioner (uændret) ...
+
 
 /**
  * NY HJÆLPEFUNKTION: Samler alle data fra UI og State til ét objekt.
@@ -4880,12 +4844,8 @@ function loadProjectData(data) {
 
     if (!data) return;
 
-    // 1. Projektnavn & Config
-    if (data.projectName) {
-        const nameField = document.getElementById('projectName');
-        if (nameField) nameField.value = data.projectName;
-    }
-    
+    // 1. Config
+    if (data.projectName) document.getElementById('projectName').value = data.projectName;
     if (data.config) {
         for (const [key, val] of Object.entries(data.config)) {
             const el = document.getElementById(key);
@@ -4894,56 +4854,23 @@ function loadProjectData(data) {
                 else el.value = val;
             }
         }
-        if (data.config.optimizationMode) {
-            const radio = document.querySelector(`input[name="optimizationMode"][value="${data.config.optimizationMode}"]`);
-            if (radio) radio.checked = true;
-        }
     }
 
     // 2. Navne & Custom Taps
-    if (data.names) {
-        if (Array.isArray(data.names)) state.names = new Map(data.names);
-        else state.names = new Map(Object.entries(data.names));
-    }
+    if (data.names) state.names = new Map(data.names);
     if (data.customTapsteder) state.customTapsteder = data.customTapsteder;
 
-    // --- HJÆLPER: UDFYLD DATA PÅ EN RÆKKE ---
+    // Helper til data-påføring
     const applyRowData = (tr, item) => {
-        // Navn
         const nameInput = tr.querySelector('.name-text');
         if (nameInput && state.names.has(item.id)) nameInput.value = state.names.get(item.id);
 
-        // Parent
         const parentSel = tr.querySelector('.parent');
         if (parentSel) parentSel.dataset.loadedValue = item.parent;
 
-        // Unified Taps
-        if (item.type === 'tapsted') {
-            const pVV = tr.querySelector('.parent-vv');
-            const pKV = tr.querySelector('.parent-kv');
-            if (pVV && item.parent_vv) pVV.dataset.loadedValue = item.parent_vv;
-            if (pKV && item.parent_kv) pKV.dataset.loadedValue = item.parent_kv;
-            // Fallback
-            if (pVV && !item.parent_vv && item.parent) pVV.dataset.loadedValue = item.parent;
+        // Migrering af gamle typer
+        if (item.type === 'ror') item.type = 'ror_vv'; 
 
-            const tapSel = tr.querySelector('.tapType');
-            if (tapSel) {
-                tapSel.value = item.tapType;
-                // Tekst-fallback
-                if (tapSel.selectedIndex === -1) {
-                    Array.from(tapSel.options).forEach((opt, idx) => {
-                        if (opt.text === item.tapType) tapSel.selectedIndex = idx;
-                    });
-                }
-            }
-
-            if (tr.querySelector('.qf')) tr.querySelector('.qf').value = item.qf;
-            if (tr.querySelector('.kote')) tr.querySelector('.kote').value = item.kote;
-            if (tr.querySelector('.syst')) tr.querySelector('.syst').checked = item.syst;
-            tr.dataset.isApartment = item.isApartment;
-        }
-
-        // Rør, Cirkulation & Komponenter
         if (item.type.includes('ror') || item.type === 'cirkulation_vv') {
             const setVal = (cls, val) => { const el = tr.querySelector('.' + cls); if (el) el.value = val; };
             setVal('material', item.material);
@@ -4953,76 +4880,82 @@ function loadProjectData(data) {
             setVal('insulation-class', item.insulationClassSelection || 'Auto');
             setVal('location', item.location);
         }
+        
+        if (item.type === 'tapsted') {
+            const pVV = tr.querySelector('.parent-vv');
+            const pKV = tr.querySelector('.parent-kv');
+            // Logik for unified taps parents...
+            if (pVV && item.parent_vv) pVV.dataset.loadedValue = item.parent_vv;
+            else if (pVV && item.parent) pVV.dataset.loadedValue = item.parent; // Legacy fallback
+            
+            if (pKV && item.parent_kv) pKV.dataset.loadedValue = item.parent_kv;
 
-        if (item.type === 'valve') {
-            const vSel = tr.querySelector('.valve-type-select');
-            if (vSel) vSel.value = item.valveType;
-            tr.dataset.valveType = item.valveType;
+            tr.querySelector('.qf').value = item.qf;
+            tr.querySelector('.kote').value = item.kote;
+            tr.querySelector('.syst').checked = item.syst;
+            tr.dataset.isApartment = item.isApartment;
+            
+            // Sæt dropdown baseret på tekst
+            const tapSel = tr.querySelector('.tapType');
+            if(tapSel) {
+                // Find option der matcher teksten
+                Array.from(tapSel.options).forEach((opt, i) => {
+                    if(opt.text === item.tapType) tapSel.selectedIndex = i;
+                });
+            }
         }
 
-        if (['booster', 'reducer', 'water_meter'].includes(item.type)) {
+        if (item.type === 'water_meter') {
+            const mSel = tr.querySelector('.meter-size');
+            if (mSel) mSel.value = item.meterSize || 'auto';
             const pInput = tr.querySelector('.pressure-change');
-            if(pInput) pInput.value = (item.type === 'water_meter') ? (item.manualKv || '') : item.pressure_change;
-            
-            if (item.type === 'water_meter') {
-                const mSel = tr.querySelector('.meter-size');
-                if (mSel) {
-                    mSel.value = item.meterSize || 'auto';
-                    if (item.meterSize === 'custom' && pInput) pInput.disabled = false;
-                }
+            if (pInput) {
+                pInput.value = item.manualKv || '';
+                if (item.meterSize === 'custom') pInput.disabled = false;
             }
+        }
+        
+        if (item.type === 'booster' || item.type === 'reducer') {
+             const pInput = tr.querySelector('.pressure-change');
+             if(pInput) pInput.value = item.pressure_change || 0;
         }
     };
 
-    // --- HJÆLPER: GENOPBYG LISTE ---
+    // Gendan lister
     const restoreList = (list, containerId, context) => {
         if (!list) return;
-        
-        // VIGTIGT FIX: Prøv at finde containeren. Hvis ID'et 'strengeContainerVV' fejler, prøv det gamle 'strengeContainer'
         let container = document.getElementById(containerId);
-        if (!container && containerId === 'strengeContainerVV') {
-            container = document.getElementById('strengeContainer');
-        }
+        // Fallback for gamle ID'er
+        if (!container && containerId === 'strengeContainerVV') container = document.getElementById('strengeContainer');
         
-        if (!container) {
-            console.error(`Kunne ikke finde container med ID: ${containerId}`);
-            return; 
-        }
+        if (!container) return;
 
         list.forEach(item => {
-            if (context === 'streng_vv' || context === 'streng_kv') {
+            if (context.includes('streng')) {
                 const templateId = context === 'streng_kv' ? 'kvStrengTemplate' : 'vvStrengTemplate';
                 const tmpl = document.getElementById(templateId);
-                if (!tmpl) { console.error("Mangler template:", templateId); return; }
-                
                 const clone = tmpl.content.cloneNode(true);
                 const card = clone.querySelector('.card');
                 
                 card.dataset.id = item.id;
-                card.querySelector('.streng-id-display').textContent = item.id;
+                card.querySelector('.id-text').textContent = item.id; // Fix visning
+                if(item.circ_start) card.querySelector('.circ-start').value = item.circ_start;
+                if(item.circ_end) card.querySelector('.circ-end').value = item.circ_end;
                 
-                if (item.circ_start) card.querySelector('.circ-start').value = item.circ_start;
-                if (item.circ_end) card.querySelector('.circ-end').value = item.circ_end; 
-                if (item.zeta) card.querySelector('.circ-zeta').value = item.zeta;
-
                 container.appendChild(card);
                 
-                const rorBody = card.querySelector('.ror-container');
-                const tapBody = card.querySelector('.tapsted-container');
-
                 if (item.ror) item.ror.forEach(r => {
-                    const tr = createRowHTML(r.id, r.type);
+                    const tr = createRowHTML(r.id, r.type || (context === 'streng_kv' ? 'ror_kv' : 'ror_vv'));
                     applyRowData(tr, r);
-                    rorBody.appendChild(tr);
+                    card.querySelector('.ror-container').appendChild(tr);
                 });
-
                 if (item.tapsted) item.tapsted.forEach(t => {
-                    const tr = createRowHTML(t.id, t.type);
+                    const tr = createRowHTML(t.id, 'tapsted');
                     applyRowData(tr, t);
-                    tapBody.appendChild(tr);
+                    card.querySelector('.tapsted-container').appendChild(tr);
                 });
-            } 
-            else if (context === 'retur') {
+            } else {
+                // Retur / Komponenter
                 const tr = createRowHTML(item.id, item.type);
                 applyRowData(tr, item);
                 container.appendChild(tr);
@@ -5030,66 +4963,42 @@ function loadProjectData(data) {
         });
     };
 
-    // 3. Kør Gendannelsen
-    // Fallback logik for gamle data-strukturer
+    // Kør gendannelse - Håndter både ny og gammel datastruktur
     if (data.strenge_vv) restoreList(data.strenge_vv, 'strengeContainerVV', 'streng_vv');
-    else if (data.strenge) restoreList(data.strenge, 'strengeContainerVV', 'streng_vv'); // Gammel data
+    else if (data.strenge) restoreList(data.strenge, 'strengeContainerVV', 'streng_vv'); // Legacy support
 
     if (data.strenge_kv) restoreList(data.strenge_kv, 'strengeContainerKV', 'streng_kv');
+    
+    // Retur containeren indeholder nu også ventiler og komponenter
     if (data.retur_komponenter) restoreList(data.retur_komponenter, 'returContainerBody', 'retur');
+    else if (data.retur) restoreList(data.retur, 'returContainerBody', 'retur'); // Legacy
 
-    // 4. Beholder Link
     state.beholderConnectionId = data.beholderConnectionId;
 
-    // 5. Opdater UI (Dropdowns)
     updateAllSelects();
-
-    // 6. Påfør gemte forældre-værdier
-    document.querySelectorAll('select.parent, select.parent-vv, select.parent-kv, select.circ-start, select.circ-end').forEach(sel => {
-        if (sel.dataset.loadedValue) {
-            sel.value = sel.dataset.loadedValue;
-            delete sel.dataset.loadedValue; 
-        }
+    
+    // Gendan værdier i dropdowns nu hvor options findes
+    document.querySelectorAll('select[data-loaded-value]').forEach(sel => {
+        sel.value = sel.dataset.loadedValue;
+        delete sel.dataset.loadedValue;
     });
-    
-    // Specielt for cirkulation (sikrer at 'circ-end' dropdowns får værdien, nu hvor de er fyldt op)
-    if (data.strenge_vv) {
-        data.strenge_vv.forEach(s => {
-            const card = document.querySelector(`.card[data-id="${s.id}"]`);
-            if (card && s.circ_end) {
-                const endSel = card.querySelector('.circ-end');
-                if(endSel) endSel.value = s.circ_end;
-            }
-        });
-    }
 
-    // 7. Gendan Diagram-positioner (Så diagrammet ikke roder)
-    if (data.nodePositions) {
-        // Vi gemmer positionerne i state.nodes midlertidigt, så buildNetworkAndRender kan bruge dem
-        // Bemærk: buildNetworkAndRender læser normalt fra 'oldNodes', så vi skal muligvis køre en dummy update eller injicere dem.
-        // Det nemmeste er at lade buildNetworkAndRender køre, og så opdatere positionerne bagefter.
-    }
-
-    // 8. Final render
     buildNetworkAndRender();
-    
-    // Påfør positioner EFTER noderne er oprettet
-    if (data.nodePositions && state.nodes.length > 0) {
+    if (data.nodePositions) {
+        // Gendan positioner
         const posMap = new Map(data.nodePositions.map(p => [p.id, p]));
         state.nodes.forEach(n => {
-            if (posMap.has(n.id)) {
-                const pos = posMap.get(n.id);
-                n.fx = pos.fx;
-                n.fy = pos.fy;
-                n.x = pos.fx; // Sæt også aktuel x/y for at undgå 'hop'
-                n.y = pos.fy;
+            if(posMap.has(n.id)) {
+                n.fx = posMap.get(n.id).fx;
+                n.fy = posMap.get(n.id).fy;
+                n.x = n.fx; n.y = n.fy;
             }
         });
-        updateDiagram(); // Opdater visuelt
+        updateDiagram();
     }
-
-    console.log("Projekt indlæst korrekt.");
 }
+
+
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
@@ -5123,7 +5032,43 @@ function createRowHTML(id, type) {
         return tr;
     }
 
-    // 2. TAPSTED (MED DOBBELT DROPDOWN)
+    // 2. VANDMÅLER (Ny robust implementering)
+    if (type === 'water_meter') {
+        const tr = document.createElement('tr');
+        tr.dataset.id = id;
+        tr.dataset.type = type;
+        tr.style.backgroundColor = "#e7f1ff"; // Let blålig
+
+        // Byg options til select
+        let opts = '';
+        for (const [key, val] of Object.entries(METER_STANDARDS)) {
+            opts += `<option value="${key}">${val.label}</option>`;
+        }
+
+        tr.innerHTML = `
+            <td>
+                <span class="input-group input-group-sm">
+                    <span class="input-group-text"><div style="border:1px solid #333; padding:0 2px; font-size:10px; font-weight:bold;">m³</div><span class="id-text ms-2">${id}</span></span>
+                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn">
+                </span>
+            </td>
+            <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+            <td colspan="2">
+                <select class="form-select form-select-sm meter-size" onchange="handleMeterChange(this)">${opts}</select>
+            </td>
+            <td colspan="2">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Kv</span>
+                    <input type="number" step="0.1" class="form-control pressure-change" disabled placeholder="Auto" title="Manuel Kv-værdi">
+                </div>
+            </td>
+            <td colspan="2"></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+        `;
+        return tr;
+    }
+
+    // 3. TAPSTED (MED DOBBELT DROPDOWN)
     if (type === 'tapsted') {
         const tr = document.createElement('tr');
         tr.dataset.id = id;
@@ -5155,7 +5100,7 @@ function createRowHTML(id, type) {
         return tr;
     } 
     
-    // 3. VENTIL
+    // 4. VENTIL
     if (type === 'valve') {
         const clone = document.getElementById('valveTRTemplate').content.cloneNode(true);
         const tr = clone.querySelector('tr');
@@ -5171,57 +5116,7 @@ function createRowHTML(id, type) {
         return tr;
     }
 
-    // NY: VANDMÅLER
-    if (type === 'water_meter') {
-        const clone = document.getElementById('componentTRTemplate').content.cloneNode(true);
-        const tr = clone.querySelector('tr');
-        tr.dataset.id = id;
-        tr.dataset.type = type;
-        
-        tr.querySelector('.id-text').textContent = id;
-        const label = tr.querySelector('.component-label'); // Bruges her til valg af størrelse
-        const icon = tr.querySelector('.icon-placeholder');
-        const pInput = tr.querySelector('.pressure-change'); // Genbruges til Kv-værdi visning/input
-        
-        // Konverter label-inputtet til en Select
-        const parentDiv = label.parentNode;
-        const select = document.createElement('select');
-        select.className = 'form-select form-select-sm meter-size';
-        
-        let opts = '';
-        for (const [key, val] of Object.entries(METER_STANDARDS)) {
-            opts += `<option value="${key}">${val.label}</option>`;
-        }
-        select.innerHTML = opts;
-        
-        // Erstat tekstfelt med select
-        parentDiv.replaceChild(select, label);
-        
-        // Opsætning
-        icon.innerHTML = '<div style="border:1px solid #333; padding:0 2px; font-size:10px; font-weight:bold;">m³</div>';
-        pInput.placeholder = "Kv";
-        pInput.title = "Manuel Kv-værdi (kun ved 'Manuel')";
-        pInput.disabled = true; // Låst som standard (Auto)
-
-        // Event listener for dropdown
-        select.onchange = (e) => {
-            const val = e.target.value;
-            const input = tr.querySelector('.pressure-change');
-            if (val === 'custom') {
-                input.disabled = false;
-                input.focus();
-            } else {
-                input.disabled = true;
-                if (METER_STANDARDS[val]) input.value = METER_STANDARDS[val].kv;
-            }
-            setProjektErÆndret();
-        };
-
-        tr.style.backgroundColor = "#e7f1ff"; // Let blålig nuance
-        return tr;
-    }
-
-    // 4. RØR (VV, KV, Cirk)
+    // 5. RØR (VV, KV, Cirk)
     const tr = document.createElement('tr');
     tr.dataset.id = id;
     tr.dataset.type = type;
@@ -5244,6 +5139,21 @@ function createRowHTML(id, type) {
     return tr;
 }
 
+// hjælpefunktion til vandmåler-interaktion
+function handleMeterChange(select) {
+    const tr = select.closest('tr');
+    const val = select.value;
+    const input = tr.querySelector('.pressure-change');
+    
+    if (val === 'custom') {
+        input.disabled = false;
+        input.focus();
+    } else {
+        input.disabled = true;
+        if (METER_STANDARDS[val]) input.value = METER_STANDARDS[val].kv;
+    }
+    setProjektErÆndret();
+}
 
 /**
  * FUNKTION: Udløses af knappen "Eksport Detaljer (JSON)".
@@ -7193,262 +7103,59 @@ function handleNodeRightClick(event, d) {
     const menu = document.createElement('div');
     menu.id = 'context-menu';
     menu.style.cssText = `
-        position: absolute; 
-        left: ${event.pageX}px; 
-        top: ${event.pageY}px; 
-        background: white; 
-        border: 1px solid #ccc; 
-        border-radius: 5px; 
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2); 
-        padding: 5px 0; 
-        z-index: 1000; 
-        min-width: 240px;
-        font-size: 14px;
-        font-family: sans-serif;
+        position: absolute; left: ${event.pageX}px; top: ${event.pageY}px; 
+        background: white; border: 1px solid #ccc; border-radius: 5px; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2); padding: 5px 0; z-index: 1000; min-width: 200px;
     `;
 
     const createMenuItem = (text, onClick, hasSubmenu = false) => {
         const item = document.createElement('div');
         item.textContent = text;
         item.className = 'menu-item';
-        item.style.padding = '8px 15px';
-        item.style.cursor = 'pointer';
-        item.style.position = 'relative';
-        
-        if (hasSubmenu) {
-            item.classList.add('has-submenu');
-            item.style.display = "flex";
-            item.style.justifyContent = "space-between";
-            item.innerHTML = `${text} <span>▶</span>`;
-        }
-
-        item.onmouseenter = (e) => {
-            item.style.backgroundColor = '#f2f2f2';
-            const sub = item.querySelector('.context-submenu');
-            if (sub) sub.style.display = 'block';
-        };
-        item.onmouseleave = () => {
-            item.style.backgroundColor = 'transparent';
-            const sub = item.querySelector('.context-submenu');
-            if (sub) sub.style.display = 'none';
-        };
-        
-        if (onClick) {
-            item.onclick = (e) => { 
-                e.stopPropagation(); 
-                onClick(); 
-                removeContextMenu(); 
-            };
-        }
+        item.style.cssText = 'padding: 8px 15px; cursor: pointer; position: relative;';
+        item.onmouseenter = () => item.style.backgroundColor = '#f2f2f2';
+        item.onmouseleave = () => item.style.backgroundColor = 'transparent';
+        if (onClick) item.onclick = (e) => { e.stopPropagation(); onClick(); removeContextMenu(); };
+        menu.appendChild(item);
         return item;
     };
 
-    const nodeType = d.type;
-    const isPipe = ['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType);
-    
-    // ANALYSE AF CLIPBOARD
-    let showPasteVV = false, showPasteKV = false, showPasteRetur = false;
-    if (state.clipboard) {
-        const ct = state.clipboard.type;
-        if (['ror_vv', 'tapsted'].includes(ct)) showPasteVV = true;
-        if (['ror_kv', 'tapsted'].includes(ct)) showPasteKV = true;
-        if (['cirkulation_vv', 'valve'].includes(ct)) showPasteRetur = true;
-    }
+    const type = d.type;
+    // Definer grupper
+    const isPipe = ['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(type);
+    const isComp = ['booster', 'reducer', 'water_meter', 'valve'].includes(type);
 
-    // ============================================================
-    // 1. LOKAL UDBYGNING (ØVERST)
-    // ============================================================
-
-    // --- VV RØR ---
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('➕ Tilføj VV-rør her (Forlæng)', () => {
-            const parentId = d.id;
-            const row = document.querySelector(`tr[data-id="${parentId}"]`);
-            const card = row ? row.closest('.streng-card') : null;
-            if (card) addRorSektion(card.querySelector('button'), 'ror_vv', parentId);
-        }));
-        
-        menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
-             const parentId = d.id;
-             const row = document.querySelector(`tr[data-id="${parentId}"]`);
-             const card = row ? row.closest('.streng-card') : null;
-             if (card) {
-                 addTapsted(card.querySelector('button[aria-label*="tapsted"]'));
-                 const newTap = card.querySelector('.tapsted-container > tr:last-child');
-                 if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
-             }
-        }));
-
-        // NYT: Tilslut Eksisterende (Spejling) - VV
-        menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
-             // Sæt mode til at lytte efter klik
-             state.connectingNodeInfo = { 
-                 mode: 'connect_mirror_tap', 
-                 parentId: d.id // Røret vi vil koble på
-             };
-             document.body.style.cursor = 'copy'; // Vis 'kopier' markør
-             
-             // Vis instruktion
-             showConnectHint();
-        }));
-        
-        if (showPasteVV) {
-             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
-        }
-    }
-
-    // --- KV RØR ---
-    if (nodeType === 'ror_kv') {
-        menu.appendChild(createMenuItem('➕ Tilføj KV-rør her (Forlæng)', () => {
-            const parentId = d.id;
-            const row = document.querySelector(`tr[data-id="${parentId}"]`);
-            const card = row ? row.closest('.streng-card') : null;
-            if (card) addRorSektion(card.querySelector('button'), 'ror_kv', parentId);
-        }));
-        
-        menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
-             const parentId = d.id;
-             const row = document.querySelector(`tr[data-id="${parentId}"]`);
-             const card = row ? row.closest('.streng-card') : null;
-             if (card) {
-                 addTapsted(card.querySelector('button[aria-label*="tapsted"]'));
-                 const newTap = card.querySelector('.tapsted-container > tr:last-child');
-                 if (newTap) { newTap.querySelector('.parent').value = parentId; updateAllSelects(); }
-             }
-        }));
-
-        // NYT: Tilslut Eksisterende (Spejling) - KV
-        menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
-             state.connectingNodeInfo = { 
-                 mode: 'connect_mirror_tap', 
-                 parentId: d.id 
-             };
-             document.body.style.cursor = 'copy';
-             showConnectHint();
-        }));
-        
-        if (showPasteKV) {
-             menu.appendChild(createMenuItem('📋 Indsæt i denne streng', () => pasteBranch(d.id, 'current')));
-        }
-    }
-
-    // --- CIRKULATION ---
-    if (['cirkulation_vv', 'valve'].includes(nodeType)) {
-        menu.appendChild(createMenuItem('➕ Tilføj Cirkulations-rør her', () => {
-            addCirkulationRor();
-            const newEl = document.querySelector('#returContainerBody > tr[data-type="cirkulation_vv"]:last-child');
-            if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
-        }));
-        menu.appendChild(createMenuItem('🔧 Tilføj Ventil her', () => {
-            if (typeof addValve === 'function') {
-                addValve();
-                const newEl = document.querySelector('#returContainerBody > tr[data-type="valve"]:last-child');
-                if (newEl) { newEl.querySelector('.parent').value = d.id; updateAllSelects(); }
-            }
-        }));
-    }
-
-    // --- BEHOLDER ---
-    if (nodeType === 'beholder') {
-        menu.appendChild(createMenuItem('➡️ Tilslut Koldt Vand', () => {
-            state.connectingNodeInfo = { mode: 'connect_cold_feed' };
-            document.body.style.cursor = 'crosshair';
-            alert("Klik nu på det Koldtvandsrør eller Vandstik, som beholderen skal forsynes fra.");
-        }));
-    }
-
-    // ============================================================
-    // 2. INDSÆT KOMPONENT (Submenu)
-    // ============================================================
-    if (isPipe || nodeType === 'beholder' || nodeType === 'vandstik' || nodeType === 'valve') {
-        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
-        
-        const compItem = createMenuItem('⚙️ Indsæt Komponent', null, true);
-        
-        const subMenu = document.createElement('div');
-        subMenu.className = 'context-submenu';
-        subMenu.style.cssText = `display: none; position: absolute; left: 100%; top: -5px; background: white; border: 1px solid #ccc; border-radius: 5px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); min-width: 180px; padding: 5px 0;`;
-
-        const mkSub = (txt, type) => {
-            const el = document.createElement('div');
-            el.className = 'menu-item'; el.textContent = txt; el.style.padding = '8px 15px';
-            el.onclick = (e) => { e.stopPropagation(); addComponent(type, d.id); removeContextMenu(); };
-            el.onmouseenter = () => el.style.backgroundColor = '#f2f2f2';
-            el.onmouseleave = () => el.style.backgroundColor = 'transparent';
-            return el;
-        };
-        
-        subMenu.appendChild(mkSub('⚡ Trykforøger (Booster)', 'booster'));
-        subMenu.appendChild(mkSub('↘️ Trykreduktionsventil', 'reducer'));
-        subMenu.appendChild(mkSub('🔢 Vandmåler', 'water_meter'));
-        
-        if (nodeType === 'cirkulation_vv' || nodeType === 'beholder' || nodeType === 'valve') {
-            const vSub = mkSub('🔧 Cirkulationsventil', 'valve');
-            vSub.onclick = (e) => { e.stopPropagation(); addValve(); const el = document.querySelector('#returContainerBody > tr:last-child'); if(el){el.querySelector('.parent').value=d.id; updateAllSelects();} removeContextMenu(); };
-            subMenu.appendChild(vSub);
-        }
-        compItem.appendChild(subMenu);
-        menu.appendChild(compItem);
-    }
-
-    // ============================================================
-    // 3. FORBINDELSER
-    // ============================================================
-    if (isPipe || nodeType === 'valve' || ['booster', 'reducer'].includes(nodeType)) {
-        if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
-        
-        menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
+    // 1. FORBINDELSER
+    if (isPipe || isComp) {
+        createMenuItem('🔗 Forbind til...', () => {
             state.connectingNodeInfo = { nodeData: d, type: 'parent' };
             document.body.style.cursor = 'crosshair';
-        }));
-    }
-    
-    if (nodeType === 'ror_vv') {
-        menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
-            state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
-            document.body.style.cursor = 'crosshair';
-        }));
+        });
     }
 
-    // ============================================================
-    // 4. NY STRENG
-    // ============================================================
-    if (nodeType === 'beholder' || nodeType === 'ror_vv' || nodeType === 'booster') {
-        menu.appendChild(createMenuItem('🌱 Tilføj ny VV-streng herfra', () => { addStreng_vv(d.id); }));
-        if (showPasteVV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
-    }
-    if (nodeType === 'vandstik' || nodeType === 'ror_kv' || nodeType === 'booster') {
-        menu.appendChild(createMenuItem('🌱 Tilføj ny KV-streng herfra', () => { addStreng_kv(d.id); }));
-        if (showPasteKV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
-    }
-
-    // ============================================================
-    // 5. REDIGERING & SLET
-    // ============================================================
-    menu.appendChild(document.createElement('hr'));
-
-    if (isPipe) {
-        menu.appendChild(createMenuItem('✂️ Opdel rør', () => splitPipe(d.id)));
-        menu.appendChild(createMenuItem('🖐️ Flyt gren', () => startMoveBranch(d.id)));
-        menu.appendChild(createMenuItem('📋 Kopier gren', () => copyBranch(d.id)));
-    }
-    
-    if (nodeType !== 'beholder' && nodeType !== 'vandstik') {
-        if (!isPipe) menu.appendChild(document.createElement('hr'));
-        menu.appendChild(createMenuItem('❌ Slet', () => {
-             const el = document.querySelector(`tr[data-id="${d.id}"], div[data-id="${d.id}"]`);
-             if (el) {
-                 const btn = el.querySelector('button[aria-label*="Fjern"], button.btn-outline-danger');
-                 if (btn) btn.click(); else { el.remove(); if(state.names.has(d.id)) state.names.delete(d.id); updateAllSelects(); }
-                 if (state.beholderConnectionId === d.id) state.beholderConnectionId = null;
-                 setProjektErÆndret();
-             }
-        }));
+    // 2. SLET (Alle undtagen Beholder/Vandstik)
+    if (type !== 'beholder' && type !== 'vandstik') {
+        if (menu.children.length > 0) menu.appendChild(document.createElement('hr'));
+        createMenuItem('❌ Slet', () => {
+            // Find elementet i en af tabellerne
+            const el = document.querySelector(`tr[data-id="${d.id}"]`);
+            if (el) {
+                // Hvis det er en streng (tjek parent card), slet forsigtigt, ellers slet rækken
+                const btn = el.querySelector('button[onclick*="removeElement"]');
+                if (btn) btn.click();
+                else {
+                    el.remove();
+                    if(state.names.has(d.id)) state.names.delete(d.id);
+                    updateAllSelects();
+                }
+            }
+        });
     }
 
     document.body.appendChild(menu);
     setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
+
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
