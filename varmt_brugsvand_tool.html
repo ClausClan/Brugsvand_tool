@@ -960,6 +960,35 @@
         <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
     </tr>
 </template>
+<template id="meterTRTemplate">
+    <tr data-type="water_meter">
+        <td>
+            <span class="input-group input-group-sm">
+                <span class="input-group-text">
+                    <span class="icon-placeholder">💧</span>
+                    <span class="id-text ms-2"></span>
+                </span>
+                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn" title="Navn">
+            </span>
+        </td>
+        <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+        <td colspan="2">
+            <select class="form-select form-select-sm meter-type-select" title="Vælg Målerstørrelse">
+                </select>
+        </td>
+        <td colspan="2">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text">Δp</span>
+                <input type="text" class="form-control form-control-sm meter-dp-display" readonly value="-" title="Beregnet tryktab ved dimensionerende flow">
+                <span class="input-group-text">Pa</span>
+            </div>
+        </td>
+        <td colspan="2">
+             <small class="text-muted meter-info-display">-</small>
+        </td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+    </tr>
+</template>
 
 <script>
 // --- KONSTANTER OG DATA ---
@@ -1070,6 +1099,17 @@ const VALVE_TYPES = {
         type: 'static',
         data: STATIC_VALVE_DATA["IMI STAD-D"]
     }
+};
+
+/* --- KONSTANTER: VANDMÅLERE (MID STANDARD) --- */
+const METER_TYPES = {
+    "Auto": { q3: null, kv: null, label: "Automatisk Dimensionering" },
+    "Q3=1.6 (Dn15)": { q3: 1.6, kv: 2.5, dn: 15, label: "Q3=1.6 (Dn15)" },
+    "Q3=2.5 (Dn20)": { q3: 2.5, kv: 4.0, dn: 20, label: "Q3=2.5 (Dn20)" },
+    "Q3=4.0 (Dn20/25)": { q3: 4.0, kv: 6.3, dn: 25, label: "Q3=4.0 (Dn25)" },
+    "Q3=6.3 (Dn25)": { q3: 6.3, kv: 10.0, dn: 25, label: "Q3=6.3 (Dn25)" },
+    "Q3=10 (Dn40)": { q3: 10.0, kv: 16.0, dn: 40, label: "Q3=10 (Dn40)" },
+    "Q3=16 (Dn50)": { q3: 16.0, kv: 25.0, dn: 50, label: "Q3=16 (Dn50)" }
 };
 
 // Data fra DS 452: Nødvendig tykkelse [mm] for Klasse 6 ved λ=0.037 W/mK
@@ -2597,6 +2637,20 @@ function updateDiagram() {
                 .attr("font-size", "11px")
                 .attr("font-weight", "bold")
                 .attr("fill", "white");
+
+        } else if (d.type === 'water_meter') {
+            // Vandmåler: Firkant med 'm3'
+            group.append("rect")
+                .attr("x", -10).attr("y", -10)
+                .attr("width", 20).attr("height", 20)
+                .attr("fill", "#fff")
+                .attr("stroke", "#000").attr("stroke-width", 1.5);
+            
+            group.append("text").text("m³")
+                .attr("dy", 4)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold");
             
         } else if (d.type === 'tapsted') {
             // Tapsted: Grøn
@@ -3220,6 +3274,7 @@ function beregnStandard(config) {
  * - Fordelingsledning (Fremløb): Forsyner >1 tapsted i samme streng.
  * - Hovedledning (Retur): Bærer flow fra flere strenge.
  * - Håndterer nu "gennemgangskomponenter" (Booster/Reducer/Ventil) korrekt.
+ * - inkludere 'water_meter' som en pass-through type.
  */
 function analyzeSystemTopology(model) {
     const getStringId = (nodeId) => {
@@ -3227,12 +3282,11 @@ function analyzeSystemTopology(model) {
         return nodeId.split('-')[0]; 
     };
 
-    // Liste over typer, der bare transporterer vand videre (ikke er slut-punkter)
-    const passThroughTypes = ['ror_vv', 'ror_kv', 'booster', 'reducer', 'valve', 'cirkulation_vv'];
+    // RETTELSE HER: Tilføjet 'water_meter' til listen over gennemgangstyper
+    const passThroughTypes = ['ror_vv', 'ror_kv', 'booster', 'reducer', 'valve', 'cirkulation_vv', 'water_meter'];
 
     const analyzeNode = (nodeId, systemType) => {
         const node = model.nodes.get(nodeId);
-        // Hvis noden ikke findes eller er en "blindgyde" uden børn (og ikke er tapsted)
         if (!node) return { tapCount: 0, feedsOtherString: false };
 
         if (node.type === 'tapsted') {
@@ -3250,12 +3304,9 @@ function analyzeSystemTopology(model) {
                 
                 const childString = getStringId(child.id);
                 
-                // Tjek om vi føder en ny streng
-                // (Undtagelse: Hvis barnet er en booster i samme streng, tæller det ikke som "ny streng")
                 if (childString !== myString && child.type !== 'tapsted') {
                     feedsOther = true;
                 }
-                // Specielt for KV -> Beholder linket
                 if (systemType === 'KV' && child.id === 'Beholder') {
                     feedsOther = true;
                 }
@@ -3265,17 +3316,13 @@ function analyzeSystemTopology(model) {
         }
 
         // Tildel Kategori
-        // Vi tildeler nu kategori til ALLE gennemgangstyper, ikke kun rør
         if (passThroughTypes.includes(node.type)) {
             let prefix = '';
             if (node.type === 'ror_kv' || systemType === 'KV') prefix = 'cold_';
             
-            // Cirkulation / Retur logik
             if (node.type === 'cirkulation_vv' || node.type === 'valve' || (node.type === 'booster' && systemType === 'RETUR')) {
-                 // Retur-kategori tildeles i separat loop nedenfor, men vi kan give en default her
                  node.category = 'return';
             } 
-            // Fremløb logik
             else {
                 if (feedsOther) {
                     node.category = prefix + 'main';
@@ -3290,21 +3337,17 @@ function analyzeSystemTopology(model) {
         return { tapCount: totalTaps, feedsOtherString: feedsOther };
     };
 
-    // 1. Analyser Fremløb (VV og KV)
+    // 1. Analyser Fremløb
     if (model.nodes.has('Beholder')) model.nodes.get('Beholder').children.forEach(c => analyzeNode(c.id, 'VV'));
     if (model.nodes.has('Vandstik')) model.nodes.get('Vandstik').children.forEach(c => analyzeNode(c.id, 'KV'));
 
-    // 2. Analyser Retur (Cirkulation)
+    // 2. Analyser Retur
     const returnPipeLoops = new Map();
     model.loops.forEach(loop => {
         if (!loop.path) return;
         loop.path.forEach(nodeId => {
             const node = model.nodes.get(nodeId);
-            // Inkluder ventiler og boostere i retur-analysen
             if (node && ['cirkulation_vv', 'valve', 'booster', 'reducer'].includes(node.type)) {
-                // Et lille hack: Vi tjekker om komponenten ligger i retur-containeren
-                // (Da en booster teoretisk kunne være på fremløbet).
-                // Men 'loop.path' er defineret af cirkulationen, så hvis den er med her, er den en del af returen.
                 if (!returnPipeLoops.has(nodeId)) returnPipeLoops.set(nodeId, new Set());
                 returnPipeLoops.get(nodeId).add(loop.id);
             }
@@ -3318,7 +3361,6 @@ function analyzeSystemTopology(model) {
         }
     });
 }
-
 // =============================================================================
 // == BEREGNINGSKERNE: VARMT VAND (VV)
 // =============================================================================
@@ -3329,6 +3371,7 @@ function analyzeSystemTopology(model) {
  * Gemmer nu også total-flowet på selve Beholder-noden,
  * så det kan læses af Koldt Vand-systemet.
  * Gemmer nu også qd på booster/reducer komponenter.
+ * inkludere vandmålere (water_meter).
  */
 function calculateQd_VV(model) {
     function traverse(node) {
@@ -3350,15 +3393,14 @@ function calculateQd_VV(model) {
         } else {
             // Traverser børn
             node.children.forEach(child => {
-                // Her er tricket: Et tapsted er kun barn her, hvis buildModel fandt en parentVV forbindelse.
-                // Så vi behøver ikke filtrere yderligere.
                 const flows = traverse(child);
                 downstream_qf_random += flows.random; 
                 downstream_qf_syst += flows.syst;
             });
         }
 
-        if(['ror_vv', 'beholder', 'booster', 'reducer'].includes(node.type)) { 
+        // RETTELSE HER: Tilføjet 'water_meter'
+        if(['ror_vv', 'beholder', 'booster', 'reducer', 'water_meter'].includes(node.type)) { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
@@ -3369,6 +3411,7 @@ function calculateQd_VV(model) {
     traverse(model.tree);
     return model;
 }
+
 
 // 2. Dimensioner Fremløb (VV)
 /**
@@ -3482,6 +3525,7 @@ function findMaxPathDp_VV(startNode, config) {
  * Beregner dimensionerende vandstrøm (qd) for Koldt Vand.
  * NU MED HYDRAULISK LINK: Inkluderer flow fra Varmt Vand-systemet ved tilslutningspunktet.
  * Gemmer qd på booster/reducer og bevarer hydraulisk link.
+ * inkludere vandmålere (water_meter) i flow-propageringen.
  */
 function calculateQd_KV(model) {
     const beholderNode = model.nodes.get('Beholder');
@@ -3522,7 +3566,8 @@ function calculateQd_KV(model) {
             if (beholderNode.sum_qf_syst) downstream_qf_syst += beholderNode.sum_qf_syst;
         }
         
-        if(['ror_kv', 'vandstik', 'booster', 'reducer'].includes(node.type)) { 
+        // RETTELSE HER: Tilføjet 'water_meter' til listen af komponenter der bærer flow
+        if(['ror_kv', 'vandstik', 'booster', 'reducer', 'water_meter'].includes(node.type)) { 
             node.sum_qf_random = downstream_qf_random; 
             node.sum_qf_syst = downstream_qf_syst;
             const qd_random = downstream_qf_random <= 0.15 ? downstream_qf_random : 0.15 + 0.011*(downstream_qf_random-0.15) + 0.089*Math.sqrt(downstream_qf_random-0.15);
@@ -3536,10 +3581,9 @@ function calculateQd_KV(model) {
     }
     return model;
 }
-
 // 2. Dimensioner KV
 function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
-    // Rør beregning (som før)
+    // 1. Rør (VV + Cirkulation)
     if ((startNode.type === 'ror_vv' || startNode.type === 'cirkulation_vv') && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
         const pct = config.fittings_pct || 0;
@@ -3547,19 +3591,26 @@ function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
         startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
     
-    // NYT: Komponent beregning (Booster / Reducer)
-    // Logik: dp_tap er trykTAB. 
-    // Booster = Negativt tab (trykket stiger). 
-    // Reducer = Positivt tab (trykket falder).
-    if (startNode.type === 'booster' || startNode.type === 'reducer') {
-        // Hent input i kPa, konverter til Pa
+    // 2. Komponenter: Booster / Reducer
+    else if (startNode.type === 'booster' || startNode.type === 'reducer') {
         const pChange = (startNode.pressure_change || 0) * 1000; 
-        // Vi gemmer det som et tryktab (dp). 
-        // Hvis pChange er positiv (booster 50kPa), så er tabet -50kPa.
-        // Hvis pChange er negativ (reducer -30kPa), så er tabet -(-30) = +30kPa.
         startNode[dp_prop] = -1 * pChange;
     }
+
+    // 3. NYT: Vandmåler (Bimålere på varmt vand)
+    else if (startNode.type === 'water_meter') {
+        // Vi bruger kun flowet fra flow_prop (som typisk er 'qd' for fremløb)
+        // Vi sender noden ind, men sikrer os at den har qd sat korrekt
+        if (flow_prop !== 'qd') {
+             // Hvis vi beregner cirkulationstab, har måleren typisk et meget lavt tryktab eller en specifik Kv for flowet
+             // For nuværende antager vi måler-beregning primært er relevant for spidslast (qd)
+             startNode[dp_prop] = 0; 
+        } else {
+             startNode[dp_prop] = calculateMeterPressureDrop(startNode);
+        }
+    }
     
+    // Rekursion
     if (startNode.children) {
         startNode.children.forEach(c => calculatePressureDrop_VV(c, dp_prop, flow_prop, config));
     }
@@ -3568,6 +3619,7 @@ function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
 
 // 3. Beregn Tryktab KV
 function calculatePressureDrop_KV(startNode, config) {
+    // 1. Rør (Standard)
     if (startNode.type === 'ror_kv' && startNode.nom_dim) {
         const d_i = ID[startNode.material][startNode.nom_dim]/1000;
         const pct = config.fittings_pct || 0;
@@ -3575,12 +3627,19 @@ function calculatePressureDrop_KV(startNode, config) {
         startNode.dp_tap = getDP(startNode.qd, d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
     }
     
-    // NYT: Komponenter i KV
-    if (startNode.type === 'booster' || startNode.type === 'reducer') {
+    // 2. Komponenter: Booster / Reducer
+    else if (startNode.type === 'booster' || startNode.type === 'reducer') {
         const pChange = (startNode.pressure_change || 0) * 1000; 
+        // Booster giver negativt trykTAB (dvs. trykforøgelse), Reducer giver positivt.
         startNode.dp_tap = -1 * pChange;
+    } 
+    
+    // 3. NYT: Vandmåler
+    else if (startNode.type === 'water_meter') {
+        startNode.dp_tap = calculateMeterPressureDrop(startNode);
     }
     
+    // Rekursion
     if (startNode.children) {
         startNode.children.forEach(c => calculatePressureDrop_KV(c, config));
     }
@@ -4240,11 +4299,12 @@ function getDataForSave() {
  * Hjælper: Trækker data ud af en tabelrække baseret på typen.
  * Håndterer Rør, Tapsteder, Ventiler og nu også Boostere/Reducere.
  * OPDATERET: Forstår kontekst (KV vs VV) og gemmer parent korrekt som parent_kv eller parent_vv.
+ * Håndtere 'water_meter' og gemme 'meterType'.
  */
 function extractComponentData(el) {
     const type = el.dataset.type;
     
-    // Bestem kontekst (Hvor sidder denne række?)
+    // Bestem kontekst
     const isKVContainer = el.closest('#strengeContainerKV') !== null;
     const isVVContainer = el.closest('#strengeContainerVV') !== null || el.closest('#strengeContainer') !== null;
     
@@ -4253,17 +4313,13 @@ function extractComponentData(el) {
         type: type,
     };
     
-    // Hent den valgte forælder fra dropdownen
     const rawParent = el.querySelector('.parent')?.value || '';
 
-    // Hvis det er et Tapsted, skal vi gemme forælderen i det rigtige felt
     if (type === 'tapsted') {
         if (isKVContainer) base.parent_kv = rawParent;
         if (isVVContainer) base.parent_vv = rawParent;
-        // Vi gemmer også 'parent' som fallback/legacy
         base.parent = rawParent;
     } else {
-        // Rør/Ventiler har kun én fysisk forælder
         base.parent = rawParent;
     }
 
@@ -4291,17 +4347,25 @@ function extractComponentData(el) {
         });
     }
     
-    // VENTIL / BOOSTER
+    // VENTIL / BOOSTER / REDUCER
     if (type === 'valve') {
         Object.assign(base, { valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType });
     }
     if (type === 'booster' || type === 'reducer') {
         Object.assign(base, { pressure_change: parseFloat(el.querySelector('.pressure-change')?.value) || 0 });
     }
+
+    // NYT: VANDMÅLER DATA
+    if (type === 'water_meter') {
+        const sel = el.querySelector('.meter-type-select');
+        Object.assign(base, { 
+            // Hent værdien fra dropdownen, eller fallback til dataset
+            meterType: sel ? sel.value : (el.dataset.meterType || 'Auto') 
+        });
+    }
     
     return base;
 }
-
 
 /**
  * Export funktion der bruger fælles logik
@@ -4790,6 +4854,16 @@ function loadProjectData(data) {
                 if(idTxt) idTxt.textContent = `${item.id} (${(item.valveType||'').substring(0,8)}...)`;
             }
         }
+        
+        if (item.type === 'water_meter') {
+            const mSel = tr.querySelector('.meter-type-select');
+            if (mSel) {
+                mSel.value = item.meterType || "Auto";
+                tr.dataset.meterType = item.meterType || "Auto";
+            }
+            // Vis evt beregnet tab hvis det findes i gemt data (valgfrit)
+        }
+
         const tapSel = tr.querySelector('.tapType');
         if(tapSel && item.tapType) {
             let found = false;
@@ -4922,6 +4996,10 @@ function loadProjectData(data) {
  * Håndterer Rør, Tapsteder, Ventiler og Komponenter.
  * Tapsteder har TO parent-dropdowns (VV og KV).
  */
+/**
+ * Genererer HTML-rækker manuelt til Load-processen og dynamisk oprettelse.
+ * Håndterer Rør, Tapsteder, Ventiler, Komponenter og nu Vandmålere.
+ */
 function createRowHTML(id, type) {
     // 1. BOOSTER / REDUCER
     if (type === 'booster' || type === 'reducer') {
@@ -4946,10 +5024,52 @@ function createRowHTML(id, type) {
             pInput.style.color = "red";
             tr.style.backgroundColor = "#fff5f5";
         }
+        
+        // Navn håndtering
+        const nameInp = tr.querySelector('.name-text');
+        if (nameInp) nameInp.onchange = (e) => {
+            state.names.set(id, e.target.value);
+            setProjektErÆndret();
+        };
+        
         return tr;
     }
 
-    // 2. TAPSTED (MED DOBBELT DROPDOWN)
+    // 2. NYT: VANDMÅLER
+    if (type === 'water_meter') {
+        const clone = document.getElementById('meterTRTemplate').content.cloneNode(true);
+        const tr = clone.querySelector('tr');
+        tr.dataset.id = id;
+        tr.dataset.type = type;
+
+        tr.querySelector('.id-text').textContent = id;
+        
+        // Fyld dropdown med måler-typer fra vores konstant
+        const typeSel = tr.querySelector('.meter-type-select');
+        let opts = '';
+        for (const key in METER_TYPES) {
+            opts += `<option value="${key}">${key}</option>`;
+        }
+        typeSel.innerHTML = opts;
+        
+        // Event listener for ændring af type
+        typeSel.onchange = (e) => {
+            // Gem valget på dataset så det kan hentes af buildModel
+            tr.dataset.meterType = e.target.value;
+            setProjektErÆndret();
+        };
+
+        // Navn håndtering
+        const nameInp = tr.querySelector('.name-text');
+        if (nameInp) nameInp.onchange = (e) => {
+            state.names.set(id, e.target.value);
+            setProjektErÆndret();
+        };
+
+        return tr;
+    }
+
+    // 3. TAPSTED (MED DOBBELT DROPDOWN)
     if (type === 'tapsted') {
         const tr = document.createElement('tr');
         tr.dataset.id = id;
@@ -4978,10 +5098,18 @@ function createRowHTML(id, type) {
             <td class="text-center"><input type="checkbox" class="form-check-input syst"></td>
             <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
         `;
+        
+        // Navn håndtering (indsat manuelt i HTML ovenfor, men listener skal på)
+        const nameInp = tr.querySelector('.name-text');
+        if (nameInp) nameInp.onchange = (e) => {
+            state.names.set(id, e.target.value);
+            setProjektErÆndret();
+        };
+
         return tr;
     } 
     
-    // 3. VENTIL
+    // 4. VENTIL
     if (type === 'valve') {
         const clone = document.getElementById('valveTRTemplate').content.cloneNode(true);
         const tr = clone.querySelector('tr');
@@ -4992,12 +5120,21 @@ function createRowHTML(id, type) {
         let vOpts = '<option value="" disabled>Vælg...</option>';
         for (const tName in VALVE_TYPES) vOpts += `<option value="${tName}">${tName}</option>`;
         vSel.innerHTML = vOpts;
-        vSel.onchange = (e) => tr.dataset.valveType = e.target.value;
+        vSel.onchange = (e) => {
+            tr.dataset.valveType = e.target.value;
+            setProjektErÆndret();
+        };
+
+        const nameInp = tr.querySelector('.name-text');
+        if (nameInp) nameInp.onchange = (e) => {
+            state.names.set(id, e.target.value);
+            setProjektErÆndret();
+        };
         
         return tr;
     }
 
-    // 4. RØR (VV, KV, Cirk)
+    // 5. RØR (VV, KV, Cirk) - Standard Fallback
     const tr = document.createElement('tr');
     tr.dataset.id = id;
     tr.dataset.type = type;
@@ -5017,9 +5154,16 @@ function createRowHTML(id, type) {
         <td><input type="number" min="0" class="form-control form-control-sm fittings"></td>
         <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
     `;
+    
+    // Navn håndtering
+    const nameInp = tr.querySelector('.name-text');
+    if (nameInp) nameInp.onchange = (e) => {
+        state.names.set(id, e.target.value);
+        setProjektErÆndret();
+    };
+
     return tr;
 }
-
 
 /**
  * FUNKTION: Udløses af knappen "Eksport Detaljer (JSON)".
@@ -5159,6 +5303,56 @@ function calcVelocity(n, model) {
     return n.L > 0 && area > 0 ? (flow_ls / 1000) / area : 0;
 }
 
+/**
+ * Beregner tryktab over vandmåler baseret på flow (qd) og kv-værdi.
+ * Håndterer automatisk dimensionering (Auto) hvis ingen specifik måler er valgt.
+ */
+function calculateMeterPressureDrop(node) {
+    // Sikkerhedsventil: Hvis intet flow, intet tryktab
+    if (!node.qd || node.qd <= 0) return 0;
+
+    // 1. Konverter flow fra l/s til m³/h (x 3.6)
+    const flowM3h = node.qd * 3.6;
+    
+    let selectedMeter = null;
+
+    // 2. Bestem målerstørrelse
+    if (!node.meterType || node.meterType === 'Auto') {
+        // AUTO: Find mindste måler hvor Q3 >= aktuelt flow
+        // Vi filtrerer "Auto" fra og sorterer efter q3 størrelse
+        const sortedMeters = Object.values(METER_TYPES)
+            .filter(m => m.q3 > 0) 
+            .sort((a, b) => a.q3 - b.q3);
+            
+        selectedMeter = sortedMeters.find(m => m.q3 >= flowM3h);
+
+        // Fallback: Hvis flow er større end største måler, vælg den største (og log evt. advarsel i UI senere)
+        if (!selectedMeter) selectedMeter = sortedMeters[sortedMeters.length - 1];
+        
+        // Gem den valgte auto-type på noden til visning i resultater
+        // Vi finder nøglen (navnet) baseret på objektet for at kunne vise det i UI
+        const meterName = Object.keys(METER_TYPES).find(key => METER_TYPES[key] === selectedMeter);
+        node.autoMeterName = meterName; 
+
+    } else {
+        // MANUEL: Slå op i tabellen
+        selectedMeter = METER_TYPES[node.meterType];
+    }
+
+    if (!selectedMeter || !selectedMeter.kv) return 0;
+
+    // Gem data på noden til debugging/rapport
+    node.meterQ3 = selectedMeter.q3;
+    node.meterKv = selectedMeter.kv;
+
+    // 3. Beregn Tryktab
+    // Formel: dp[bar] = (Q[m3/h] / kv)^2
+    // Vi konverterer bar til Pa (x 100.000)
+    const dpBar = Math.pow(flowM3h / selectedMeter.kv, 2);
+    const dpPa = dpBar * 100000;
+
+    return dpPa;
+}
 
 // =============================================================================
 // == VISNING AF RESULTATER (Med Temperaturafhængig Fysik)
@@ -5247,6 +5441,28 @@ function displayResults(model, config) {
     updateRorTable(model, config); 
     updateCircTable(model); 
     updateComponentTable(model); // NYT: Kalder den nye tabel
+
+        // 6. Opdater Vandmåler Display i UI
+    model.nodes.forEach(n => {
+        if (n.type === 'water_meter') {
+            const el = document.querySelector(`tr[data-id="${n.id}"]`);
+            if (el) {
+                const dpInput = el.querySelector('.meter-dp-display');
+                const infoSpan = el.querySelector('.meter-info-display');
+                
+                if (dpInput) dpInput.value = (n.dp_tap || 0).toFixed(0);
+                
+                if (infoSpan) {
+                    if (n.autoMeterName) {
+                        infoSpan.textContent = `Auto-valgt: ${n.autoMeterName}`;
+                    } else {
+                        infoSpan.textContent = `Kv: ${n.meterKv || '-'}`;
+                    }
+                }
+            }
+        }
+    });
+
 }
 
 
@@ -6800,6 +7016,8 @@ function handleNodeClick(event, d) {
                 // Opret Spejlet Række
                 const tr = createRowHTML(d.id, 'tapsted');
                 
+
+
                 // Hent data fra kilden (DOM)
                 const sourceRow = document.querySelector(`tr[data-id="${d.id}"]`);
                 if (sourceRow) {
@@ -7144,6 +7362,7 @@ function handleNodeRightClick(event, d) {
         
         subMenu.appendChild(mkSub('⚡ Trykforøger (Booster)', 'booster'));
         subMenu.appendChild(mkSub('↘️ Trykreduktionsventil', 'reducer'));
+        subMenu.appendChild(mkSub('💧 Vandmåler', 'water_meter'));
         
         if (nodeType === 'cirkulation_vv' || nodeType === 'beholder' || nodeType === 'valve') {
             const vSub = mkSub('🔧 Cirkulationsventil', 'valve');
