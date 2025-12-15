@@ -2103,73 +2103,74 @@ function addValve() {
 
 /**
  * Tilføjer en generisk komponent (Booster eller Reducer) til netværket.
+ * REFACTOR: Bruger nu createRowHTML for at sikre korrekt template og type.
  */
 function addComponent(type, parentId = null) {
-    // ID Generering
-    let idPrefix = (type === 'booster') ? 'B' : 'Red';
-    // Vi bruger en simpel global tæller for komponenter for at undgå kollisioner
+    // 1. Global Tæller og ID Generering
     if (!window.compCounter) window.compCounter = 0;
     window.compCounter++;
+
+    let idPrefix = 'X';
+    if (type === 'booster') idPrefix = 'B';
+    else if (type === 'reducer') idPrefix = 'Red';
+    else if (type === 'water_meter') idPrefix = 'M';
+
     const id = `${idPrefix}${window.compCounter}`;
 
-    const clone = document.getElementById('componentTRTemplate').content.cloneNode(true);
-    const tr = clone.querySelector('tr');
-    tr.dataset.id = id;
-    tr.dataset.type = type;
+    // 2. Generer HTML via vores centrale fabrik (createRowHTML)
+    // Dette sikrer, at vi får den rigtige template (meterTRTemplate vs componentTRTemplate)
+    const tr = createRowHTML(id, type);
 
-    // Opsætning af UI
-    tr.querySelector('.id-text').textContent = id;
-    const label = tr.querySelector('.component-label');
-    const icon = tr.querySelector('.icon-placeholder');
-    const pInput = tr.querySelector('.pressure-change');
-
-    if (type === 'booster') {
-        label.value = "Trykforøger (Pumpe)";
-        icon.innerHTML = "⚡"; // Ikon
-        pInput.value = 50; // Default boost
-        pInput.style.color = "green";
-        tr.style.backgroundColor = "#f0fff4"; // Svag grøn
-    } else {
-        label.value = "Trykreduktionsventil";
-        icon.innerHTML = "↘️"; // Ikon
-        pInput.value = -30; // Default reduktion
-        pInput.style.color = "red";
-        tr.style.backgroundColor = "#fff5f5"; // Svag rød
-    }
-
-    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-
-    // Placering: Find ud af hvor den skal hen baseret på parent
+    // 3. Placering: Find ud af hvor den skal hen baseret på parent
     let container;
     
-    // Hvis parentId er kendt, prøv at finde den container forælderen bor i
     if (parentId) {
         const pRow = document.querySelector(`tr[data-id="${parentId}"]`);
         if (pRow) {
+            // Indsæt i samme tabel-sektion (tbody) som forælderen
             container = pRow.closest('tbody');
         }
     }
     
-    // Fallback hvis ingen parent eller container fundet (f.eks. fra Beholder/Vandstik)
+    // Fallback: Hvis ingen parent er valgt (sjældent ved højreklik), læg i den første aktive streng
     if (!container) {
-        // Gæt baseret på kontekst er svært, så vi lægger den i VV som default, eller spørger
-        // Men addComponent kaldes typisk fra højreklik, så vi bør kende konteksten.
-        // For nuværende: Læg i den aktive streng hvis muligt, ellers VV.
-        container = document.querySelector('.streng-card .ror-container') || document.getElementById('strengeContainer'); 
+        // Prøv at finde en åben VV streng
+        const activeVV = document.querySelector('#strengeContainerVV .streng-card .ror-container');
+        if (activeVV) container = activeVV;
+        else {
+             // Ellers KV
+             const activeKV = document.querySelector('#strengeContainerKV .streng-card .ror-container');
+             container = activeKV || document.getElementById('returContainerBody');
+        }
     }
 
-    container.appendChild(tr);
+    if (container) {
+        container.appendChild(tr);
+    } else {
+        console.error("Kunne ikke finde en container til komponenten. Opret venligst en streng først.");
+        return;
+    }
 
-    // Sæt parent
-    updateAllSelects(); // Byg lister
+    // 4. Opdater Tilstand
+    // Vi opdaterer alle dropdowns, så den nye komponent kender sine mulige forældre
+    updateAllSelects(); 
+
+    // Sæt forælder hvis vi kender den
     if (parentId) {
         const pSel = tr.querySelector('.parent');
-        pSel.value = parentId;
+        if (pSel) pSel.value = parentId;
+        // Hvis parentId er ugyldig (f.eks. på tværs af systemer), vil updateAllSelects() håndtere fallback senere
     }
     
-    updateAllSelects();
+    // Gem at projektet er ændret
+    setProjektErÆndret();
+    
+    // Opdater diagrammet (lille delay for at sikre DOM er klar)
+    setTimeout(() => {
+         // Vi kalder updateAllSelects igen for at sikre forbindelserne er låst fast
+         updateAllSelects(); 
+    }, 10);
 }
-
 /* FUNKTION IKKE I BRUG LÆNGERE
 function createInputElement(id, type) {
     const div = document.createElement('div');
