@@ -7165,8 +7165,7 @@ function handleNodeClick(event, d) {
  * @param {object} d - Data-objektet for den klikkede node.
  * Indeholder undermenuer og logik for alle komponenttyper.
  * Indeholder fuld understøttelse for både fremløb og retur (kopier/indsæt/opdel)
- * Ny "Indsæt Komponent" menu med Undermenu til Booster/Reducer/Ventil.
- * OPDATERET: Inkluderer nu "Tilslut eksisterende Tapsted" for spejlet visning.
+ * Ny "Indsæt Komponent" menu med Undermenu til Booster/Reducer/Ventil/Vandmålere.
  */
 function handleNodeRightClick(event, d) {
     event.preventDefault();
@@ -7228,6 +7227,12 @@ function handleNodeRightClick(event, d) {
     const nodeType = d.type;
     const isPipe = ['ror_vv', 'ror_kv', 'cirkulation_vv'].includes(nodeType);
     
+    // Bestem Kontekst (Er vi i VV eller KV del af systemet?)
+    // Vi tjekker DOM'en for at se, hvor rækken befinder sig
+    const row = document.querySelector(`tr[data-id="${d.id}"]`);
+    const isVVContext = row && (row.closest('#strengeContainerVV') || row.closest('#strengeContainer'));
+    const isKVContext = row && row.closest('#strengeContainerKV');
+    
     // ANALYSE AF CLIPBOARD
     let showPasteVV = false, showPasteKV = false, showPasteRetur = false;
     if (state.clipboard) {
@@ -7241,12 +7246,14 @@ function handleNodeRightClick(event, d) {
     // 1. LOKAL UDBYGNING (ØVERST)
     // ============================================================
 
-    // --- VV RØR ---
-    if (nodeType === 'ror_vv') {
+    // --- VV KONTEKST (Rør, Måler, Booster i VV) ---
+    // Rettelse: Vi tillader nu udvidelse på ror_vv, men også på water_meter og booster HVIS de er i VV-kontekst
+    if (nodeType === 'ror_vv' || ((nodeType === 'water_meter' || nodeType === 'booster') && isVVContext)) {
         menu.appendChild(createMenuItem('➕ Tilføj VV-rør her (Forlæng)', () => {
             const parentId = d.id;
             const row = document.querySelector(`tr[data-id="${parentId}"]`);
             const card = row ? row.closest('.streng-card') : null;
+            // Vi bruger knappen i kortet til at finde den rigtige container
             if (card) addRorSektion(card.querySelector('button'), 'ror_vv', parentId);
         }));
         
@@ -7261,16 +7268,12 @@ function handleNodeRightClick(event, d) {
              }
         }));
 
-        // NYT: Tilslut Eksisterende (Spejling) - VV
         menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
-             // Sæt mode til at lytte efter klik
              state.connectingNodeInfo = { 
                  mode: 'connect_mirror_tap', 
-                 parentId: d.id // Røret vi vil koble på
+                 parentId: d.id 
              };
-             document.body.style.cursor = 'copy'; // Vis 'kopier' markør
-             
-             // Vis instruktion
+             document.body.style.cursor = 'copy'; 
              showConnectHint();
         }));
         
@@ -7279,8 +7282,8 @@ function handleNodeRightClick(event, d) {
         }
     }
 
-    // --- KV RØR ---
-    if (nodeType === 'ror_kv') {
+    // --- KV KONTEKST (Rør, Måler, Booster i KV) ---
+    if (nodeType === 'ror_kv' || ((nodeType === 'water_meter' || nodeType === 'booster') && isKVContext)) {
         menu.appendChild(createMenuItem('➕ Tilføj KV-rør her (Forlæng)', () => {
             const parentId = d.id;
             const row = document.querySelector(`tr[data-id="${parentId}"]`);
@@ -7299,7 +7302,6 @@ function handleNodeRightClick(event, d) {
              }
         }));
 
-        // NYT: Tilslut Eksisterende (Spejling) - KV
         menu.appendChild(createMenuItem('🔗 Tilslut eksisterende Tapsted', () => {
              state.connectingNodeInfo = { 
                  mode: 'connect_mirror_tap', 
@@ -7342,7 +7344,8 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     // 2. INDSÆT KOMPONENT (Submenu)
     // ============================================================
-    if (isPipe || nodeType === 'beholder' || nodeType === 'vandstik' || nodeType === 'valve') {
+    // Rettelse: Tillader også komponenter efter målere og boostere
+    if (isPipe || ['beholder', 'vandstik', 'valve', 'water_meter', 'booster'].includes(nodeType)) {
         if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
         
         const compItem = createMenuItem('⚙️ Indsæt Komponent', null, true);
@@ -7362,7 +7365,7 @@ function handleNodeRightClick(event, d) {
         
         subMenu.appendChild(mkSub('⚡ Trykforøger (Booster)', 'booster'));
         subMenu.appendChild(mkSub('↘️ Trykreduktionsventil', 'reducer'));
-        subMenu.appendChild(mkSub('💧 Vandmåler', 'water_meter'));
+        subMenu.appendChild(mkSub('💧 Vandmåler', 'water_meter')); 
         
         if (nodeType === 'cirkulation_vv' || nodeType === 'beholder' || nodeType === 'valve') {
             const vSub = mkSub('🔧 Cirkulationsventil', 'valve');
@@ -7376,7 +7379,8 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     // 3. FORBINDELSER
     // ============================================================
-    if (isPipe || nodeType === 'valve' || ['booster', 'reducer'].includes(nodeType)) {
+    // Rettelse: Tillad forbindelser fra målere og boostere
+    if (isPipe || nodeType === 'valve' || ['booster', 'reducer', 'water_meter'].includes(nodeType)) {
         if (menu.hasChildNodes()) menu.appendChild(document.createElement('hr'));
         
         menu.appendChild(createMenuItem('🔗 Forbind til...', () => {
@@ -7385,7 +7389,8 @@ function handleNodeRightClick(event, d) {
         }));
     }
     
-    if (nodeType === 'ror_vv') {
+    // Specifikt for VV-komponenter: Tillad at starte cirkulation herfra
+    if (nodeType === 'ror_vv' || (isVVContext && ['water_meter', 'booster'].includes(nodeType))) {
         menu.appendChild(createMenuItem('➡️ Forbind til retur...', () => {
             state.connectingNodeInfo = { nodeData: d, mode: 'connect_return' };
             document.body.style.cursor = 'crosshair';
@@ -7395,11 +7400,11 @@ function handleNodeRightClick(event, d) {
     // ============================================================
     // 4. NY STRENG
     // ============================================================
-    if (nodeType === 'beholder' || nodeType === 'ror_vv' || nodeType === 'booster') {
+    if (nodeType === 'beholder' || nodeType === 'ror_vv' || (isVVContext && ['water_meter', 'booster'].includes(nodeType))) {
         menu.appendChild(createMenuItem('🌱 Tilføj ny VV-streng herfra', () => { addStreng_vv(d.id); }));
         if (showPasteVV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
     }
-    if (nodeType === 'vandstik' || nodeType === 'ror_kv' || nodeType === 'booster') {
+    if (nodeType === 'vandstik' || nodeType === 'ror_kv' || (isKVContext && ['water_meter', 'booster'].includes(nodeType))) {
         menu.appendChild(createMenuItem('🌱 Tilføj ny KV-streng herfra', () => { addStreng_kv(d.id); }));
         if (showPasteKV) menu.appendChild(createMenuItem('📋 Indsæt som Ny streng', () => pasteBranch(d.id, 'new')));
     }
@@ -7431,6 +7436,7 @@ function handleNodeRightClick(event, d) {
     document.body.appendChild(menu);
     setTimeout(() => window.addEventListener('click', removeContextMenu, { once: true }), 0);
 }
+
 
 /**
  * NY FUNKTION (Fase 4): Starter flytning af en hel gren.
