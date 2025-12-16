@@ -2023,15 +2023,14 @@ function addRorSektion(btn, type, parentId = null) {
     // 3. Indsæt i DOM
     container.appendChild(tr);
 
-    // 4. Opdater State & UI
-    updateAllSelects();
-    
     // Sæt forælderen korrekt
     if (parentId) {
         const pInput = tr.querySelector('.parent');
         if (pInput) pInput.value = parentId;
     }
-
+    
+    // 4. Opdater State & UI
+    updateAllSelects();
     setProjektErÆndret();
 }
 
