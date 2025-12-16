@@ -1972,47 +1972,40 @@ function pasteBranch(targetParentId, mode = 'current') {
 
 /**
  * Tilføjer en ny rør-sektion (række) til en given streng.
- * RETTELSE: Finder nu korrekt container baseret på parentId, hvis angivet.
+ * Sikrer korrekt ID-navngivning (Sxx-Rxx) ved at udlede Streng-ID fra konteksten.
  */
 function addRorSektion(btn, type, parentId = null) {
     if (!window.rorCounter) window.rorCounter = 0;
     window.rorCounter++;
 
-    // Bestem prefix
-    const prefix = (type === 'ror_kv') ? 'K' : 'R';
-    const id = `${prefix}${window.rorCounter}`;
-
-    // 1. Generer HTML
-    const tr = createRowHTML(id, type);
-
-    // 2. Find Container (Her lå fejlen før)
+    // 1. Find Container (Hvor skal røret bo?)
     let container = null;
+    let contextRow = null;
 
-    // A: Hvis vi har et parentId (fra højreklik), find forælderens container
+    // A: Fra Parent ID (Højreklik)
     if (parentId) {
-        const parentRow = document.querySelector(`tr[data-id="${parentId}"]`);
-        if (parentRow) {
-            container = parentRow.closest('tbody');
-        }
+        contextRow = document.querySelector(`tr[data-id="${parentId}"]`);
+        if (contextRow) container = contextRow.closest('tbody');
     }
 
-    // B: Fallback - hvis ingen parentId, brug knappen (btn) til at finde containeren
+    // B: Fra Knap (Klik i UI)
     if (!container && btn) {
-        // Vi leder efter nærmeste tbody eller en specifik container klasse
         const card = btn.closest('.streng-card');
         if (card) {
             container = card.querySelector('.ror-container');
+            // Brug en tilfældig række i containeren som kontekst til ID-finding
+            contextRow = container.querySelector('tr');
         } else {
-            // Hvis knappen sidder direkte i en tabel-struktur
-            container = btn.closest('tbody'); 
+            container = btn.closest('tbody');
         }
     }
 
-    // C: Sidste udvej (bør ikke ske, men for robusthed)
+    // C: Fallback
     if (!container) {
-        console.warn("Kunne ikke finde container. Defaulter til første streng.");
-        if (type === 'ror_kv') container = document.querySelector('#strengeContainerKV tbody');
-        else container = document.querySelector('#strengeContainerVV tbody');
+        // Hvis alt fejler, gæt på den første streng af typen
+        const selector = (type === 'ror_kv') ? '#strengeContainerKV tbody' : '#strengeContainerVV tbody';
+        container = document.querySelector(selector);
+        if (container) contextRow = container.querySelector('tr');
     }
 
     if (!container) {
@@ -2020,21 +2013,50 @@ function addRorSektion(btn, type, parentId = null) {
         return;
     }
 
-    // 3. Indsæt i DOM
+    // 2. Bestem Streng-ID (Prefix) - Det du efterspurgte
+    // Vi leder efter "Sxx" i parentId eller i containerens eksisterende rækker/kort.
+    let stringPrefix = ''; 
+
+    // Metode 1: Hent fra parentId (hvis det er formatet S13-R1)
+    if (parentId && parentId.includes('-') && parentId.startsWith('S')) {
+        stringPrefix = parentId.split('-')[0];
+    }
+    // Metode 2: Hent fra kortets overskrift (mest robuste fallback)
+    else {
+        const card = container.closest('.streng-card');
+        if (card) {
+            const headerText = card.querySelector('.card-header')?.textContent || "";
+            // Regex: Find "S" efterfulgt af tal (f.eks. S13)
+            const match = headerText.match(/(S\d+)/);
+            if (match) stringPrefix = match[1];
+        }
+    }
+    
+    // Hvis vi stadig ikke har et prefix (f.eks. på en helt ny, tom streng), så må vi improvisere eller undvære
+    // (Men addStreng sætter normalt titlen, så Metode 2 bør virke)
+
+    // 3. Generer ID
+    const typeCode = (type === 'ror_kv') ? 'K' : 'R';
+    // Resultat: "S13-R55" eller bare "R55" hvis prefix fejler (fallback)
+    const id = stringPrefix ? `${stringPrefix}-${typeCode}${window.rorCounter}` : `${typeCode}${window.rorCounter}`;
+
+    // 4. Opret og Indsæt
+    const tr = createRowHTML(id, type);
     container.appendChild(tr);
 
-    // 4. Opdater State & UI
+    // 5. Opdater State
     updateAllSelects();
     
-    // Sæt forælderen korrekt
     if (parentId) {
         const pInput = tr.querySelector('.parent');
         if (pInput) pInput.value = parentId;
     }
 
-    setProjektErÆndret();
     updateAllSelects();
+    setProjektErÆndret();
+    
 }
+
 
 function addTapsted(btn) {
     state.tC++;
