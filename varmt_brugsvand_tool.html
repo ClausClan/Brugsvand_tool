@@ -1970,55 +1970,69 @@ function pasteBranch(targetParentId, mode = 'current') {
 }
 
 
-function addRorSektion(btn, type = 'ror_vv', forceParentId = null) {
-    state.tC++;
-    const sId = btn.closest('.card').dataset.id;
-    const id = `${sId}-R${state.tC}`;
-    const container = btn.closest('.card-body').querySelector('.ror-container');
-    
-    const tr = document.createElement('tr');
-    tr.dataset.id = id;
-    tr.dataset.type = type; 
-    const datalistId = `list-${id}`; 
-    
-    tr.innerHTML = `
-        <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${id}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-        <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
-        <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
-        <td><select class="form-select form-select-sm location"><option value="heated" selected>Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
-        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions"></td>
-        <td><input type="text" class="form-control form-control-sm dim-input dim" value="20" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-        <td><input type="number" min="0" class="form-control form-control-sm len" value="10"></td>
-        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
-    `;
-    
-    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
-    const matSelect = tr.querySelector('.material');
-    matSelect.onchange = handleMaterialChange;
-    
-    container.appendChild(tr);
-    
-    // Opdater listerne FØR vi sætter værdien, så optionen eksisterer
-    updateAllSelects();
+/**
+ * Tilføjer en ny rør-sektion (række) til en given streng.
+ * RETTELSE: Finder nu korrekt container baseret på parentId, hvis angivet.
+ */
+function addRorSektion(btn, type, parentId = null) {
+    if (!window.rorCounter) window.rorCounter = 0;
+    window.rorCounter++;
 
-    const pSel = tr.querySelector('.parent');
-    if (forceParentId) {
-        // Hvis vi har fået en specifik ordre (fra højreklik eller ny streng)
-        pSel.value = forceParentId;
-    } else {
-        // Standard logik: Forbind til forrige rør i strengen
-        const rorInStreng = container.querySelectorAll(`[data-type="${type}"]`);
-        if (rorInStreng.length > 1) {
-            pSel.value = rorInStreng[rorInStreng.length - 2].dataset.id;
-        } else {
-            // Første rør: Standard rod
-            pSel.value = (type === 'ror_kv') ? 'Vandstik' : 'Beholder';
+    // Bestem prefix
+    const prefix = (type === 'ror_kv') ? 'K' : 'R';
+    const id = `${prefix}${window.rorCounter}`;
+
+    // 1. Generer HTML
+    const tr = createRowHTML(id, type);
+
+    // 2. Find Container (Her lå fejlen før)
+    let container = null;
+
+    // A: Hvis vi har et parentId (fra højreklik), find forælderens container
+    if (parentId) {
+        const parentRow = document.querySelector(`tr[data-id="${parentId}"]`);
+        if (parentRow) {
+            container = parentRow.closest('tbody');
         }
     }
+
+    // B: Fallback - hvis ingen parentId, brug knappen (btn) til at finde containeren
+    if (!container && btn) {
+        // Vi leder efter nærmeste tbody eller en specifik container klasse
+        const card = btn.closest('.streng-card');
+        if (card) {
+            container = card.querySelector('.ror-container');
+        } else {
+            // Hvis knappen sidder direkte i en tabel-struktur
+            container = btn.closest('tbody'); 
+        }
+    }
+
+    // C: Sidste udvej (bør ikke ske, men for robusthed)
+    if (!container) {
+        console.warn("Kunne ikke finde container. Defaulter til første streng.");
+        if (type === 'ror_kv') container = document.querySelector('#strengeContainerKV tbody');
+        else container = document.querySelector('#strengeContainerVV tbody');
+    }
+
+    if (!container) {
+        console.error("Kritisk fejl: Ingen container fundet til nyt rør.");
+        return;
+    }
+
+    // 3. Indsæt i DOM
+    container.appendChild(tr);
+
+    // 4. Opdater State & UI
+    updateAllSelects();
     
-    updateDimOptions(matSelect);
-    updateAllSelects(); // Sikrer at diagrammet tegnes med den korrekte forbindelse
+    // Sæt forælderen korrekt
+    if (parentId) {
+        const pInput = tr.querySelector('.parent');
+        if (pInput) pInput.value = parentId;
+    }
+
+    setProjektErÆndret();
 }
 
 function addTapsted(btn) {
@@ -7249,13 +7263,11 @@ function handleNodeRightClick(event, d) {
 
     // --- VV KONTEKST (Rør, Måler, Booster i VV) ---
     // Rettelse: Vi tillader nu udvidelse på ror_vv, men også på water_meter og booster HVIS de er i VV-kontekst
+// --- VV KONTEKST (Rør, Måler, Booster i VV) ---
     if (nodeType === 'ror_vv' || ((nodeType === 'water_meter' || nodeType === 'booster') && isVVContext)) {
         menu.appendChild(createMenuItem('➕ Tilføj VV-rør her (Forlæng)', () => {
-            const parentId = d.id;
-            const row = document.querySelector(`tr[data-id="${parentId}"]`);
-            const card = row ? row.closest('.streng-card') : null;
-            // Vi bruger knappen i kortet til at finde den rigtige container
-            if (card) addRorSektion(card.querySelector('button'), 'ror_vv', parentId);
+            // RETTELSE: Vi sender null som knap, da parentId (d.id) nu styrer placeringen
+            addRorSektion(null, 'ror_vv', d.id);
         }));
         
         menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
@@ -7283,13 +7295,11 @@ function handleNodeRightClick(event, d) {
         }
     }
 
-    // --- KV KONTEKST (Rør, Måler, Booster i KV) ---
-    if (nodeType === 'ror_kv' || ((nodeType === 'water_meter' || nodeType === 'booster') && isKVContext)) {
+        // --- KV KONTEKST (Rør, Måler, Booster i KV) ---
+        if (nodeType === 'ror_kv' || ((nodeType === 'water_meter' || nodeType === 'booster') && isKVContext)) {
         menu.appendChild(createMenuItem('➕ Tilføj KV-rør her (Forlæng)', () => {
-            const parentId = d.id;
-            const row = document.querySelector(`tr[data-id="${parentId}"]`);
-            const card = row ? row.closest('.streng-card') : null;
-            if (card) addRorSektion(card.querySelector('button'), 'ror_kv', parentId);
+             // RETTELSE: Vi sender null som knap, da parentId (d.id) nu styrer placeringen
+            addRorSektion(null, 'ror_kv', d.id);
         }));
         
         menu.appendChild(createMenuItem('🚰 Tilføj Nyt Tapsted her', () => {
