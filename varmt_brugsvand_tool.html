@@ -2787,20 +2787,7 @@ function updateDiagram(model) {
         .text("Systemtryk (Absolut)");
 }
 
-// Helper til D3 hierarki bygning (uændret, men skal være tilgængelig)
-function buildHierarchy(node) {
-    const data = { 
-        id: node.id, 
-        type: node.type,
-        P_abs: node.P_abs,       // VIGTIGT: Send trykket med over til D3
-        calculatedKote: node.calculatedKote
-    };
-    const children = [];
-    if (node.children) {
-        node.children.forEach(c => children.push(buildHierarchy(c)));
-    }
-    return { data: data, children: children.length ? children : null };
-}
+
 // Helper til D3 hierarki bygning (uændret, men skal være tilgængelig)
 function buildHierarchy(node) {
     const data = { 
