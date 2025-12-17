@@ -2589,13 +2589,15 @@ function initDiagram() {
  * OPDATERET: Nye symboler for Beholder (Cylinder) og Vandstik (Boks).
  * Opdateret med Tryk-Heatmap og Resttryk-labels.
  */
-function updateDiagram(model) {
-    // 1. "Sikring": Hvis vi ikke får en model (fordi vi bare redigerer i UI),
-    // så bygger vi en hurtig struktur-model fra DOM'en her og nu.
-    let model = inputModel;
+function updateDiagram(inputmodel) {
+// Her opretter vi variablen 'model'. 
+    // Hvis parameteren ovenfor også hed 'model', ville det give din fejl.
+    let model = inputModel; 
+
+    // Sikring: Hvis funktionen kaldes uden argumenter (f.eks. ved redigering),
+    // bygger vi modellen manuelt fra tabellen.
     if (!model) {
         try {
-            // buildModel() er din eksisterende funktion der læser tabellen
             model = buildModel(); 
         } catch (e) {
             console.warn("Kunne ikke tegne diagram (model ugyldig):", e);
