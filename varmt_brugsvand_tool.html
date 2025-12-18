@@ -5924,36 +5924,47 @@ function updateDiagramStyles() {
 
 // Hjælper til labels (indsæt denne eller hold den inline hvis du foretrækker)
 function updateLabels(model) {
+    // 1. Hent checkbox indstillinger
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
     const showLen = document.getElementById('visLaengde').checked;
     const showFlow = document.getElementById('visFlow').checked;
-    // ... (Hent config for fittings pct til visning)
+    
     const config = state.lastConfig || {};
+    
+    // 2. FIX: Definer visMode INDE i denne funktion, så den er kendt
+    const visModeInput = document.querySelector('input[name="visMode"]:checked');
+    const visMode = visModeInput ? visModeInput.value : 'none';
 
+    // 3. Opdater teksten
     d3.select("#diagram svg").selectAll(".link-text").text(d => {
         const n = model.nodes.get(d.target.id);
         if (!n) return "";
 
-        if (visMode === 'absolute_pressure' && n.type === 'tapsted') {
-        return `${(n.P_absolute / 1000).toFixed(0)} kPa`;
+        // Nu kan vi bruge 'visMode' uden fejl
+        if (visMode === 'absolute_pressure') {
+             if (n.P_absolute !== undefined) return `${(n.P_absolute / 1000).toFixed(0)} kPa`;
         }
 
+        // Håndtering af ventiler
         if (n.type === 'valve') {
              if (showDpM) return `${(n.dp_circ||0).toFixed(0)} Pa (V)`;
              return "";
         }
 
-        if ((n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') && n.nom_dim) {
+        // Håndtering af rør (VV, KV, Cirk)
+        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') {
             const parts = [];
             const flow_ls = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
 
-            if (showDim) parts.push(`${n.nom_dim}mm`);
-            if (showLen) parts.push(`${n.L}m`);
+            // Vis data uafhængigt af hinanden
+            if (showDim && n.nom_dim) parts.push(`${n.nom_dim}mm`);
+            if (showLen && n.L !== undefined) parts.push(`${n.L}m`);
             if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
             
-            if (showVel || showDpM) {
+            // Disse kræver en dimension for at kunne beregnes
+            if (n.nom_dim && ID[n.material] && ID[n.material][n.nom_dim]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 // Brug korrekt temp
                 const temp = (n.type === 'ror_kv') ? 10 : (n.type === 'ror_vv' ? config.T_v : (config.T_v - config.dT/2));
