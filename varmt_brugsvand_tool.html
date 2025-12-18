@@ -5805,72 +5805,107 @@ function updateComponentTable(model) {
         parent.appendChild(container);
     }
 
-    const components = [];
+    // 1. Sorter noderne i lister
+    const activeComponents = []; // Booster, Reducer
+    const meters = [];           // Målere
+
     model.nodes.forEach(n => {
-        // RETTELSE: Vi inkluderer nu også 'meter'
-        if (n.type === 'booster' || n.type === 'reducer' || n.type === 'meter') {
-            components.push(n);
+        if (n.type === 'booster' || n.type === 'reducer') {
+            activeComponents.push(n);
+        }
+        // Tjek for målere (både på type og kategori/navn for sikkerheds skyld)
+        if (n.type === 'meter' || n.category === 'meter' || (n.id && n.id.toLowerCase().includes('måler'))) {
+            meters.push(n);
         }
     });
 
-    if (components.length === 0) {
+    // Hvis intet er fundet, tøm og returner
+    if (activeComponents.length === 0 && meters.length === 0) {
         container.innerHTML = '';
         return;
     }
 
-    let html = `<h5>Aktive Komponenter & Målere</h5>
-    <table class="table table-sm table-bordered table-hover">
-        <thead>
-            <tr>
-                <th>ID/Navn</th>
-                <th>Type</th>
-                <th>Indstillet ΔP [kPa]</th>
-                <th>Effektiv ΔP [Pa]</th>
-                <th>Flow [l/s]</th>
-            </tr>
-        </thead>
-        <tbody>`;
+    let html = '';
 
-    components.forEach(n => {
-        // Find flow (kan være qd eller cirkulation afhængig af placering)
-        const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
+    // --- TABEL 1: AKTIVE KOMPONENTER (Booster / Reducer) ---
+    if (activeComponents.length > 0) {
+        html += `<h5>Aktive Komponenter</h5>
+        <table class="table table-sm table-bordered table-hover mb-4">
+            <thead>
+                <tr>
+                    <th>ID/Navn</th>
+                    <th>Type</th>
+                    <th>Indstillet ΔP [kPa]</th>
+                    <th>Effektiv ΔP [Pa]</th>
+                    <th>Flow [l/s]</th>
+                </tr>
+            </thead>
+            <tbody>`;
 
-        let typeName = 'Ukendt';
-        let settingVal = '-';
-        let effectVal = '0';
+        activeComponents.forEach(n => {
+            const pChangeKPa = n.pressure_change || 0;
+            const pChangePa = pChangeKPa * 1000;
+            const effect = (n.type === 'booster') ? `+${pChangePa.toFixed(0)}` : `${pChangePa.toFixed(0)}`; 
+            
+            // Find flow
+            const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
+            
+            html += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktionsventil'}</td>
+                <td>${pChangeKPa}</td>
+                <td><strong>${effect}</strong></td>
+                <td>${flow.toFixed(3)}</td>
+            </tr>`;
+        });
+        html += `</tbody></table>`;
+    }
 
-        if (n.type === 'booster') {
-            typeName = 'Trykforøger';
-            const val = n.pressure_change || 0;
-            settingVal = val; 
-            effectVal = `+${(val * 1000).toFixed(0)}`;
+    // --- TABEL 2: MÅLERE (Ny tabel med Size og Kv) ---
+    if (meters.length > 0) {
+        html += `<h5>Målere</h5>
+        <table class="table table-sm table-bordered table-hover">
+            <thead>
+                <tr>
+                    <th>Måler ID</th>
+                    <th>Dimension</th>
+                    <th>Kv-værdi</th>
+                    <th>Flow [l/s]</th>
+                    <th>Tryktab [kPa]</th>
+                </tr>
+            </thead>
+            <tbody>`;
 
-        } else if (n.type === 'reducer') {
-            typeName = 'Reduktionsventil';
-            const val = n.pressure_change || 0;
-            settingVal = val;
-            effectVal = `${(val * 1000).toFixed(0)}`;
+        meters.forEach(m => {
+            // Flow: Kan ligge i circFlows hvis den sidder på cirkulationen, ellers qd
+            let flow = m.qd || 0;
+            if (model.circFlows && model.circFlows.has(m.id)) {
+                flow = model.circFlows.get(m.id);
+            }
 
-        } else if (n.type === 'meter') {
-            typeName = 'Måler';
-            settingVal = '-'; 
-            // For målere henter vi det beregnede tryktab (dp_tap eller dp_circ)
-            const loss = (n.dp_tap || 0) + (n.dp_circ || 0); 
-            effectVal = `-${loss.toFixed(0)}`; // Vises som tab (minus)
-        }
-        
-        html += `<tr>
-            <td>${getDisplayName(n.id)}</td>
-            <td>${typeName}</td>
-            <td>${settingVal}</td>
-            <td><strong>${effectVal}</strong></td>
-            <td>${flow.toFixed(3)}</td>
-        </tr>`;
-    });
+            // Dimension og Kv
+            const dim = m.nom_dim ? `${m.nom_dim} mm` : '-';
+            const kv = m.kv_value ? m.kv_value.toFixed(2) : '-';
 
-    html += `</tbody></table>`;
+            // Tryktab: Summen af tappetab og cirkulationstab (en af dem er typisk 0)
+            // Vi dividerer med 1000 for at få kPa
+            const dpPa = (m.dp_tap || 0) + (m.dp_circ || 0);
+            const dpKPa = dpPa / 1000;
+
+            html += `<tr>
+                <td>${getDisplayName(m.id)}</td>
+                <td>${dim}</td>
+                <td>${kv}</td>
+                <td>${flow.toFixed(3)}</td>
+                <td><strong>${dpKPa.toFixed(2)}</strong></td>
+            </tr>`;
+        });
+        html += `</tbody></table>`;
+    }
+
     container.innerHTML = html;
 }
+
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
