@@ -6125,18 +6125,47 @@ function applyColorGradient(mode) {
       })
       .style('opacity', 1);
 }
-function highlightCriticalPath() {
-    const criticalPath = state.lastModel.criticalPath;
-    if (!criticalPath) return;
 
-    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv")
+
+function highlightCriticalPath() {
+    if (!state.lastModel) return;
+    const model = state.lastModel;
+
+    // 1. Hent de kritiske stier (som Set for hurtigt opslag)
+    const critPathVV = model.criticalPath;       // Eksisterende VV set
+    const critPathKV = model.criticalPathKV;     // Nyt KV set (gemt i beregnings-funktionen)
+
+    // 2. Vælg ALLE rør-typer i diagrammet (inkl. KV)
+    d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv")
         .each(function(d) {
             const link = d3.select(this);
-            const isCritical = criticalPath.has(d.source.id) && criticalPath.has(d.target.id);
-            if (isCritical) {
-                link.style('stroke', '#007bff').style('stroke-width', '4px').style('opacity', 1); // RETTELSE: .attr -> .style
-            } else {
-                link.style('opacity', 0.2);
+            
+            // Hvis data mangler, spring over
+            if (!d.source || !d.target) return;
+
+            const src = d.source.id;
+            const tgt = d.target.id;
+
+            // 3. Tjek om linket ligger på en af de kritiske veje
+            // Et link er kritisk, hvis BÅDE start- og slut-noden er i sættet
+            const isCritVV = critPathVV && critPathVV.has(src) && critPathVV.has(tgt);
+            const isCritKV = critPathKV && critPathKV.has(src) && critPathKV.has(tgt);
+
+            if (isCritVV) {
+                // VV Kritisk: Kraftig Orange/Rød
+                link.style('stroke', '#FF4500') 
+                    .style('stroke-width', '4px')
+                    .style('opacity', 1.0);
+            } 
+            else if (isCritKV) {
+                // KV Kritisk: Kraftig Cyan/Neon Blå
+                link.style('stroke', '#00BFFF') 
+                    .style('stroke-width', '4px')
+                    .style('opacity', 1.0);
+            } 
+            else {
+                // Ikke kritisk: Dæmpet (gælder nu også KV rør der ikke er kritiske)
+                link.style('opacity', 0.1);
             }
         });
 }
