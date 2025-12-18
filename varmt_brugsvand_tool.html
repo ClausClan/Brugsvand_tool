@@ -3008,6 +3008,16 @@ function getGlobalConfig() {
  * MERGE-LOGIK: Læser både VV- og KV-listerne og samler tapsteder med samme ID til én node.
  */
 function buildModel(config) {
+    // --- SIKRING START ---
+    // Hvis funktionen kaldes uden config (f.eks. fra initDiagram eller updateDiagram),
+    // så opretter vi en minimal config baseret på UI'ets nuværende tilstand.
+    if (!config) {
+        config = {
+            // Tjek om checkboxen "Design Mode" er krydset af
+            isAuto: document.getElementById('autoDimToggle')?.checked || false
+        };
+    }
+    
     const model = { 
         tree: {id:'Beholder', type: 'beholder', children:[]}, 
         kvTree: {id:'Vandstik', type: 'vandstik', children:[]}, 
