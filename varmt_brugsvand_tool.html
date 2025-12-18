@@ -5992,16 +5992,14 @@ function applyColorGradient(mode) {
     let valuesTempKV = [];
     let valuesTempVV = [];
     
+    // Typer der skal farvelægges i standard views
     const pipeTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv'];
 
     model.nodes.forEach(n => {
         n._visValue = undefined;
         n._visType = undefined;
 
-        // 1. Beregn Værdi
         let val = undefined;
-        
-        // Flow data
         const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
                      ? (model.circFlows?.get(n.id) || 0) 
                      : (n.qd || 0);
@@ -6018,15 +6016,14 @@ function applyColorGradient(mode) {
             if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
                 val = dp / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
-            } else {
-                val = dp; 
-            }
+            } else { val = dp; }
         }
         else if (mode === 'absolute_pressure') {
-            // Vi viser trykket på ALLE noder (rør og tapsteder)
-            val = n.P_absolute; 
-            // Konverter til kPa for nemmere skala, men gemmes som Pa i P_absolute
-            if (val !== undefined) valuesPipes.push(val); 
+            // RETTELSE: Vi samler trykket, hvis det er beregnet (ikke undefined)
+            if (n.P_absolute !== undefined) {
+                val = n.P_absolute; 
+                valuesPipes.push(val);
+            }
         }
         else if (mode === 'heat_loss') {
             if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
@@ -6038,57 +6035,55 @@ function applyColorGradient(mode) {
             val = model.nodeTemps ? (model.nodeTemps.get(n.id)) : undefined;
         }
 
-        // Gem værdi på noden
         if (val !== undefined) n._visValue = val;
 
-        // 2. Bestem Visuel Type (KV/VV) - NU MED TEMPERATUR TJEK
+        // Bestem Visuel Type (KV/VV) til temperaturvisning
         let isKV = (n.category && n.category.startsWith('cold_')) || 
-                   n.type === 'ror_kv' || 
-                   n.type === 'vandstik' || 
+                   n.type === 'ror_kv' || n.type === 'vandstik' || 
                    (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only');
         
-        // FYSISK RETTELSE: Hvis temperaturen er < 28 grader, er det visuelt "Koldt",
-        // uanset hvad typen siger. Dette fanger fejlkategoriserede komponenter.
-        if (mode === 'temp' && val !== undefined && val < 28) {
-            isKV = true;
-        }
-
+        if (mode === 'temp' && val !== undefined && val < 28) isKV = true;
         n._visType = isKV ? 'KV' : 'VV';
 
-        // Sorter værdien i den rigtige spand til Legenden
         if (mode === 'temp' && val !== undefined) {
             if (n._visType === 'KV') valuesTempKV.push(val);
             else valuesTempVV.push(val);
         }
     });
 
-    // 3. Opret Farveskalaer
+    // Opret Farveskalaer
     let scaleMain, scaleKV, scaleVV;
 
     if (mode === 'temp') {
-        // KV Skala
         const minKV = d3.min(valuesTempKV) || 10;
         const maxKV = d3.max(valuesTempKV) || 20;
         state.tempDomains = { kv: [minKV, maxKV] };
         scaleKV = d3.scaleLinear().domain([minKV, maxKV]).range(["#87CEFA", "#006400"]);
 
-        // VV Skala
         const minVV = d3.min(valuesTempVV) || 50;
         const maxVV = d3.max(valuesTempVV) || 55;
         if(state.tempDomains) state.tempDomains.vv = [minVV, maxVV];
         scaleVV = d3.scaleLinear().domain([minVV, maxVV]).range(["#98FB98", "#8B0000"]);
+
     } else if (mode === 'absolute_pressure') {
-        // Skala fra 0 til Forsyningstryk (eller max tryk i systemet hvis booster)
-        // Farver: Rød (Højt/Forsyning) -> Gul -> Blå (Lavt/Kritisk)
-        const maxP = state.lastConfig.pln; 
-        // Vi laver en divergerende skala. 
-        // 0 kPa = Blå, 100 kPa (Min krav) = Gul, Pln = Rød
-        scaleMain = d3.scaleDiverging(t => d3.interpolateRdYlBu(1 - t))
-            .domain([maxP, 100000, 0]); 
-            
-        // Opdater visDomain til legenden (i kPa for læsbarhed)
-        state.visDomain = [0, maxP];
-     } else {
+        // RETTELSE: Dynamisk skala baseret på min/max i nuværende view
+        let minP = d3.min(valuesPipes);
+        let maxP = d3.max(valuesPipes);
+        
+        // Fallback hvis ingen værdier
+        if (minP === undefined) minP = 0;
+        if (maxP === undefined) maxP = state.lastConfig.pln || 400000;
+        
+        // Undgå division med nul hvis min=max
+        if (minP === maxP) { minP -= 1000; maxP += 1000; }
+
+        state.visDomain = [minP, maxP]; // Gem til legend
+
+        // Brug Turbo farver (Regnbue) eller Rød-Gul-Blå.
+        // Her: Turbo interpolator som dækker hele spektret dynamisk
+        scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain([minP, maxP]); 
+
+    } else {
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
@@ -6096,7 +6091,7 @@ function applyColorGradient(mode) {
         state.visDomain = domain;
     }
     
-    // 4. Påfør farver
+    // Påfør farver
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
           if (!d || !d.target) return null;
@@ -6106,22 +6101,19 @@ function applyColorGradient(mode) {
           if (!n || n._visValue === undefined) return '#ccc';
 
           if ((mode === 'pressure_drop' || mode === 'heat_loss') && !pipeTypes.includes(n.type)) {
-              if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745';
-              if (mode === 'pressure_drop' && n._visValue > 0) return '#dc3545';
+              if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745'; // Booster (grøn)
+              if (mode === 'pressure_drop' && n._visValue > 0) return '#dc3545'; // Reducer (rød)
               return '#999'; 
           }
 
           if (mode === 'temp') {
-              let v = n._visValue;
-              return (n._visType === 'KV') ? scaleKV(v) : scaleVV(v);
+              return (n._visType === 'KV') ? scaleKV(n._visValue) : scaleVV(n._visValue);
           } else {
               return scaleMain(n._visValue);
           }
       })
       .style('opacity', 1);
 }
-
-
 function highlightCriticalPath() {
     const criticalPath = state.lastModel.criticalPath;
     if (!criticalPath) return;
@@ -6204,17 +6196,19 @@ function updateLegend() {
                     <span style="margin-left:5px">${maxVal.toFixed(2)}</span>
                 </div>`;
                 } 
-    else if (visMode === 'absolute_pressure') {
-            // RETTELSE HER: Brug en fallback hvis pln ikke findes, eller hent frisk config
-            const pln = (state.lastConfig && state.lastConfig.pln) ? state.lastConfig.pln : getGlobalConfig().pln;
-            
-            html = `<div><strong>Trykprofil (Absolut)</strong></div>
-                    <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
-                        <span style="margin-right:5px">0 kPa</span>
-                        <div style="height:10px; width:120px; background: linear-gradient(to right, #4575b4, #ffffbf, #d73027); border-radius: 2px;"></div>
-                        <span style="margin-left:5px">${(pln / 1000).toFixed(0)} kPa</span>
-                    </div>
-                    <div style="margin-top:2px; color:#666;">Viser tilgængeligt tryk i knudepunkter.</div>`;
+    else if (visMode === 'absolute_pressure' && state.visDomain) {
+        // RETTELSE: Brug state.visDomain som vi beregnede i applyColorGradient
+        // Konverter til kPa for visning
+        const minKPa = state.visDomain[0] / 1000;
+        const maxKPa = state.visDomain[1] / 1000;
+        
+        html = `<div><strong>Trykprofil (Absolut)</strong></div>
+                <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
+                    <span style="margin-right:5px">${minKPa.toFixed(0)} kPa</span>
+                    <div style="height:10px; width:120px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
+                    <span style="margin-left:5px">${maxKPa.toFixed(0)} kPa</span>
+                </div>
+                <div style="margin-top:2px; color:#666;">Lavt Tryk ↔️ Højt Tryk</div>`;
     }
     else {
         legendDiv.style.display = 'none';
