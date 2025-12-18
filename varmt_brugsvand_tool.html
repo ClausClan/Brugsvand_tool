@@ -5794,10 +5794,9 @@ function updateCircTable(model) {
  * Indsættes dynamisk i resultaterne.
  */
 function updateComponentTable(model) {
-    // Find eller opret container til komponent-tabel
     let container = document.getElementById('componentResults');
     if (!container) {
-        const parent = document.getElementById('cirkulation'); // Eller 'components-content' afhængig af dine faner
+        const parent = document.getElementById('cirkulation'); 
         if (!parent) return; 
         container = document.createElement('div');
         container.id = 'componentResults';
@@ -5805,24 +5804,33 @@ function updateComponentTable(model) {
         parent.appendChild(container);
     }
 
-    // 1. Sorter noderne i lister
-    const activeComponents = []; // Booster, Reducer
-    const meters = [];           // Målere
+    const activeComponents = [];
+    const meters = [];
+
+    // DEBUG: Skriver til konsollen (F12) så vi kan se hvad der sker
+    console.log("--- Starter updateComponentTable (Udvidet Søgning) ---");
 
     model.nodes.forEach(n => {
-        // Tjek for Pumper/Ventiler
+        // 1. Pumper og Reducere
         if (n.type === 'booster' || n.type === 'reducer') {
             activeComponents.push(n);
         }
         
-        // Tjek for Målere (Både type og navn for en sikkerheds skyld)
-        // Her er rettelsen, der får dem frem:
-        if (n.type === 'meter' || n.category === 'meter' || (n.id && n.id.toLowerCase().includes('måler'))) {
+        // 2. Målere (UDVIDET LOGIK)
+        // Vi tager noden med, hvis den eksplicit er type 'meter', 
+        // ELLER hvis den har en egenskab der hedder 'meterType' (typisk rør med måler på)
+        // ELLER hvis kategorien er 'meter'.
+        const isMeterType = (n.type === 'meter');
+        const hasMeterProp = (n.meterType !== undefined && n.meterType !== null && n.meterType !== '');
+        const isMeterCat = (n.category === 'meter');
+        
+        if (isMeterType || hasMeterProp || isMeterCat) {
             meters.push(n);
         }
     });
 
-    // Hvis intet er fundet
+    console.log(`Fundet: ${activeComponents.length} komponenter, ${meters.length} målere.`);
+
     if (activeComponents.length === 0 && meters.length === 0) {
         container.innerHTML = '<p class="text-muted fst-italic mt-3">Ingen aktive komponenter eller målere fundet.</p>';
         return;
@@ -5830,7 +5838,7 @@ function updateComponentTable(model) {
 
     let html = '';
 
-    // --- TABEL 1: PUMPER & VENTILER ---
+    // --- TABEL 1: PUMPER / VENTILER ---
     if (activeComponents.length > 0) {
         html += `<h5>Aktive Komponenter</h5>
         <table class="table table-sm table-bordered table-hover mb-4">
@@ -5862,13 +5870,14 @@ function updateComponentTable(model) {
         html += `</tbody></table>`;
     }
 
-    // --- TABEL 2: MÅLERE (Ny visning) ---
+    // --- TABEL 2: MÅLERE ---
     if (meters.length > 0) {
         html += `<h5>Målere</h5>
         <table class="table table-sm table-bordered table-hover">
             <thead class="table-light">
                 <tr>
-                    <th>ID</th>
+                    <th>ID / Placering</th>
+                    <th>Type / Model</th>
                     <th>Dim.</th>
                     <th>Kv-værdi</th>
                     <th>Flow [l/s]</th>
@@ -5877,33 +5886,42 @@ function updateComponentTable(model) {
             </thead>
             <tbody>`;
 
-        // Sorter for pæn rækkefølge
+        // Sortering
         meters.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
 
         meters.forEach((m, index) => {
-            // LAV PÆNT ID (M1, M2...) hvis det mangler
+            // ID håndtering
+            // Hvis ID ligner et rør (K1-R2), så viser vi det, da det fortæller placeringen.
+            // Hvis ID er et langt "node_xyz", laver vi et pænere "M..." navn.
             let displayName = getDisplayName(m.id);
-            // Hvis navnet er langt og grimt (node_...), så kald den M + nummer
-            if (displayName.startsWith('node_') || displayName.length > 8) {
+            if (displayName.startsWith('node_') || displayName.length > 10) {
                 displayName = `M${index + 1}`; 
             }
 
-            // Data udtræk
+            // Type beskrivelse
+            let typeDesc = m.meterType || 'Standard Måler';
+            if (m.type === 'ror_vv' || m.type === 'ror_kv') {
+                typeDesc += ' (På rør)';
+            }
+
+            // Data
             const dim = m.nom_dim ? `${m.nom_dim} mm` : '-';
             const kv = m.kv_value ? m.kv_value.toFixed(2) : '-';
             
-            // Flow: Tjek om den sidder på cirkulation eller tap
+            // Flow
             let flow = m.qd || 0;
+            // Hvis det er et rør/komponent i cirkulationen, tjek circFlows
             if (model.circFlows && model.circFlows.has(m.id)) {
                 flow = model.circFlows.get(m.id);
             }
 
-            // Tryktab i kPa
+            // Tryktab (kPa)
             const dpPa = (m.dp_tap || 0) + (m.dp_circ || 0);
             const dpKPa = dpPa / 1000;
 
             html += `<tr>
                 <td><strong>${displayName}</strong></td>
+                <td>${typeDesc}</td>
                 <td>${dim}</td>
                 <td>${kv}</td>
                 <td>${flow.toFixed(3)}</td>
@@ -5915,6 +5933,7 @@ function updateComponentTable(model) {
 
     container.innerHTML = html;
 }
+
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
