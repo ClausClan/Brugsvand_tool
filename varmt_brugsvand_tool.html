@@ -489,6 +489,10 @@
                 <label class="form-check-label" for="visTryktab">Tryktab (Pa/m)</label>
             </div>
             <div class="form-check">
+                <input class="form-check-input" type="radio" name="visMode" id="visTrykAbsolut" value="absolute_pressure" onclick="updateDiagramStyles()">
+                <label class="form-check-label" for="visTrykAbsolut">Tilgængeligt Tryk (kPa)</label>
+            </div>
+            <div class="form-check">
                 <input class="form-check-input" type="radio" name="visMode" id="visVarmetab" value="heat_loss" onclick="updateDiagramStyles()">
                 <label class="form-check-label" for="visVarmetab">Varmetab (W/m)</label>
             </div>
@@ -3210,6 +3214,9 @@ function finishCalculation(model, config) {
     // Kør begge temperatur-simulationer med de nye fysiske funktioner
     calculateTemperatures_VV(model, config);
     calculateTemperatures_KV(model, config);
+
+    // Beregn absolutte tryk til diagrammet
+    calculateAbsolutePressures(model, config);
     
     syncModelToState(model);
     state.lastConfig = config;
@@ -4253,7 +4260,93 @@ function interpolate(x, x_pts, y_pts) {
     while (x > x_pts[i]) i++;
     return y_pts[i-1] + (y_pts[i] - y_pts[i-1]) * (x - x_pts[i-1]) / (x_pts[i] - x_pts[i-1]);
 }
-//... import/export funktioner (uændret) ...
+
+
+/**
+ * NY FUNKTION: Beregner det absolutte tryk (Resttryk) i alle knudepunkter.
+ * Tager højde for friktionstab, enkeltmodstande, komponenter og geodætisk højdeforskel.
+ * Kote-logik: Rør arver kote fra forælder. Kun tapsteder har deres egen specifikke kote.
+ */
+function calculateAbsolutePressures(model, config) {
+    const g = 9.82;
+    const supplyKote = config.forsyningens_kote || 0;
+    
+    // Nulstil
+    model.nodes.forEach(n => n.P_absolute = undefined);
+
+    // Hjælper til rekursiv traversering
+    function traverse(nodeId, parentPressure, parentKote, context) {
+        const node = model.nodes.get(nodeId);
+        if (!node) return;
+
+        // 1. Bestem densitet baseret på system (KV vs VV)
+        // Bruger 10 grader for KV, Tv for VV
+        const temp = (context === 'KV') ? 10 : config.T_v;
+        const rho = getWaterDensity(temp);
+
+        // 2. Bestem aktuel kote
+        // Hvis noden er et tapsted, bruges dens egen kote. Ellers arves forælderens kote (vandret føring antages)
+        let currentKote = parentKote;
+        if (node.type === 'tapsted') {
+            currentKote = node.kote; 
+        }
+
+        // 3. Beregn tab i komponenten selv (dp_tap er allerede beregnet i tidligere trin)
+        // dp_tap indeholder friktion + fittings + evt. booster/reducer effekt
+        const componentLoss = node.dp_tap || 0;
+
+        // 4. Beregn geodætisk trykændring (Hydrostatisk)
+        // Positiv højdeforskel (opad) giver trykFALD.
+        const h_diff = currentKote - parentKote;
+        const geoLoss = rho * g * h_diff;
+
+        // 5. Resultat: Trykket EFTER denne node
+        let currentPressure = parentPressure - componentLoss - geoLoss;
+        
+        // Gem på noden (til visualisering)
+        node.P_absolute = currentPressure;
+
+        // Special: Hvis dette er forbindelsesleddet til Beholderen, gem trykket
+        if (context === 'KV' && state.beholderConnectionId === nodeId) {
+            model.calculated_beholder_feed_pressure = currentPressure;
+        }
+
+        // Rekursion til børn
+        if (node.children) {
+            node.children.forEach(child => traverse(child.id, currentPressure, currentKote, context));
+        }
+    }
+
+    // A. Start med Koldt Vand
+    const startPressure = config.pln; // Pa
+    
+    // Vandstikket selv har ingen parent, så vi starter med forsyningstrykket.
+    // Vi antager Vandstikket ligger på forsyningens kote.
+    const vandstikNode = model.nodes.get('Vandstik');
+    if (vandstikNode) {
+        vandstikNode.P_absolute = startPressure; 
+        // Start rekursion fra Vandstikket
+        if (vandstikNode.children) {
+            vandstikNode.children.forEach(c => traverse(c.id, startPressure, supplyKote, 'KV'));
+        }
+    }
+
+    // B. Start med Varmt Vand
+    // Hent det beregnede tryk fra KV-linket, eller brug config hvis intet link
+    let vvStartP = model.calculated_beholder_feed_pressure || (config.pln - (model.kv_pressure_loss_to_beholder || 0));
+    
+    const beholderNode = model.nodes.get('Beholder');
+    if (beholderNode) {
+        beholderNode.P_absolute = vvStartP;
+        // Vi antager beholderen står på samme kote som forsyningen (eller det rør den er koblet til)
+        // Da vi ikke har en specifik 'Beholder Kote' input, bruger vi supplyKote som base
+        if (beholderNode.children) {
+            beholderNode.children.forEach(c => traverse(c.id, vvStartP, supplyKote, 'VV'));
+        }
+    }
+}
+
+
 
 /**
  * NY HJÆLPEFUNKTION: Samler alle data fra UI og State til ét objekt.
@@ -5839,6 +5932,10 @@ function updateLabels(model) {
         const n = model.nodes.get(d.target.id);
         if (!n) return "";
 
+        if (visMode === 'absolute_pressure' && n.type === 'tapsted') {
+        return `${(n.P_absolute / 1000).toFixed(0)} kPa`;
+        }
+
         if (n.type === 'valve') {
              if (showDpM) return `${(n.dp_circ||0).toFixed(0)} Pa (V)`;
              return "";
@@ -5920,7 +6017,13 @@ function applyColorGradient(mode) {
             } else {
                 val = dp; 
             }
-        } 
+        }
+        else if (mode === 'absolute_pressure') {
+            // Vi viser trykket på ALLE noder (rør og tapsteder)
+            val = n.P_absolute; 
+            // Konverter til kPa for nemmere skala, men gemmes som Pa i P_absolute
+            if (val !== undefined) valuesPipes.push(val); 
+        }
         else if (mode === 'heat_loss') {
             if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
                 val = (n.q_tab || 0) / n.L;
@@ -5970,8 +6073,18 @@ function applyColorGradient(mode) {
         const maxVV = d3.max(valuesTempVV) || 55;
         if(state.tempDomains) state.tempDomains.vv = [minVV, maxVV];
         scaleVV = d3.scaleLinear().domain([minVV, maxVV]).range(["#98FB98", "#8B0000"]);
-
-    } else {
+    } else if (mode === 'absolute_pressure') {
+        // Skala fra 0 til Forsyningstryk (eller max tryk i systemet hvis booster)
+        // Farver: Rød (Højt/Forsyning) -> Gul -> Blå (Lavt/Kritisk)
+        const maxP = state.lastConfig.pln; 
+        // Vi laver en divergerende skala. 
+        // 0 kPa = Blå, 100 kPa (Min krav) = Gul, Pln = Rød
+        scaleMain = d3.scaleDiverging(t => d3.interpolateRdYlBu(1 - t))
+            .domain([maxP, 100000, 0]); 
+            
+        // Opdater visDomain til legenden (i kPa for læsbarhed)
+        state.visDomain = [0, maxP];
+     } else {
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
         if (domain[0] === domain[1]) { domain[0] -= 0.1; domain[1] += 0.1; }
@@ -6086,7 +6199,17 @@ function updateLegend() {
                     <div style="height:8px; width:120px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
                     <span style="margin-left:5px">${maxVal.toFixed(2)}</span>
                 </div>`;
-    } else {
+                } 
+    else if (visMode === 'absolute_pressure') {
+         html = `<div><strong>Trykprofil (Absolut)</strong></div>
+                <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
+                    <span style="margin-right:5px">0 kPa</span>
+                    <div style="height:10px; width:120px; background: linear-gradient(to right, #4575b4, #ffffbf, #d73027); border-radius: 2px;"></div>
+                    <span style="margin-left:5px">${(state.lastConfig.pln / 1000).toFixed(0)} kPa</span>
+                </div>
+                <div style="margin-top:2px; color:#666;">Viser tilgængeligt tryk i knudepunkter.</div>`;
+    }
+    else {
         legendDiv.style.display = 'none';
     }
     
