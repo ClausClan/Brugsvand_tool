@@ -5931,6 +5931,8 @@ function updateLabels(model) {
     const showFlow = document.getElementById('visFlow').checked;
     
     const config = state.lastConfig || {};
+    
+    // Hent visningstilstand
     const visModeInput = document.querySelector('input[name="visMode"]:checked');
     const visMode = visModeInput ? visModeInput.value : 'none';
 
@@ -5938,25 +5940,37 @@ function updateLabels(model) {
         const n = model.nodes.get(d.target.id);
         if (!n) return "";
 
-        // --- RETTELSE: Vis dobbelt tryk på Tapsteder ---
+        // --- RETTELSE: Vis specifikt tryk afhængigt af rør-typen ---
         if (visMode === 'absolute_pressure') {
-             if (n.type === 'tapsted') {
-                 // Format: KV: 350 / VV: 320 kPa
-                 const pKV = (n.P_absolute_KV !== undefined) ? (n.P_absolute_KV/1000).toFixed(0) : '-';
-                 const pVV = (n.P_absolute_VV !== undefined) ? (n.P_absolute_VV/1000).toFixed(0) : '-';
-                 return `KV:${pKV} / VV:${pVV} kPa`;
+             let valToShow = undefined;
+
+             // 1. Er det et koldtvandsrør? (Hent KV tryk)
+             if (d.type === 'ror_kv' || d.type === 'kv_feed' || d.type === 'vandstik') {
+                 valToShow = n.P_absolute_KV;
              }
-             // For rør og andre komponenter
-             if (n.P_absolute !== undefined) return `${(n.P_absolute / 1000).toFixed(0)} kPa`;
+             // 2. Er det et varmtvandsrør? (Hent VV tryk)
+             else if (d.type === 'ror_vv' || d.type === 'fremløb' || d.type === 'cirkulation_vv') {
+                 valToShow = n.P_absolute_VV;
+             }
+             
+             // 3. Fallback: Hvis rørtypen er ukendt, eller vi er et sted uden opdeling (brug default)
+             if (valToShow === undefined) {
+                 valToShow = n.P_absolute;
+             }
+
+             if (valToShow !== undefined) {
+                 return `${(valToShow / 1000).toFixed(0)} kPa`;
+             }
+             return "";
         }
 
-        // Håndtering af ventiler
+        // Håndtering af ventiler (uændret)
         if (n.type === 'valve') {
              if (showDpM) return `${(n.dp_circ||0).toFixed(0)} Pa (V)`;
              return "";
         }
 
-        // Håndtering af rør data (Dim, Flow, etc.)
+        // Håndtering af rør data (Dim, Flow, etc. - uændret)
         if (n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') {
             const parts = [];
             const flow_ls = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
@@ -5984,7 +5998,6 @@ function updateLabels(model) {
         return "";
     });
 }
-
 
 /**
  * Farvelægger diagrammet baseret på resultater (Hastighed, Tryk, Temp).
