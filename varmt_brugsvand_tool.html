@@ -34,15 +34,15 @@
             height: 100%;
             overflow-y: auto;
         }
-.highlighted-row {
-    background-color: #ffeb3b !important; /* Kraftig gul */
-    color: #000 !important; /* Sort tekst for kontrast */
-    outline: 3px solid #ffc107; /* Tydelig orange/guld kant */
-    font-weight: bold;
-    transition: all 0.5s ease;
-    z-index: 100; /* Sikrer at den ligger 'ovenpå' hvis der er skygger */
-    position: relative; /* Nødvendig for at z-index og outline virker optimalt */
-}
+        .highlighted-row {
+            background-color: #ffeb3b !important; /* Kraftig gul */
+            color: #000 !important; /* Sort tekst for kontrast */
+            outline: 3px solid #ffc107; /* Tydelig orange/guld kant */
+            font-weight: bold;
+            transition: all 0.5s ease;
+            z-index: 100; /* Sikrer at den ligger 'ovenpå' hvis der er skygger */
+            position: relative; /* Nødvendig for at z-index og outline virker optimalt */
+        }
         #diagram, #diagram svg {
             width: 100%;
             height: 100%;
@@ -6201,13 +6201,16 @@ function updateLegend() {
                 </div>`;
                 } 
     else if (visMode === 'absolute_pressure') {
-         html = `<div><strong>Trykprofil (Absolut)</strong></div>
-                <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
-                    <span style="margin-right:5px">0 kPa</span>
-                    <div style="height:10px; width:120px; background: linear-gradient(to right, #4575b4, #ffffbf, #d73027); border-radius: 2px;"></div>
-                    <span style="margin-left:5px">${(state.lastConfig.pln / 1000).toFixed(0)} kPa</span>
-                </div>
-                <div style="margin-top:2px; color:#666;">Viser tilgængeligt tryk i knudepunkter.</div>`;
+            // RETTELSE HER: Brug en fallback hvis pln ikke findes, eller hent frisk config
+            const pln = (state.lastConfig && state.lastConfig.pln) ? state.lastConfig.pln : getGlobalConfig().pln;
+            
+            html = `<div><strong>Trykprofil (Absolut)</strong></div>
+                    <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
+                        <span style="margin-right:5px">0 kPa</span>
+                        <div style="height:10px; width:120px; background: linear-gradient(to right, #4575b4, #ffffbf, #d73027); border-radius: 2px;"></div>
+                        <span style="margin-left:5px">${(pln / 1000).toFixed(0)} kPa</span>
+                    </div>
+                    <div style="margin-top:2px; color:#666;">Viser tilgængeligt tryk i knudepunkter.</div>`;
     }
     else {
         legendDiv.style.display = 'none';
