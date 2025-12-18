@@ -1986,7 +1986,7 @@ function addRorSektion(btn, type, parentId = null) {
     let container = null;
     let contextRow = null;
 
-    // A: Fra Parent ID (Højreklik)
+    // A: Fra Parent ID (Højreklik / Forlæng)
     if (parentId) {
         contextRow = document.querySelector(`tr[data-id="${parentId}"]`);
         if (contextRow) container = contextRow.closest('tbody');
@@ -1997,8 +1997,6 @@ function addRorSektion(btn, type, parentId = null) {
         const card = btn.closest('.streng-card');
         if (card) {
             container = card.querySelector('.ror-container');
-            // Brug en tilfældig række i containeren som kontekst til ID-finding
-            contextRow = container.querySelector('tr');
         } else {
             container = btn.closest('tbody');
         }
@@ -2009,7 +2007,6 @@ function addRorSektion(btn, type, parentId = null) {
         // Hvis alt fejler, gæt på den første streng af typen
         const selector = (type === 'ror_kv') ? '#strengeContainerKV tbody' : '#strengeContainerVV tbody';
         container = document.querySelector(selector);
-        if (container) contextRow = container.querySelector('tr');
     }
 
     if (!container) {
@@ -2017,40 +2014,40 @@ function addRorSektion(btn, type, parentId = null) {
         return;
     }
 
-    // 2. Bestem Streng-ID (Prefix) - Det du efterspurgte
-    // Vi leder efter "Sxx" i parentId eller i containerens eksisterende rækker/kort.
+    // 2. Bestem Streng-ID (Prefix) - RETTET HER
     let stringPrefix = ''; 
 
-    // Metode 1: Hent fra parentId (hvis det er formatet S13-R1)
-    if (parentId && parentId.includes('-') && parentId.startsWith('S')) {
-        stringPrefix = parentId.split('-')[0];
-    }
-    // Metode 2: Hent fra kortets overskrift (mest robuste fallback)
-    else {
-        const card = container.closest('.streng-card');
-        if (card) {
-            const headerText = card.querySelector('.card-header')?.textContent || "";
-            // Regex: Find "S" efterfulgt af tal (f.eks. S13)
-            const match = headerText.match(/(S\d+)/);
-            if (match) stringPrefix = match[1];
-        }
+    // Metode 1: Hent direkte fra Streng-kortet (Det sikreste)
+    const card = container.closest('.streng-card');
+    if (card && card.dataset.id) {
+        stringPrefix = card.dataset.id; // Fx "K1" eller "S1"
     }
     
-    // Hvis vi stadig ikke har et prefix (f.eks. på en helt ny, tom streng), så må vi improvisere eller undvære
-    // (Men addStreng sætter normalt titlen, så Metode 2 bør virke)
+    // Metode 2: Fallback - Hent fra parentId (hvis parent er fx S1-R2)
+    if (!stringPrefix && parentId && parentId.includes('-')) {
+        stringPrefix = parentId.split('-')[0];
+    }
 
     // 3. Generer ID
-    const typeCode = (type === 'ror_kv') ? 'K' : 'R';
-    // Resultat: "S13-R55" eller bare "R55" hvis prefix fejler (fallback)
-    const id = stringPrefix ? `${stringPrefix}-${typeCode}${window.rorCounter}` : `${typeCode}${window.rorCounter}`;
+    // Hvis vi fandt et prefix (fx K1), bliver ID'et "K1-R[tæller]"
+    // Hvis ikke, falder vi tilbage til K[tæller] eller R[tæller]
+    let newId;
+    if (stringPrefix) {
+        newId = `${stringPrefix}-R${window.rorCounter}`;
+    } else {
+        // Fallback hvis vi er udenfor en streng (burde ikke ske ofte)
+        const typeCode = (type === 'ror_kv') ? 'K' : 'R';
+        newId = `${typeCode}${window.rorCounter}`;
+    }
 
     // 4. Opret og Indsæt
-    const tr = createRowHTML(id, type);
+    const tr = createRowHTML(newId, type);
     container.appendChild(tr);
 
     // 5. Opdater State
     updateAllSelects();
     
+    // Sæt forælder automatisk
     if (parentId) {
         const pInput = tr.querySelector('.parent');
         if (pInput) pInput.value = parentId;
@@ -2058,7 +2055,6 @@ function addRorSektion(btn, type, parentId = null) {
 
     updateAllSelects();
     setProjektErÆndret();
-    
 }
 
 
