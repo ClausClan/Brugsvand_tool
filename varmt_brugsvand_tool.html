@@ -1334,7 +1334,7 @@ function handleInputChange(e) {
         if (node) {
             node.tapType = typeName;
             // Vi opdaterer diagrammet for at vise evt. navneændring
-            updateDiagram(model); 
+            updateDiagram(); 
         }
         
         if (document.getElementById('metodeA').checked) {
@@ -2587,224 +2587,177 @@ function initDiagram() {
 /**
  * Tegner diagrammet (SVG).
  * OPDATERET: Nye symboler for Beholder (Cylinder) og Vandstik (Boks).
- * Opdateret med Tryk-Heatmap og Resttryk-labels.
  */
-function updateDiagram(inputModel) {
-// Her opretter vi variablen 'model'. 
-    // Hvis parameteren ovenfor også hed 'model', ville det give din fejl.
-    let model = inputModel; 
+function updateDiagram() {
+    const svg = d3.select("#diagram svg");
+    let container = svg.select(".zoom-container");
+    if (container.empty()) container = svg.append("g").attr("class", "zoom-container");
+    container.html(""); // Tøm for at gentegne
 
-    // Sikring: Hvis funktionen kaldes uden argumenter (f.eks. ved redigering),
-    // bygger vi modellen manuelt fra tabellen.
-    if (!model) {
-        try {
-            model = buildModel(); 
-        } catch (e) {
-            console.warn("Kunne ikke tegne diagram (model ugyldig):", e);
-            return;
-        }
-    }
+    // 1. TEGN LINKS
+    const link = container.append("g").selectAll("line")
+        .data(state.links).join("line")
+        .attr("class", d => {
+            if (d.type === 'kv_feed') return 'link-kv_feed';
+            return `link-${d.type}`;
+        });
 
-    const container = d3.select("#diagram");
-    const width = container.node().getBoundingClientRect().width || 800;
-    const height = 600;
+    // 2. TEGN TEKST PÅ LINKS
+    const linkText = container.append("g").selectAll("text")
+        .data(state.links).join("text")
+        .attr("class", "link-text")
+        .attr("dy", -2);
 
-    container.selectAll("*").remove();
+    // 3. TEGN NODER
+    const node = container.append("g").selectAll("g")
+        .data(state.nodes, d => d.id).join("g")
+        .attr("class", "node")
+        .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+        .on('click', handleNodeClick)
+        .on('contextmenu', handleNodeRightClick);
 
-    const svg = container.append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .call(d3.zoom().on("zoom", (event) => {
-            g.attr("transform", event.transform);
-        }))
-        .append("g");
-
-    const g = svg.append("g");
-
-    // Opret hierarki til D3
-    // Vi laver en kunstig "World" rod for at samle KV og VV træerne i ét diagram
-    const combinedData = {
-        id: "World",
-        type: "root",
-        children: []
-    };
-
-    if (model.nodes.has('Vandstik')) combinedData.children.push(buildHierarchy(model.nodes.get('Vandstik')));
-    if (model.nodes.has('Beholder')) combinedData.children.push(buildHierarchy(model.nodes.get('Beholder')));
-
-    const root = d3.hierarchy(combinedData);
-    const treeLayout = d3.tree().size([height - 100, width - 200]); 
-    treeLayout(root);
-
-    // ---------------------------------------------------------
-    // 1. Farveskala til Tryk (Heatmap)
-    // ---------------------------------------------------------
-    // Find min og max tryk i hele systemet for at skalere farverne
-    let minP = Infinity, maxP = -Infinity;
-    root.descendants().forEach(d => {
-        if (d.data.P_abs !== undefined) {
-            if (d.data.P_abs < minP) minP = d.data.P_abs;
-            if (d.data.P_abs > maxP) maxP = d.data.P_abs;
-        }
-    });
-    
-    // Fallback hvis beregning fejler
-    if (minP === Infinity) { minP = 0; maxP = 400000; }
-
-    // Farveskala: Rød (Lavt tryk) -> Gul -> Grøn -> Blå (Højt tryk)
-    const colorScale = d3.scaleSequential()
-        .domain([minP, maxP]) 
-        .interpolator(d3.interpolateTurbo); 
-
-    // ---------------------------------------------------------
-    // 2. Tegn Links (Rør)
-    // ---------------------------------------------------------
-    g.selectAll(".link")
-        .data(root.links())
-        .enter().append("path")
-        .attr("class", "link")
-        .attr("fill", "none")
-        .attr("stroke-width", d => {
-             // Tykkere streg for hovedrør
-             if (d.target.data.type === 'ror_vv' || d.target.data.type === 'ror_kv') return 4;
-             return 2;
-        })
-        .attr("stroke", d => {
-            // Farv røret efter trykket i slutningen af røret (target)
-            if (d.target.data.P_abs !== undefined) {
-                return colorScale(d.target.data.P_abs);
-            }
-            return "#ccc"; // Grå hvis ingen data
-        })
-        .attr("d", d3.linkHorizontal()
-            .x(d => d.y)
-            .y(d => d.x)
-        );
-
-    // ---------------------------------------------------------
-    // 3. Tegn Noder
-    // ---------------------------------------------------------
-    const node = g.selectAll(".node")
-        .data(root.descendants())
-        .enter().append("g")
-        .attr("class", d => "node " + (d.children ? "node--internal" : "node--leaf"))
-        .attr("transform", d => `translate(${d.y},${d.x})`);
-
-    // Symboler baseret på type
     node.each(function(d) {
         const group = d3.select(this);
-        const type = d.data.type;
         
-        if (type === 'tapsted') {
-            group.append("circle").attr("r", 5).attr("fill", "#dc3545"); // Rød prik
-            
-            // VIS RESTTRYK TEKST
-            if (d.data.P_abs !== undefined) {
-                const kPa = Math.round(d.data.P_abs / 1000);
-                const isLow = kPa < 100; // Advarsel under 100 kPa (1 bar)
+        if (d.type === 'valve') {
+            // Ventil: Rombe (Lilla)
+            group.append('rect')
+                .attr('width', 14).attr('height', 14)
+                .attr('x', -7).attr('y', -7)
+                .attr('transform', 'rotate(45)')
+                .style('fill', '#6f42c1').style('stroke', '#333');
                 
-                group.append("text")
-                    .attr("dy", 4)
-                    .attr("x", 12)
-                    .attr("text-anchor", "start")
-                    .style("font-size", "11px")
-                    .style("font-weight", isLow ? "bold" : "normal")
-                    .style("fill", isLow ? "red" : "black")
-                    .text(`${d.data.id}: ${kPa} kPa`);
-            } else {
-                group.append("text").attr("dy", 4).attr("x", 10).text(d.data.id);
-            }
+        } else if (d.type === 'booster') {
+            // Booster: Pumpe symbol (Cirkel med trekant)
+            group.append("circle").attr("r", 8).attr("fill", "#fff").attr("stroke", "#000").attr("stroke-width", 1.5);
+            group.append("path").attr("d", "M -4,3 L 4,3 L 0,-5 Z").attr("fill", "#000"); 
+            
+        } else if (d.type === 'reducer') {
+            // Reducer: Trekant ned (Tragt)
+            group.append("path").attr("d", "M -7,-5 L 7,-5 L 0,7 Z")
+                .attr("fill", "#ffcccc").attr("stroke", "#000").attr("stroke-width", 1);
+                
+        } else if (d.type === 'beholder') {
+            // NYT SYMBOL: Beholder (Cylinder)
+            // Selve tanken
+            group.append("rect")
+                .attr("x", -14).attr("y", -20)
+                .attr("width", 28).attr("height", 40)
+                .attr("rx", 5) // Rundede hjørner
+                .attr("fill", "#f8f9fa")
+                .attr("stroke", "#343a40").attr("stroke-width", 2);
+            
+            // Dekorative linjer (Top/Bund)
+            group.append("line").attr("x1", -14).attr("y1", -10).attr("x2", 14).attr("y2", -10).attr("stroke", "#343a40").attr("stroke-width", 1);
+            group.append("line").attr("x1", -14).attr("y1", 10).attr("x2", 14).attr("y2", 10).attr("stroke", "#343a40").attr("stroke-width", 1);
+            
+            // Tekst "VV"
+            group.append("text").text("VV")
+                .attr("dy", 4)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold")
+                .attr("fill", "#343a40");
+            
+        } else if (d.type === 'vandstik') {
+            // NYT SYMBOL: Vandstik (Blå boks)
+            group.append("rect")
+                .attr("x", -12).attr("y", -12)
+                .attr("width", 24).attr("height", 24)
+                .attr("rx", 3)
+                .attr("fill", "#0d6efd")
+                .attr("stroke", "#000").attr("stroke-width", 2);
+                
+            // Tekst "KV"
+            group.append("text").text("KV")
+                .attr("dy", 5)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "11px")
+                .attr("font-weight", "bold")
+                .attr("fill", "white");
 
-        } else if (type === 'water_meter') {
-             group.append("rect").attr("x",-10).attr("y",-10).attr("width",20).attr("height",20).attr("fill","#fff").attr("stroke","#000");
-             group.append("text").text("m³").attr("dy",4).attr("text-anchor","middle").style("font-size","9px");
-        } else if (type === 'booster') {
-             group.append("circle").attr("r", 8).attr("fill", "#198754");
-             group.append("text").text("P").attr("dy",4).attr("text-anchor","middle").style("fill","white").style("font-size","10px");
-        } else if (type === 'root') {
-             // Skjul "World" noden
+        } else if (d.type === 'water_meter') {
+            // Vandmåler: Firkant med 'm3'
+            group.append("rect")
+                .attr("x", -10).attr("y", -10)
+                .attr("width", 20).attr("height", 20)
+                .attr("fill", "#fff")
+                .attr("stroke", "#000").attr("stroke-width", 1.5);
+            
+            group.append("text").text("m³")
+                .attr("dy", 4)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold");
+            
+        } else if (d.type === 'tapsted') {
+            // Tapsted: Grøn
+            group.append("circle").attr("r", 5).attr("fill", "#198754").attr("stroke", "#333");
+            
+        } else if (d.type === 'cirkulation_vv') {
+            // Retur: Mørkerød
+            group.append("circle").attr("r", 4).attr("fill", "#a71d2a").attr("stroke", "#333");
+            
+        } else if (d.type === 'ror_kv') {
+            // Koldt rør: Blå
+            group.append("circle").attr("r", 4).attr("fill", "#0d6efd").attr("stroke", "#333");
+            
         } else {
-             // Standard noder (rør-samlinger etc)
-             group.append("circle").attr("r", 3).attr("fill", "#555");
+            // Standard ror_vv: Rødlig
+            group.append("circle").attr("r", 4).attr("fill", "#dc3545").attr("stroke", "#333");
         }
     });
     
-    // Tooltip ved mouseover
-    node.append("title").text(d => {
-        let txt = `${d.data.id} (${d.data.type})`;
-        if (d.data.P_abs) txt += `\nTryk: ${(d.data.P_abs/1000).toFixed(1)} kPa`;
-        if (d.data.calculatedKote) txt += `\nKote: ${d.data.calculatedKote} m`;
-        return txt;
+    // 4. LABELS
+    node.append("text")
+        .text(d => {
+            let label = getDisplayName(d.id);
+            if (d.type === 'tapsted') {
+                let typeName = d.tapType; 
+                if (!typeName) {
+                    const row = document.querySelector(`tr[data-id="${d.id}"]`);
+                    if (row) {
+                        const sel = row.querySelector('.tapType');
+                        if (sel && sel.selectedIndex >= 0) typeName = sel.options[sel.selectedIndex].text;
+                    }
+                }
+                if (typeName && TAP_ABBREVIATIONS[typeName]) label += ` (${TAP_ABBREVIATIONS[typeName]})`;
+            }
+            return label;
+        })
+        .attr("dy", d => {
+            // Juster label placering for de nye store symboler
+            if (d.type === 'beholder') return "-2.2em";
+            if (d.type === 'vandstik') return "-1.6em";
+            if (d.type === 'booster' || d.type === 'reducer') return "-1.2em";
+            return "-0.8em";
+        })
+        .attr("font-size", "8px")
+        .attr("text-anchor", "middle")
+        .style("pointer-events", "none")
+        .style("text-shadow", "0px 0px 3px white");
+
+    // 5. SIMULATION
+    state.sim.nodes(state.nodes).on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+
+        linkText
+            .attr("x", d => (d.source.x + d.target.x) / 2)
+            .attr("y", d => (d.source.y + d.target.y) / 2);
     });
 
-    // ---------------------------------------------------------
-    // 4. Legend (Tryk Skala)
-    // ---------------------------------------------------------
-    // Vi tegner en lille boks i bunden
-    const legendWidth = 200;
-    const legendHeight = 10;
-    
-    const legendSvg = svg.append("g")
-        .attr("class", "legend")
-        .attr("transform", `translate(20, ${height - 50})`);
+    state.sim.force("link").links(state.links);
+    state.sim.alpha(0.3).restart();
 
-    // Gradient definition
-    const defs = svg.append("defs");
-    const linearGradient = defs.append("linearGradient")
-        .attr("id", "pressure-gradient");
-
-    // Lav 10 stop på gradienten
-    for (let i = 0; i <= 10; i++) {
-        linearGradient.append("stop")
-            .attr("offset", `${i * 10}%`)
-            .attr("stop-color", colorScale(minP + (i/10) * (maxP - minP)));
-    }
-
-    // Tegn rektangel med gradient
-    legendSvg.append("rect")
-        .attr("width", legendWidth)
-        .attr("height", legendHeight)
-        .style("fill", "url(#pressure-gradient)");
-
-    // Tekst labels (Min og Max)
-    legendSvg.append("text")
-        .attr("x", 0)
-        .attr("y", -5)
-        .style("font-size", "10px")
-        .text(`${(minP/1000).toFixed(0)} kPa`);
-
-    legendSvg.append("text")
-        .attr("x", legendWidth)
-        .attr("y", -5)
-        .attr("text-anchor", "end")
-        .style("font-size", "10px")
-        .text(`${(maxP/1000).toFixed(0)} kPa`);
-        
-    legendSvg.append("text")
-        .attr("x", legendWidth / 2)
-        .attr("y", 25)
-        .attr("text-anchor", "middle")
-        .style("font-weight", "bold")
-        .style("font-size", "10px")
-        .text("Systemtryk (Absolut)");
+    updateSelectionVisuals();
+    if (state.lastModel) updateDiagramStyles();
 }
-
-
-// Helper til D3 hierarki bygning (uændret, men skal være tilgængelig)
-function buildHierarchy(node) {
-    const data = { 
-        id: node.id, 
-        type: node.type,
-        P_abs: node.P_abs,       // VIGTIGT: Send trykket med over til D3
-        calculatedKote: node.calculatedKote
-    };
-    const children = [];
-    if (node.children) {
-        node.children.forEach(c => children.push(buildHierarchy(c)));
-    }
-    return { data: data, children: children.length ? children : null };
-}
-
 
 /**
  * NY FUNKTION: Zoomer og panorerer så hele netværket er synligt.
@@ -3008,16 +2961,6 @@ function getGlobalConfig() {
  * MERGE-LOGIK: Læser både VV- og KV-listerne og samler tapsteder med samme ID til én node.
  */
 function buildModel(config) {
-    // --- SIKRING START ---
-    // Hvis funktionen kaldes uden config (f.eks. fra initDiagram eller updateDiagram),
-    // så opretter vi en minimal config baseret på UI'ets nuværende tilstand.
-    if (!config) {
-        config = {
-            // Tjek om checkboxen "Design Mode" er krydset af
-            isAuto: document.getElementById('autoDimToggle')?.checked || false
-        };
-    }
-    
     const model = { 
         tree: {id:'Beholder', type: 'beholder', children:[]}, 
         kvTree: {id:'Vandstik', type: 'vandstik', children:[]}, 
@@ -3257,7 +3200,7 @@ function beregn() {
     }
 }
 
-// hjælpefunktion til at afslutte beregningen
+// Ny hjælpefunktion til at afslutte beregningen
 function finishCalculation(model, config) {
     if (!model) {
         document.getElementById('advarsler').innerHTML = `<p class="alert alert-danger">Beregningen fejlede.</p>`;
@@ -3271,9 +3214,8 @@ function finishCalculation(model, config) {
     syncModelToState(model);
     state.lastConfig = config;
     
-    calculateSystemPressure(model);
     displayResults(model, config);
-    updateDiagram(model);
+    updateDiagram();
 }
 
 function validateCirculationLoops(model, advarslerDiv) {
@@ -4311,111 +4253,7 @@ function interpolate(x, x_pts, y_pts) {
     while (x > x_pts[i]) i++;
     return y_pts[i-1] + (y_pts[i] - y_pts[i-1]) * (x - x_pts[i-1]) / (x_pts[i] - x_pts[i-1]);
 }
-
-/**
- * Beregner det absolutte tryk (P_abs) i alle knudepunkter.
- * Tager højde for: Forsyningstryk, Geodætisk højdeforskel (Koter) og Friktionstab.
- */
-function calculateSystemPressure(model) {
-    // 1. Hent Randbetingelser fra UI
-    const startPressurePa = parseFloat(document.getElementById('pln').value) || 400000; // Default 4 bar
-    const startKote = parseFloat(document.getElementById('forsyningens_kote').value) || 0;
-    const g = 9.81; // Tyngdeacceleration
-
-    // Helper til at hente tæthed (bruger ca 1000 for koldt, 985 for varmt)
-    const getRho = (isHot) => isHot ? 985 : 999.7;
-
-    // Helper til at finde kote på en node
-    // Hvis noden ikke har en kote (f.eks. samlepunkt), arver den fra forælderen (vandret rør)
-    // Medmindre det er et tapsted, som altid har en kote.
-    const getNodeKote = (node, parentKote) => {
-        if (node.kote !== undefined && node.kote !== null && !isNaN(parseFloat(node.kote))) {
-            return parseFloat(node.kote);
-        }
-        return parentKote; 
-    };
-
-    // 2. Rekursiv funktion til at føre trykket frem (Forward Pass)
-    function propagatePressure(node, parentPressure, parentKote, isHot) {
-        // A. Bestem denne nodes kote
-        const currentKote = getNodeKote(node, parentKote);
-        node.calculatedKote = currentKote; // Gem til debug/visning
-
-        // B. Beregn trykændringer
-        // 1. Friktionstab (allerede beregnet i calculatePressureDrop som dp_tap)
-        const dp_friction = node.dp_tap || 0; 
-        
-        // 2. Geodætisk tab/gevinst (Løftehøjde)
-        // Formel: dP = rho * g * dh. (Positiv dh = opad = tryk fald)
-        const dh = currentKote - parentKote;
-        const rho = getRho(isHot);
-        const dp_elevation = dh * rho * g;
-
-        // C. Beregn Absolut Tryk i denne node
-        // P_ny = P_før - Friktion - HøjdeTab
-        // (Bemærk: dp_tap indeholder allerede negative værdier for pumper/boosters, så vi trækker det fra)
-        // Hvis dp_tap er positiv (modstand), falder trykket. Hvis booster (negativ modstand), stiger det.
-        node.P_abs = parentPressure - dp_friction - dp_elevation;
-
-        // D. Særlige komponenter
-        // Beholderen er speciel: Den starter med trykket fra KV-siden, men har et internt tab
-        if (node.id === 'Beholder') {
-             // Trykket er allerede ført frem til beholderens "indgang" via logikken her.
-             // Men vi skal trække vekslerens tryktab fra, hvis vi havde det. 
-             // For nu antager vi P_ud = P_ind (eller et lille fast tab hvis ønsket)
-             // node.P_abs -= 20000; // F.eks. 20 kPa over veksler
-        }
-
-        // Rekursion til børn
-        if (node.children) {
-            node.children.forEach(child => {
-                // Skift til 'Hot' fysik hvis vi går ind i beholderen eller er i VV
-                const childIsHot = isHot || node.id === 'Beholder';
-                propagatePressure(child, node.P_abs, currentKote, childIsHot);
-            });
-        }
-    }
-
-    // 3. Start Beregning (Koldt Vand / Vandstik)
-    // Vi antager at Vandstikket er roden.
-    const rootKV = model.nodes.get('Vandstik');
-    if (rootKV) {
-        // Sæt startværdier på selve vandstikket
-        rootKV.P_abs = startPressurePa;
-        rootKV.calculatedKote = startKote;
-        
-        // Kør ned gennem KV systemet
-        if (rootKV.children) {
-            rootKV.children.forEach(c => propagatePressure(c, startPressurePa, startKote, false));
-        }
-    }
-
-    // 4. Håndter Varmt Vand (hvis det ikke hænger direkte på KV træet i datastrukturen)
-    // I din model er Beholderen ofte en separat rod i 'strengeContainerVV'.
-    // Vi skal finde trykket dér, hvor Beholderen er tilsluttet KV.
-    const rootVV = model.nodes.get('Beholder');
-    if (rootVV) {
-        let supplyPressure = startPressurePa; // Fallback hvis ikke forbundet
-        let supplyKote = startKote;
-
-        if (state.beholderConnectionId) {
-            const feedNode = model.nodes.get(state.beholderConnectionId);
-            if (feedNode && feedNode.P_abs !== undefined) {
-                supplyPressure = feedNode.P_abs;
-                supplyKote = feedNode.calculatedKote;
-            }
-        }
-        
-        // Sæt beholderens starttryk
-        rootVV.P_abs = supplyPressure; // Her kunne fratrækkes vekslertab
-        rootVV.calculatedKote = supplyKote;
-
-        // Kør ned gennem VV systemet
-        if (rootVV.children) {
-            rootVV.children.forEach(c => propagatePressure(c, supplyPressure, supplyKote, true));
-        }
-    }
-}
+//... import/export funktioner (uændret) ...
 
 /**
  * NY HJÆLPEFUNKTION: Samler alle data fra UI og State til ét objekt.
@@ -5641,7 +5479,6 @@ function displayResults(model, config) {
     updateRorTable(model, config); 
     updateCircTable(model); 
     updateComponentTable(model); // NYT: Kalder den nye tabel
-    updateDiagram(model); // RETTELSE: Send model med over i diagrammet
 
         // 6. Opdater Vandmåler Display i UI
     model.nodes.forEach(n => {
