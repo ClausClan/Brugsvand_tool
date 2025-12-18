@@ -4272,80 +4272,80 @@ function calculateAbsolutePressures(model, config) {
     const supplyKote = config.forsyningens_kote || 0;
     
     // Nulstil
-    model.nodes.forEach(n => n.P_absolute = undefined);
+    model.nodes.forEach(n => {
+        n.P_absolute = undefined;
+        n.P_absolute_KV = undefined; // NYT
+        n.P_absolute_VV = undefined; // NYT
+    });
 
     // Hjælper til rekursiv traversering
     function traverse(nodeId, parentPressure, parentKote, context) {
         const node = model.nodes.get(nodeId);
         if (!node) return;
 
-        // 1. Bestem densitet baseret på system (KV vs VV)
-        // Bruger 10 grader for KV, Tv for VV
+        // 1. Bestem densitet
         const temp = (context === 'KV') ? 10 : config.T_v;
         const rho = getWaterDensity(temp);
 
         // 2. Bestem aktuel kote
-        // Hvis noden er et tapsted, bruges dens egen kote. Ellers arves forælderens kote (vandret føring antages)
         let currentKote = parentKote;
         if (node.type === 'tapsted') {
             currentKote = node.kote; 
         }
 
-        // 3. Beregn tab i komponenten selv (dp_tap er allerede beregnet i tidligere trin)
-        // dp_tap indeholder friktion + fittings + evt. booster/reducer effekt
+        // 3. Beregn tab i komponenten selv
         const componentLoss = node.dp_tap || 0;
 
-        // 4. Beregn geodætisk trykændring (Hydrostatisk)
-        // Positiv højdeforskel (opad) giver trykFALD.
+        // 4. Beregn geodætisk trykændring
         const h_diff = currentKote - parentKote;
         const geoLoss = rho * g * h_diff;
 
         // 5. Resultat: Trykket EFTER denne node
         let currentPressure = parentPressure - componentLoss - geoLoss;
         
-        // Gem på noden (til visualisering)
-        node.P_absolute = currentPressure;
-
-        // Special: Hvis dette er forbindelsesleddet til Beholderen, gem trykket
-        if (context === 'KV' && state.beholderConnectionId === nodeId) {
-            model.calculated_beholder_feed_pressure = currentPressure;
+        // --- RETTELSE START: Gem specifikt for KV eller VV ---
+        node.P_absolute = currentPressure; // Fallback / Generel værdi for rør
+        
+        if (context === 'KV') {
+            node.P_absolute_KV = currentPressure;
+            // Hvis det er forbindelsen til beholderen
+            if (state.beholderConnectionId === nodeId) {
+                model.calculated_beholder_feed_pressure = currentPressure;
+            }
+        } else {
+            node.P_absolute_VV = currentPressure;
         }
+        // --- RETTELSE SLUT ---
 
-        // Rekursion til børn
+        // Rekursion
         if (node.children) {
             node.children.forEach(child => traverse(child.id, currentPressure, currentKote, context));
         }
     }
 
     // A. Start med Koldt Vand
-    const startPressure = config.pln; // Pa
-    
-    // Vandstikket selv har ingen parent, så vi starter med forsyningstrykket.
-    // Vi antager Vandstikket ligger på forsyningens kote.
+    const startPressure = config.pln; 
     const vandstikNode = model.nodes.get('Vandstik');
     if (vandstikNode) {
-        vandstikNode.P_absolute = startPressure; 
-        // Start rekursion fra Vandstikket
+        vandstikNode.P_absolute = startPressure;
+        vandstikNode.P_absolute_KV = startPressure;
         if (vandstikNode.children) {
             vandstikNode.children.forEach(c => traverse(c.id, startPressure, supplyKote, 'KV'));
         }
     }
 
     // B. Start med Varmt Vand
-    // Hent det beregnede tryk fra KV-linket, eller brug config hvis intet link
     let vvStartP = model.calculated_beholder_feed_pressure || (config.pln - (model.kv_pressure_loss_to_beholder || 0));
     
     const beholderNode = model.nodes.get('Beholder');
     if (beholderNode) {
         beholderNode.P_absolute = vvStartP;
-        // Vi antager beholderen står på samme kote som forsyningen (eller det rør den er koblet til)
-        // Da vi ikke har en specifik 'Beholder Kote' input, bruger vi supplyKote som base
+        beholderNode.P_absolute_VV = vvStartP;
         if (beholderNode.children) {
             beholderNode.children.forEach(c => traverse(c.id, vvStartP, supplyKote, 'VV'));
         }
     }
 }
-
 
 
 /**
@@ -5924,7 +5924,6 @@ function updateDiagramStyles() {
 
 // Hjælper til labels (indsæt denne eller hold den inline hvis du foretrækker)
 function updateLabels(model) {
-    // 1. Hent checkbox indstillinger
     const showDim = document.getElementById('visDim').checked;
     const showDpM = document.getElementById('visTryktabLabel').checked;
     const showVel = document.getElementById('visHastighedLabel').checked;
@@ -5932,18 +5931,22 @@ function updateLabels(model) {
     const showFlow = document.getElementById('visFlow').checked;
     
     const config = state.lastConfig || {};
-    
-    // 2. FIX: Definer visMode INDE i denne funktion, så den er kendt
     const visModeInput = document.querySelector('input[name="visMode"]:checked');
     const visMode = visModeInput ? visModeInput.value : 'none';
 
-    // 3. Opdater teksten
     d3.select("#diagram svg").selectAll(".link-text").text(d => {
         const n = model.nodes.get(d.target.id);
         if (!n) return "";
 
-        // Nu kan vi bruge 'visMode' uden fejl
+        // --- RETTELSE: Vis dobbelt tryk på Tapsteder ---
         if (visMode === 'absolute_pressure') {
+             if (n.type === 'tapsted') {
+                 // Format: KV: 350 / VV: 320 kPa
+                 const pKV = (n.P_absolute_KV !== undefined) ? (n.P_absolute_KV/1000).toFixed(0) : '-';
+                 const pVV = (n.P_absolute_VV !== undefined) ? (n.P_absolute_VV/1000).toFixed(0) : '-';
+                 return `KV:${pKV} / VV:${pVV} kPa`;
+             }
+             // For rør og andre komponenter
              if (n.P_absolute !== undefined) return `${(n.P_absolute / 1000).toFixed(0)} kPa`;
         }
 
@@ -5953,20 +5956,17 @@ function updateLabels(model) {
              return "";
         }
 
-        // Håndtering af rør (VV, KV, Cirk)
+        // Håndtering af rør data (Dim, Flow, etc.)
         if (n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv') {
             const parts = [];
             const flow_ls = (n.type === 'cirkulation_vv') ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
 
-            // Vis data uafhængigt af hinanden
             if (showDim && n.nom_dim) parts.push(`${n.nom_dim}mm`);
             if (showLen && n.L !== undefined) parts.push(`${n.L}m`);
             if (showFlow) parts.push(`${flow_ls.toFixed(3)} l/s`);
             
-            // Disse kræver en dimension for at kunne beregnes
             if (n.nom_dim && ID[n.material] && ID[n.material][n.nom_dim]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
-                // Brug korrekt temp
                 const temp = (n.type === 'ror_kv') ? 10 : (n.type === 'ror_vv' ? config.T_v : (config.T_v - config.dT/2));
                 
                 if (showVel) {
@@ -5985,6 +5985,7 @@ function updateLabels(model) {
     });
 }
 
+
 /**
  * Farvelægger diagrammet baseret på resultater (Hastighed, Tryk, Temp).
  * Beregner W/m og Pa/m korrekt (ekskluderer komponenter fra skalaen).
@@ -6002,57 +6003,67 @@ function applyColorGradient(mode) {
     let valuesPipes = [];
     let valuesTempKV = [];
     let valuesTempVV = [];
-    
-    // Typer der skal farvelægges i standard views
     const pipeTypes = ['ror_vv', 'ror_kv', 'cirkulation_vv'];
 
     model.nodes.forEach(n => {
-        n._visValue = undefined;
-        n._visType = undefined;
+        n._visValue = undefined; 
+        
+        // Hent flow til beregning (uændret)
+        const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
+                     ? (model.circFlows?.get(n.id) || 0) : (n.qd || 0);
 
         let val = undefined;
-        const flow = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) 
-                     ? (model.circFlows?.get(n.id) || 0) 
-                     : (n.qd || 0);
 
         if (mode === 'velocity') {
-            if (pipeTypes.includes(n.type) && n.nom_dim && ID[n.material]) {
+             // (Samme logik som før...)
+             if (pipeTypes.includes(n.type) && n.nom_dim && ID[n.material]) {
                 const d_i = ID[n.material][n.nom_dim] / 1000;
                 val = (flow / 1000) / (Math.PI * Math.pow(d_i / 2, 2));
                 if (isFinite(val)) valuesPipes.push(val);
             }
         } 
         else if (mode === 'pressure_drop') {
-            const dp = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) ? (n.dp_circ || 0) : (n.dp_tap || 0);
-            if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
+             // (Samme logik som før...)
+             const dp = (n.type === 'cirkulation_vv' || n.type === 'valve' || n.category?.includes('return')) ? (n.dp_circ || 0) : (n.dp_tap || 0);
+             if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
                 val = dp / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
-            } else { val = dp; }
+             } else { val = dp; }
         }
         else if (mode === 'absolute_pressure') {
-            // RETTELSE: Vi samler trykket, hvis det er beregnet (ikke undefined)
-            if (n.P_absolute !== undefined) {
-                val = n.P_absolute; 
-                valuesPipes.push(val);
+            // --- RETTELSE: Saml ALLE tryk til skalaen ---
+            // Hvis noden har KV tryk, tilføj til puljen
+            if (n.P_absolute_KV !== undefined) valuesPipes.push(n.P_absolute_KV);
+            // Hvis noden har VV tryk, tilføj til puljen
+            if (n.P_absolute_VV !== undefined) valuesPipes.push(n.P_absolute_VV);
+            
+            // Fallback for noder der kun har generelt tryk (rør)
+            if (n.P_absolute !== undefined && n.P_absolute_KV === undefined && n.P_absolute_VV === undefined) {
+                valuesPipes.push(n.P_absolute);
             }
         }
         else if (mode === 'heat_loss') {
-            if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
+             // (Samme logik som før...)
+             if (pipeTypes.includes(n.type) && n.nom_dim && n.L > 0) {
                 val = (n.q_tab || 0) / n.L;
                 if (isFinite(val)) valuesPipes.push(val);
             }
-        } 
+        }
         else if (mode === 'temp') {
             val = model.nodeTemps ? (model.nodeTemps.get(n.id)) : undefined;
         }
 
-        if (val !== undefined) n._visValue = val;
+        // Gem en "default" visValue (mest relevant for ikke-tapsteder)
+        if (mode === 'absolute_pressure') {
+            n._visValue = n.P_absolute; // Default
+        } else if (val !== undefined) {
+            n._visValue = val;
+        }
 
-        // Bestem Visuel Type (KV/VV) til temperaturvisning
+        // Temperatur Logik (Uændret)
         let isKV = (n.category && n.category.startsWith('cold_')) || 
                    n.type === 'ror_kv' || n.type === 'vandstik' || 
                    (n.type === 'tapsted' && n.tapType && ST[n.tapType] && ST[n.tapType].mode === 'cold_only');
-        
         if (mode === 'temp' && val !== undefined && val < 28) isKV = true;
         n._visType = isKV ? 'KV' : 'VV';
 
@@ -6062,38 +6073,21 @@ function applyColorGradient(mode) {
         }
     });
 
-    // Opret Farveskalaer
+    // Skalaer (Uændret logik, men bruger nu de opdaterede valuesPipes)
     let scaleMain, scaleKV, scaleVV;
-
     if (mode === 'temp') {
-        const minKV = d3.min(valuesTempKV) || 10;
-        const maxKV = d3.max(valuesTempKV) || 20;
+        const minKV = d3.min(valuesTempKV) || 10; const maxKV = d3.max(valuesTempKV) || 20;
         state.tempDomains = { kv: [minKV, maxKV] };
         scaleKV = d3.scaleLinear().domain([minKV, maxKV]).range(["#87CEFA", "#006400"]);
-
-        const minVV = d3.min(valuesTempVV) || 50;
-        const maxVV = d3.max(valuesTempVV) || 55;
+        const minVV = d3.min(valuesTempVV) || 50; const maxVV = d3.max(valuesTempVV) || 55;
         if(state.tempDomains) state.tempDomains.vv = [minVV, maxVV];
         scaleVV = d3.scaleLinear().domain([minVV, maxVV]).range(["#98FB98", "#8B0000"]);
-
     } else if (mode === 'absolute_pressure') {
-        // RETTELSE: Dynamisk skala baseret på min/max i nuværende view
-        let minP = d3.min(valuesPipes);
-        let maxP = d3.max(valuesPipes);
-        
-        // Fallback hvis ingen værdier
-        if (minP === undefined) minP = 0;
-        if (maxP === undefined) maxP = state.lastConfig.pln || 400000;
-        
-        // Undgå division med nul hvis min=max
+        let minP = d3.min(valuesPipes); let maxP = d3.max(valuesPipes);
+        if (minP === undefined) minP = 0; if (maxP === undefined) maxP = 400000;
         if (minP === maxP) { minP -= 1000; maxP += 1000; }
-
-        state.visDomain = [minP, maxP]; // Gem til legend
-
-        // Brug Turbo farver (Regnbue) eller Rød-Gul-Blå.
-        // Her: Turbo interpolator som dækker hele spektret dynamisk
+        state.visDomain = [minP, maxP];
         scaleMain = d3.scaleSequential(d3.interpolateTurbo).domain([minP, maxP]); 
-
     } else {
         let domain = d3.extent(valuesPipes);
         if (!domain[0] && domain[0] !== 0) domain = [0, 1];
@@ -6102,30 +6096,47 @@ function applyColorGradient(mode) {
         state.visDomain = domain;
     }
     
-    // Påfør farver
+    // --- STYLING AF LINKS (Farvelægning) ---
     d3.selectAll("#diagram svg line[class^='link-']")
       .style('stroke', function(d) {
           if (!d || !d.target) return null;
           if (d.type === 'kv_feed' && mode !== 'temp') return null; 
 
           const n = model.nodes.get(d.target.id);
-          if (!n || n._visValue === undefined) return '#ccc';
+          if (!n) return '#ccc';
 
+          // HENT DEN RIGTIGE VÆRDI BASERET PÅ LINK TYPE
+          let valueToColor = n._visValue;
+
+          if (mode === 'absolute_pressure') {
+              // Hvis det er et koldtvandsrør der går ind i noden, vis KV tryk
+              if (d.type === 'ror_kv' && n.P_absolute_KV !== undefined) {
+                  valueToColor = n.P_absolute_KV;
+              } 
+              // Hvis det er et varmtvandsrør (fremløb), vis VV tryk
+              else if (d.type === 'fremløb' && n.P_absolute_VV !== undefined) {
+                  valueToColor = n.P_absolute_VV;
+              }
+              // Ellers brug default (n.P_absolute)
+          }
+
+          if (valueToColor === undefined) return '#ccc';
+
+          // Resten af farvelægningslogikken (uændret)
           if ((mode === 'pressure_drop' || mode === 'heat_loss') && !pipeTypes.includes(n.type)) {
-              if (mode === 'pressure_drop' && n._visValue < 0) return '#28a745'; // Booster (grøn)
-              if (mode === 'pressure_drop' && n._visValue > 0) return '#dc3545'; // Reducer (rød)
+              if (mode === 'pressure_drop' && valueToColor < 0) return '#28a745';
+              if (mode === 'pressure_drop' && valueToColor > 0) return '#dc3545';
               return '#999'; 
           }
 
           if (mode === 'temp') {
-              return (n._visType === 'KV') ? scaleKV(n._visValue) : scaleVV(n._visValue);
+              return (n._visType === 'KV') ? scaleKV(valueToColor) : scaleVV(valueToColor);
           } else {
-              return scaleMain(n._visValue);
+              return scaleMain(valueToColor);
           }
       })
       .style('opacity', 1);
 }
-
 
 function highlightCriticalPath() {
     if (!state.lastModel) return;
