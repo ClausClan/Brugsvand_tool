@@ -6204,75 +6204,89 @@ function updateLegend() {
     const legendDiv = document.getElementById('diagram-legend');
     const visLegendChk = document.getElementById('visLegend');
     
+    // Tjek om legend skal vises
     if (!visLegendChk || !visLegendChk.checked || !state.lastModel) {
         legendDiv.style.display = 'none';
         return;
     }
 
     legendDiv.style.display = 'block';
-    legendDiv.className = 'p-2 bg-light border rounded shadow-sm';
-    legendDiv.style.cssText = `
-        position: absolute; 
-        bottom: 10px; 
-        left: 10px; 
-        font-size: 0.75rem; 
-        background: rgba(255,255,255,0.9); 
-        pointer-events: none;
-    `;
+    
+    // Styling (uændret)
+    legendDiv.style.position = 'absolute';
+    legendDiv.style.bottom = '10px';
+    legendDiv.style.left = '10px';
+    legendDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+    legendDiv.style.padding = '8px';
+    legendDiv.style.border = '1px solid #ccc';
+    legendDiv.style.borderRadius = '4px';
+    legendDiv.style.fontSize = '12px';
+    legendDiv.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+    legendDiv.style.zIndex = '1000';
 
-    const visMode = document.querySelector('input[name="visMode"]:checked').value;
+    const visModeInput = document.querySelector('input[name="visMode"]:checked');
+    const visMode = visModeInput ? visModeInput.value : 'none';
     const showCritical = document.getElementById('visKritisk').checked;
 
     let html = '';
 
+    // 1. Visning: Kritisk Streng
     if (showCritical) {
-        html = `<div><span style="background-color:#007bff; display:inline-block; width:15px; height:8px; margin-right:5px;"></span> Kritisk Streng</div>`;
+        html = `<div><span style="background-color:#FF4500; display:inline-block; width:15px; height:8px; margin-right:5px;"></span> Kritisk VV</div>
+                <div><span style="background-color:#00BFFF; display:inline-block; width:15px; height:8px; margin-right:5px;"></span> Kritisk KV</div>`;
     } 
+    // 2. Visning: Temperatur
     else if (visMode === 'temp' && state.tempDomains) {
-        const dKV = state.tempDomains.kv;
-        const dVV = state.tempDomains.vv;
+        const dKV = state.tempDomains.kv || [10, 10];
+        const dVV = state.tempDomains.vv || [55, 55];
         
-        // KV Bar (Lys Blå -> Mørk Grøn)
-        html += `<div class="mb-1"><strong>Koldt Vand</strong></div>`;
+        html += `<div class="mb-1"><strong>Koldt Vand (°C)</strong></div>`;
         html += `<div style="display:flex; align-items:center; margin-bottom:8px;">
-                    <span style="margin-right:5px">${dKV[0].toFixed(1)}°</span>
+                    <span style="margin-right:5px">${dKV[0].toFixed(1)}</span>
                     <div style="flex-grow:1; height:8px; width:100px; background: linear-gradient(to right, #87CEFA, #006400);"></div>
-                    <span style="margin-left:5px">${dKV[1].toFixed(1)}°</span>
+                    <span style="margin-left:5px">${dKV[1].toFixed(1)}</span>
                  </div>`;
-        
-        // VV Bar (Lys Grøn -> Mørkerød)
-        html += `<div class="mb-1"><strong>Varmt Vand</strong></div>`;
+        html += `<div class="mb-1"><strong>Varmt Vand (°C)</strong></div>`;
         html += `<div style="display:flex; align-items:center;">
-                    <span style="margin-right:5px">${dVV[0].toFixed(1)}°</span>
+                    <span style="margin-right:5px">${dVV[0].toFixed(1)}</span>
                     <div style="flex-grow:1; height:8px; width:100px; background: linear-gradient(to right, #98FB98, #8B0000);"></div>
-                    <span style="margin-left:5px">${dVV[1].toFixed(1)}°</span>
+                    <span style="margin-left:5px">${dVV[1].toFixed(1)}</span>
                  </div>`;
     } 
+    // 3. Visning: Absolut Tryk (RETTET HER)
+    else if (visMode === 'absolute_pressure' && state.visDomain) {
+        // Konverter Pa til kPa
+        const minKPa = state.visDomain[0] / 1000;
+        const maxKPa = state.visDomain[1] / 1000;
+        
+        // Overskrift: kPa
+        // Værdier: Heltal (.toFixed(0))
+        html = `<div><strong>kPa</strong></div>
+                <div style="display:flex; align-items:center; margin-top:2px;">
+                    <span style="margin-right:5px">${minKPa.toFixed(0)}</span>
+                    <div style="height:10px; width:120px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
+                    <span style="margin-left:5px">${maxKPa.toFixed(0)}</span>
+                </div>
+                <div style="margin-top:2px; color:#666; font-size:10px;">Lavt Tryk ↔️ Højt Tryk</div>`;
+    }
+    // 4. Øvrige visninger (Hastighed, Tryktab pr m, Varmetab)
     else if (visMode !== 'none' && state.visDomain) {
         const minVal = state.visDomain[0];
         const maxVal = state.visDomain[1];
-        const units = { velocity: 'm/s', pressure_drop: 'Pa/m', heat_loss: 'W/m'};
         
-        html = `<div><strong>${units[visMode]}</strong></div>
+        const units = { 
+            velocity: 'Hastighed (m/s)', 
+            pressure_drop: 'Tryktab (Pa/m)', 
+            heat_loss: 'Varmetab (W/m)'
+        };
+        const title = units[visMode] || visMode; // Fallback hvis undefined
+
+        html = `<div><strong>${title}</strong></div>
                 <div style="display:flex; align-items:center; margin-top:2px;">
                     <span style="margin-right:5px">${minVal.toFixed(2)}</span>
                     <div style="height:8px; width:120px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
                     <span style="margin-left:5px">${maxVal.toFixed(2)}</span>
                 </div>`;
-                } 
-    else if (visMode === 'absolute_pressure' && state.visDomain) {
-        // RETTELSE: Brug state.visDomain som vi beregnede i applyColorGradient
-        // Konverter til kPa for visning
-        const minKPa = state.visDomain[0] / 1000;
-        const maxKPa = state.visDomain[1] / 1000;
-        
-        html = `<div><strong>Trykprofil (Absolut)</strong></div>
-                <div style="display:flex; align-items:center; margin-top:2px; font-size:10px;">
-                    <span style="margin-right:5px">${minKPa.toFixed(0)} kPa</span>
-                    <div style="height:10px; width:120px; background: linear-gradient(to right, ${d3.interpolateTurbo(0)}, ${d3.interpolateTurbo(0.5)}, ${d3.interpolateTurbo(1)}); border-radius: 2px;"></div>
-                    <span style="margin-left:5px">${maxKPa.toFixed(0)} kPa</span>
-                </div>
-                <div style="margin-top:2px; color:#666;">Lavt Tryk ↔️ Højt Tryk</div>`;
     }
     else {
         legendDiv.style.display = 'none';
@@ -6280,7 +6294,6 @@ function updateLegend() {
     
     legendDiv.innerHTML = html;
 }
-
 
 // =================================================================================
 // == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING
