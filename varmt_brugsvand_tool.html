@@ -366,7 +366,7 @@
   <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#summary" type="button">Opsummering</button></li>
   <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#beholder" type="button">Beholder</button></li>
   <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rør" type="button">Rørdata</button></li>
-  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cirkulation" type="button">Cirkulation</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cirkulation" type="button">Komponenter</button></li>
 </ul>
                     <div class="tab-content pt-3">
                       <div class="tab-pane fade show active" id="summary" role="tabpanel"><table class="table table-sm"><tbody id="summaryTableBody"></tbody></table></div>
@@ -5807,7 +5807,8 @@ function updateComponentTable(model) {
 
     const components = [];
     model.nodes.forEach(n => {
-        if (n.type === 'booster' || n.type === 'reducer') {
+        // RETTELSE: Vi inkluderer nu også 'meter'
+        if (n.type === 'booster' || n.type === 'reducer' || n.type === 'meter') {
             components.push(n);
         }
     });
@@ -5817,7 +5818,7 @@ function updateComponentTable(model) {
         return;
     }
 
-    let html = `<h5>Aktive Komponenter</h5>
+    let html = `<h5>Aktive Komponenter & Målere</h5>
     <table class="table table-sm table-bordered table-hover">
         <thead>
             <tr>
@@ -5831,19 +5832,38 @@ function updateComponentTable(model) {
         <tbody>`;
 
     components.forEach(n => {
-        const pChangeKPa = n.pressure_change || 0;
-        const pChangePa = pChangeKPa * 1000;
-        // For booster er effektivt tryk positivt i denne visning (selvom det er negativt dp i beregningen)
-        const effect = (n.type === 'booster') ? `+${pChangePa}` : `${pChangePa}`; 
-        
         // Find flow (kan være qd eller cirkulation afhængig af placering)
         const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
+
+        let typeName = 'Ukendt';
+        let settingVal = '-';
+        let effectVal = '0';
+
+        if (n.type === 'booster') {
+            typeName = 'Trykforøger';
+            const val = n.pressure_change || 0;
+            settingVal = val; 
+            effectVal = `+${(val * 1000).toFixed(0)}`;
+
+        } else if (n.type === 'reducer') {
+            typeName = 'Reduktionsventil';
+            const val = n.pressure_change || 0;
+            settingVal = val;
+            effectVal = `${(val * 1000).toFixed(0)}`;
+
+        } else if (n.type === 'meter') {
+            typeName = 'Måler';
+            settingVal = '-'; 
+            // For målere henter vi det beregnede tryktab (dp_tap eller dp_circ)
+            const loss = (n.dp_tap || 0) + (n.dp_circ || 0); 
+            effectVal = `-${loss.toFixed(0)}`; // Vises som tab (minus)
+        }
         
         html += `<tr>
             <td>${getDisplayName(n.id)}</td>
-            <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktionsventil'}</td>
-            <td>${pChangeKPa}</td>
-            <td><strong>${effect}</strong></td>
+            <td>${typeName}</td>
+            <td>${settingVal}</td>
+            <td><strong>${effectVal}</strong></td>
             <td>${flow.toFixed(3)}</td>
         </tr>`;
     });
