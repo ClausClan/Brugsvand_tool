@@ -4908,13 +4908,19 @@ function loadProjectData(data) {
                 else el.value = v;
             }
         });
+        // Opdater state.lastConfig så diagrammet kan tegnes korrekt med det samme
+        state.lastConfig = data.config;
         toggleAutoDim(data.config.isAuto);
     }
     
-    state.names = new Map(data.names);
+    // RETTELSE HER: Tilføjet '|| []' for at sikre mod null-værdier i gamle filer
+    state.names = new Map(data.names || []);
+    
     state.beholderConnectionId = data.beholderConnectionId || null;
     state.nodes = data.nodePositions || [];
     state.customTapsteder = data.customTapsteder || {};
+    // VIGTIGT: Nulstil lastModel så vi ikke tegner gamle resultater på nye data før beregning
+    state.lastModel = null;
 
     // Genskab Custom Tapsteder
     Object.keys(state.customTapsteder).forEach(k => {
@@ -4929,7 +4935,7 @@ function loadProjectData(data) {
     Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}])) : {});
     updateTapstedOptions();
 
-    // 3. SCAN ID'ER (Tællere) - Uændret logik
+    // 3. SCAN ID'ER (Tællere)
     const scanList = (list, prefix) => {
         if (!list) return;
         list.forEach(item => {
@@ -4992,7 +4998,6 @@ function loadProjectData(data) {
                 mSel.value = item.meterType || "Auto";
                 tr.dataset.meterType = item.meterType || "Auto";
             }
-            // Vis evt beregnet tab hvis det findes i gemt data (valgfrit)
         }
 
         const tapSel = tr.querySelector('.tapType');
@@ -5028,10 +5033,9 @@ function loadProjectData(data) {
         const tapCont = card.querySelector('.tapsted-container');
         
         (s.ror || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'ror_vv' hvis den mangler, men bevar booster/reducer
             let type = item.type;
             if (!type || type === 'ror') type = 'ror_vv'; 
-            if (type === 'booster' || type === 'reducer') type = item.type; // Behold komponenter
+            if (type === 'booster' || type === 'reducer') type = item.type;
 
             const tr = createRowHTML(item.id, type);
             applyData(tr, item);
@@ -5039,7 +5043,6 @@ function loadProjectData(data) {
         });
         
         (s.tapsted || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'tapsted'
             const tr = createRowHTML(item.id, 'tapsted');
             applyData(tr, item);
             tapCont.appendChild(tr);
@@ -5058,7 +5061,6 @@ function loadProjectData(data) {
         const tapCont = card.querySelector('.tapsted-container');
         
         (s.ror || []).forEach(item => {
-            // VIGTIGT: Tving typen til 'ror_kv' hvis den mangler
             let type = item.type;
             if (!type || type === 'ror') type = 'ror_kv';
             if (type === 'booster' || type === 'reducer') type = item.type;
@@ -5077,7 +5079,6 @@ function loadProjectData(data) {
     // --- BYG RETUR / KOMPONENTER ---
     const returItems = data.retur_komponenter || [...(data.cirkulation_vv||[]), ...(data.retur||[]), ...(data.valves||[])];
     returItems.forEach(item => {
-        // Fallback logik for gamle data
         let type = item.type;
         if (!type) {
             if (item.valveType) type = 'valve';
@@ -5116,11 +5117,14 @@ function loadProjectData(data) {
 
     updateAllSelects();
     toggleDisplayNames(state.useNames);
+    
+    // Sikre at lastConfig er sat, hvis data.config manglede
+    if (!state.lastConfig) state.lastConfig = getGlobalConfig();
+    
     setTimeout(zoomToFit, 100);
     
-    console.log("Projekt indlæst komplet og typer repareret.");
+    console.log("Projekt indlæst komplet.");
 }
-
 
 /**
  * Genererer HTML-rækker manuelt til Load-processen.
