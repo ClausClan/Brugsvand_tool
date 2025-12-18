@@ -5797,8 +5797,8 @@ function updateComponentTable(model) {
     // Find eller opret container til komponent-tabel
     let container = document.getElementById('componentResults');
     if (!container) {
-        // Indsæt den efter cirkulations-tabellen
-        const parent = document.getElementById('cirkulation'); // Tab-pane
+        const parent = document.getElementById('cirkulation'); // Eller 'components-content' afhængig af dine faner
+        if (!parent) return; 
         container = document.createElement('div');
         container.id = 'componentResults';
         container.className = 'mt-4';
@@ -5810,28 +5810,31 @@ function updateComponentTable(model) {
     const meters = [];           // Målere
 
     model.nodes.forEach(n => {
+        // Tjek for Pumper/Ventiler
         if (n.type === 'booster' || n.type === 'reducer') {
             activeComponents.push(n);
         }
-        // Tjek for målere (både på type og kategori/navn for sikkerheds skyld)
+        
+        // Tjek for Målere (Både type og navn for en sikkerheds skyld)
+        // Her er rettelsen, der får dem frem:
         if (n.type === 'meter' || n.category === 'meter' || (n.id && n.id.toLowerCase().includes('måler'))) {
             meters.push(n);
         }
     });
 
-    // Hvis intet er fundet, tøm og returner
+    // Hvis intet er fundet
     if (activeComponents.length === 0 && meters.length === 0) {
-        container.innerHTML = '';
+        container.innerHTML = '<p class="text-muted fst-italic mt-3">Ingen aktive komponenter eller målere fundet.</p>';
         return;
     }
 
     let html = '';
 
-    // --- TABEL 1: AKTIVE KOMPONENTER (Booster / Reducer) ---
+    // --- TABEL 1: PUMPER & VENTILER ---
     if (activeComponents.length > 0) {
         html += `<h5>Aktive Komponenter</h5>
         <table class="table table-sm table-bordered table-hover mb-4">
-            <thead>
+            <thead class="table-light">
                 <tr>
                     <th>ID/Navn</th>
                     <th>Type</th>
@@ -5846,8 +5849,6 @@ function updateComponentTable(model) {
             const pChangeKPa = n.pressure_change || 0;
             const pChangePa = pChangeKPa * 1000;
             const effect = (n.type === 'booster') ? `+${pChangePa.toFixed(0)}` : `${pChangePa.toFixed(0)}`; 
-            
-            // Find flow
             const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
             
             html += `<tr>
@@ -5861,39 +5862,48 @@ function updateComponentTable(model) {
         html += `</tbody></table>`;
     }
 
-    // --- TABEL 2: MÅLERE (Ny tabel med Size og Kv) ---
+    // --- TABEL 2: MÅLERE (Ny visning) ---
     if (meters.length > 0) {
         html += `<h5>Målere</h5>
         <table class="table table-sm table-bordered table-hover">
-            <thead>
+            <thead class="table-light">
                 <tr>
-                    <th>Måler ID</th>
-                    <th>Dimension</th>
+                    <th>ID</th>
+                    <th>Dim.</th>
                     <th>Kv-værdi</th>
                     <th>Flow [l/s]</th>
-                    <th>Tryktab [kPa]</th>
+                    <th>Tab [kPa]</th>
                 </tr>
             </thead>
             <tbody>`;
 
-        meters.forEach(m => {
-            // Flow: Kan ligge i circFlows hvis den sidder på cirkulationen, ellers qd
+        // Sorter for pæn rækkefølge
+        meters.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+
+        meters.forEach((m, index) => {
+            // LAV PÆNT ID (M1, M2...) hvis det mangler
+            let displayName = getDisplayName(m.id);
+            // Hvis navnet er langt og grimt (node_...), så kald den M + nummer
+            if (displayName.startsWith('node_') || displayName.length > 8) {
+                displayName = `M${index + 1}`; 
+            }
+
+            // Data udtræk
+            const dim = m.nom_dim ? `${m.nom_dim} mm` : '-';
+            const kv = m.kv_value ? m.kv_value.toFixed(2) : '-';
+            
+            // Flow: Tjek om den sidder på cirkulation eller tap
             let flow = m.qd || 0;
             if (model.circFlows && model.circFlows.has(m.id)) {
                 flow = model.circFlows.get(m.id);
             }
 
-            // Dimension og Kv
-            const dim = m.nom_dim ? `${m.nom_dim} mm` : '-';
-            const kv = m.kv_value ? m.kv_value.toFixed(2) : '-';
-
-            // Tryktab: Summen af tappetab og cirkulationstab (en af dem er typisk 0)
-            // Vi dividerer med 1000 for at få kPa
+            // Tryktab i kPa
             const dpPa = (m.dp_tap || 0) + (m.dp_circ || 0);
             const dpKPa = dpPa / 1000;
 
             html += `<tr>
-                <td>${getDisplayName(m.id)}</td>
+                <td><strong>${displayName}</strong></td>
                 <td>${dim}</td>
                 <td>${kv}</td>
                 <td>${flow.toFixed(3)}</td>
@@ -5905,7 +5915,6 @@ function updateComponentTable(model) {
 
     container.innerHTML = html;
 }
-
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
