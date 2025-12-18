@@ -6765,7 +6765,7 @@ async function generateReportHTML() {
         
         pathSet.forEach(id => {
             const n = model.nodes.get(id);
-            if (!n || (!n.type.includes('ror') && !['booster','reducer','vandstik'].includes(n.type))) return;
+            if (!n || (!n.type.includes('ror') && !['booster','reducer','vandstik','water_meter'].includes(n.type))) return;
             
             const flow = n.qd || 0;
             let dp = n.dp_tap || 0; 
@@ -6777,7 +6777,7 @@ async function generateReportHTML() {
             let vel = 0;
             let pa_pr_m = 0;
             let dimStr = '-';
-            let matStr = n.material || n.type; // Brug materiale, fallback til type (for vandstik/booster)
+            let matStr = n.material || n.type; // Brug materiale, fallback til type
 
             if (n.nom_dim) {
                 dimStr = `${n.nom_dim} mm`;
@@ -6789,8 +6789,10 @@ async function generateReportHTML() {
                     pa_pr_m = dp / n.L;
                 }
             } else {
-                // For komponenter uden dimension (Booster etc.)
-                matStr = (n.type === 'booster' ? 'Trykforøger' : (n.type === 'reducer' ? 'Reduktion' : n.type));
+                // Navngivning for komponenter
+                if (n.type === 'booster') matStr = 'Trykforøger';
+                else if (n.type === 'reducer') matStr = 'Reduktion';
+                else if (n.type === 'water_meter') matStr = 'Vandmåler';
             }
 
             rows += `<tr>
@@ -6817,7 +6819,7 @@ async function generateReportHTML() {
         </table>`;
     };
 
-    // Helper: Tabelrække til Journaler (Uændret)
+    // Helper: Tabelrække til Journaler
     const generateRow = (n) => {
         if (!n.nom_dim) return '';
         const isCirc = n.type.includes('cirk') || n.type === 'valve' || n.category?.includes('return');
@@ -6845,18 +6847,40 @@ async function generateReportHTML() {
 
     const nodes = Array.from(model.nodes.values()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
     
-    let htmlVV = '', htmlKV = '', htmlCirc = '', htmlComp = '';
+    // Variabler til HTML-sektioner
+    let htmlVV = '', htmlKV = '', htmlCirc = '', htmlComp = '', htmlMeters = '';
 
     nodes.forEach(n => {
         if (n.type === 'ror_vv') htmlVV += generateRow(n);
         else if (n.type === 'ror_kv') htmlKV += generateRow(n);
         else if (n.type === 'cirkulation_vv') htmlCirc += generateRow(n);
+        
+        // Aktive komponenter (Pumper/Reducere)
         else if (n.type === 'booster' || n.type === 'reducer') {
             htmlComp += `<tr>
                 <td>${getDisplayName(n.id)}</td>
                 <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktion'}</td>
                 <td>${(n.pressure_change||0)} kPa</td>
                 <td>${(model.circFlows?.get(n.id) || n.qd || 0).toFixed(3)} l/s</td>
+            </tr>`;
+        }
+        
+        // Målere
+        else if (n.type === 'water_meter') {
+            const dimStr = n.nom_dim ? `${n.nom_dim} mm` : '-';
+            const kvStr = n.meterKv ? n.meterKv.toFixed(1) : (n.kv_value ? n.kv_value.toFixed(1) : '-');
+            const typeStr = n.meterType || (n.autoMeterName ? `Auto: ${n.autoMeterName}` : 'Standard');
+            // Hent flow (kan være circ eller qd)
+            const flowVal = (model.circFlows?.get(n.id) || n.qd || 0);
+            const dpVal = (n.dp_tap || 0) + (n.dp_circ || 0);
+
+            htmlMeters += `<tr>
+                <td>${getDisplayName(n.id)}</td>
+                <td>${typeStr}</td>
+                <td>${dimStr}</td>
+                <td>${kvStr}</td>
+                <td>${flowVal.toFixed(3)} l/s</td>
+                <td>${dpVal.toFixed(0)} Pa</td>
             </tr>`;
         }
     });
@@ -6915,12 +6939,11 @@ async function generateReportHTML() {
             .ok { color: green; font-weight: bold; }
             .danger { color: red; font-weight: bold; }
             
-            /* RETTET LAYOUT FOR BILAG (Fuld Side) */
             .diagram-page { 
                 page-break-before: always; 
                 position: relative;
                 width: 100%;
-                height: 100vh; /* Fylder hele siden */
+                height: 100vh;
                 overflow: hidden;
                 border: none;
                 margin: 0; padding: 0;
@@ -6942,17 +6965,10 @@ async function generateReportHTML() {
                 position: absolute;
                 top: 50%;
                 left: 50%;
-                /* Roter 90 grader */
                 transform: translate(-50%, -50%) rotate(90deg);
-                
-                /* TVING STØRRELSE TIL AT FYLDE SIDEN */
-                /* Da den er roteret, skal 'width' matche sidens højde (vh) */
                 width: 90vh; 
                 height: auto;
-                
-                /* Begræns så den ikke bliver bredere end sidens bredde (når roteret) */
                 max-height: 95vw; 
-                
                 border: 1px solid #eee;
                 box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             }
@@ -6961,8 +6977,8 @@ async function generateReportHTML() {
                 .no-print { display: none; } 
                 .page-break { page-break-before: always; } 
                 .diagram-page { height: 100vh; }
-                @page { margin: 0; } /* Fjern marginer for at maksimere diagrammet */
-                body { padding: 1cm; } /* Lidt padding på tekstsider */
+                @page { margin: 0; }
+                body { padding: 1cm; }
                 .diagram-page { padding: 0; }
             }
         </style>
@@ -7014,6 +7030,8 @@ async function generateReportHTML() {
         <table class="data"><thead><tr><th>ID</th><th>Materiale</th><th>Dim</th><th>Længde</th><th>Flow [l/s]</th><th>v [m/s]</th><th>Δp [Pa]</th><th>Isolering</th><th>W/m</th></tr></thead><tbody>${htmlCirc || '<tr><td colspan="9">Ingen data</td></tr>'}</tbody></table>
 
         ${htmlComp ? `<h2>5. Aktive Komponenter</h2><table class="data"><thead><tr><th>ID</th><th>Type</th><th>Indstilling</th><th>Aktuelt Flow</th></tr></thead><tbody>${htmlComp}</tbody></table>` : ''}
+
+        ${htmlMeters ? `<h2>6. Vandmålere</h2><table class="data"><thead><tr><th>ID</th><th>Type</th><th>Dim.</th><th>Kv-værdi</th><th>Flow</th><th>Tryktab</th></tr></thead><tbody>${htmlMeters}</tbody></table>` : ''}
 
         <div class="page-break"></div>
         
