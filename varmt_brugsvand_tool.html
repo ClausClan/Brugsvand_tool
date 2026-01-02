@@ -539,7 +539,12 @@
 <div id="diagram" class="flex-grow-1 position-relative">
                         <div id="diagram-legend" class="p-2 bg-light border rounded" style="position:absolute; bottom:10px; right:10px; display:none; font-size: 0.8rem;"></div>
                     </div>
-                </div> </div> </div> </div> </div> <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+                </div> </div> </div> </div> </div> 
+
+
+
+
+<div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-light">
@@ -751,6 +756,49 @@
         </div>
     </div>
 </div>
+
+
+
+<div class="modal fade" id="editNodeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white py-2">
+                <h6 class="modal-title" id="editNodeTitle">Rediger Node</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editNodeForm">
+                    <div class="mb-2 row">
+                        <label class="col-sm-4 col-form-label col-form-label-sm fw-bold">ID / Type</label>
+                        <div class="col-sm-8">
+                            <input type="text" class="form-control form-control-sm" id="editNodeId" readonly disabled>
+                            <input type="hidden" id="editNodeType"> </div>
+                    </div>
+
+                    <div class="mb-2 row" id="editNodeNameRow">
+                        <label class="col-sm-4 col-form-label col-form-label-sm">Navn</label>
+                        <div class="col-sm-8">
+                            <input type="text" class="form-control form-control-sm" id="editNodeName">
+                            <div class="form-text" id="editNodeNameHint" style="font-size:10px; display:none;">Slå "Vis Navne" til for at redigere.</div>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+
+                    <div id="editNodeDynamicContent">
+                        </div>
+                </form>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuller</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveEditModal()">Gem Ændringer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
 
 <template id="kvStrengTemplate">
     <div class="card mb-3 streng-card kv-card" data-type="streng-card-kv" style="border-left: 4px solid #0d6efd;">
@@ -2614,7 +2662,14 @@ function updateDiagram() {
         .attr("class", "node")
         .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
         .on('click', handleNodeClick)
-        .on('contextmenu', handleNodeRightClick);
+        .on('contextmenu', function(event, d) {
+        if (event.shiftKey) {
+            event.preventDefault();
+            showEditModal(d);
+        } else {
+            handleNodeRightClick(event, d);
+        }
+        });
 
     node.each(function(d) {
         const group = d3.select(this);
@@ -2758,6 +2813,7 @@ function updateDiagram() {
     updateSelectionVisuals();
     if (state.lastModel) updateDiagramStyles();
 }
+
 
 /**
  * NY FUNKTION: Zoomer og panorerer så hele netværket er synligt.
@@ -8015,6 +8071,229 @@ function showConnectHint() {
 
     modal.show();
 }
+
+// Global variabel til at huske hvilken node vi redigerer
+let currentNodeData = null;
+
+function showEditModal(d) {
+    currentNodeData = d;
+    const modalEl = document.getElementById('editNodeModal');
+    const modal = new bootstrap.Modal(modalEl);
+    
+    // 1. Sæt ID og Navn
+    document.getElementById('editNodeId').value = `${getDisplayName(d.id)} (${d.type})`;
+    document.getElementById('editNodeType').value = d.type;
+
+    // Håndter Navn-feltet (Tjek global switch)
+    const nameInput = document.getElementById('editNodeName');
+    const nameHint = document.getElementById('editNodeNameHint');
+    const showNames = document.getElementById('visNavne').checked;
+    
+    // Find navnet (enten fra trækassen eller noden)
+    let currentName = "";
+    if (d.id === 'Vandstik' || d.id === 'Beholder') {
+        currentName = d.id; // Disse navne er faste
+        nameInput.disabled = true;
+    } else {
+        // Find input feltet i tabellen
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        if (tr) {
+            const nInp = tr.querySelector('.navn');
+            if (nInp) currentName = nInp.value;
+        }
+        nameInput.disabled = !showNames;
+        nameHint.style.display = showNames ? 'none' : 'block';
+    }
+    nameInput.value = currentName;
+
+    // 2. Byg Dynamisk Indhold
+    const container = document.getElementById('editNodeDynamicContent');
+    container.innerHTML = ''; // Rens
+
+    let html = '';
+
+    // --- CASE A: VANDSTIK (Globale Inputs) ---
+    if (d.id === 'Vandstik') {
+        // Hent værdier fra venstre sidebar
+        const kote = document.getElementById('forsyningens_kote').value;
+        const tryk = document.getElementById('pln').value; // Typisk Pa
+        const temp = document.getElementById('T_k').value;
+
+        html += buildInputRow('Kote (m)', 'edit_kote', kote, 'number', 'step="0.1"');
+        html += buildInputRow('Forsyningstryk (Pa)', 'edit_tryk', tryk, 'number', '');
+        html += buildInputRow('KV Temperatur (°C)', 'edit_temp', temp, 'number', 'step="0.1"');
+    }
+
+    // --- CASE B: BEHOLDER (Globale Inputs) ---
+    else if (d.id === 'Beholder') {
+        // Bemærk: Beholderens kote er lidt tricky, da den ofte er defineret af det rør den sidder på, 
+        // eller er implicit. Her antager vi, at der findes et felt eller vi bruger en node-property hvis muligt.
+        // Hvis du ikke har et specifikt "Beholder Kote" input felt i sidebaren, må vi improvisere.
+        // Her mapper jeg til standard VV konfiguration:
+        
+        const tempV = document.getElementById('T_v').value;
+        const dT = document.getElementById('dT').value;
+        
+        // Find beholder kote (Hvis den findes som property på noden, ellers default 0)
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`); // Hvis beholderen er i en tabel
+        let kote = d.kote || 0; 
+        
+        html += buildInputRow('VV Temperatur (°C)', 'edit_temp_v', tempV, 'number', 'step="0.1"');
+        html += buildInputRow('Afkøling dT (°C)', 'edit_dt', dT, 'number', 'step="0.1"');
+        // Kote vises kun hvis vi rent faktisk kan gemme den et sted
+        html += buildInputRow('Kote (m)', 'edit_kote_beholder', kote, 'number', 'step="0.1" readonly disabled title="Styres af rørføring"'); 
+    }
+
+    // --- CASE C: RØR & KOMPONENTER (Tabel Inputs) ---
+    else {
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        if (!tr) {
+            container.innerHTML = '<p class="text-muted">Ingen data fundet for denne komponent.</p>';
+            modal.show();
+            return;
+        }
+
+        // Kote (For Tapsteder/Knudepunkter)
+        if (d.type === 'tapsted' || d.type === 'knudepunkt') {
+            const koteInp = tr.querySelector('.kote');
+            if (koteInp) html += buildInputRow('Kote (m)', 'edit_row_kote', koteInp.value, 'number', 'step="0.1"');
+        }
+
+        // Længde (Rør)
+        const lenInp = tr.querySelector('.length');
+        if (lenInp) html += buildInputRow('Længde (m)', 'edit_row_len', lenInp.value, 'number', 'step="0.1"');
+
+        // Dimension (Rør / Måler) - Kræver Dropdown
+        const dimInp = tr.querySelector('.dim');
+        if (dimInp) {
+             // Vi skal kopiere options fra den rigtige select
+             let options = '';
+             Array.from(dimInp.options).forEach(opt => {
+                 const sel = (opt.value === dimInp.value) ? 'selected' : '';
+                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+             });
+             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Dimension</label>
+                      <div class="col-sm-6"><select id="edit_row_dim" class="form-select form-select-sm">${options}</select></div></div>`;
+        }
+        
+        // Materiale / Isolering (Rør)
+        const isoInp = tr.querySelector('.iso');
+        if (isoInp) {
+            // Kopier options...
+             let options = '';
+             Array.from(isoInp.options).forEach(opt => {
+                 const sel = (opt.value === isoInp.value) ? 'selected' : '';
+                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+             });
+             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Isolering</label>
+                      <div class="col-sm-6"><select id="edit_row_iso" class="form-select form-select-sm">${options}</select></div></div>`;
+        }
+
+        // Kv Værdi / Trykændring (Ventil/Komponent)
+        const kvInp = tr.querySelector('.kv-value'); // Tjek klassenavn i din HTML
+        if (kvInp) html += buildInputRow('Kv Værdi', 'edit_row_kv', kvInp.value, 'number', 'step="0.01"');
+        
+        const boostInp = tr.querySelector('.pressure-boost'); // Booster input
+        if (boostInp) html += buildInputRow('Trykændring (kPa)', 'edit_row_boost', boostInp.value, 'number', 'step="1"');
+        
+        // Tapsted Type (Dropdown)
+        const typeInp = tr.querySelector('.tap-type');
+        if (typeInp) {
+             let options = '';
+             Array.from(typeInp.options).forEach(opt => {
+                 const sel = (opt.value === typeInp.value) ? 'selected' : '';
+                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+             });
+             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Type</label>
+                      <div class="col-sm-6"><select id="edit_row_type" class="form-select form-select-sm">${options}</select></div></div>`;
+        }
+    }
+
+    container.innerHTML = html;
+    modal.show();
+}
+
+// Hjælpefunktion til at lave HTML input rows
+function buildInputRow(label, id, val, type, extras) {
+    return `<div class="mb-2 row">
+                <label class="col-sm-6 col-form-label col-form-label-sm">${label}</label>
+                <div class="col-sm-6">
+                    <input type="${type}" class="form-control form-control-sm" id="${id}" value="${val}" ${extras}>
+                </div>
+            </div>`;
+}
+
+function saveEditModal() {
+    if (!currentNodeData) return;
+    const d = currentNodeData;
+
+    // Gem Navn (hvis redigerbart)
+    const nameInp = document.getElementById('editNodeName');
+    if (!nameInp.disabled) {
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        if (tr) {
+            const realNameInp = tr.querySelector('.navn');
+            if (realNameInp) realNameInp.value = nameInp.value;
+        }
+    }
+
+    // --- GEM SPECIALFELTER (Vandstik/Beholder) ---
+    if (d.id === 'Vandstik') {
+        const kote = document.getElementById('edit_kote').value;
+        const tryk = document.getElementById('edit_tryk').value;
+        const temp = document.getElementById('edit_temp').value;
+
+        // Skriv tilbage til de globale inputs
+        document.getElementById('forsyningens_kote').value = kote;
+        document.getElementById('pln').value = tryk;
+        document.getElementById('T_k').value = temp;
+    } 
+    else if (d.id === 'Beholder') {
+        const tempV = document.getElementById('edit_temp_v').value;
+        const dT = document.getElementById('edit_dt').value;
+        
+        document.getElementById('T_v').value = tempV;
+        document.getElementById('dT').value = dT;
+    }
+    // --- GEM STANDARD TABEL FELTER ---
+    else {
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        if (tr) {
+            // Helper map: Modal ID -> Klasse på input felt i tabellen
+            const map = {
+                'edit_row_kote': '.kote',
+                'edit_row_len': '.length',
+                'edit_row_dim': '.dim',
+                'edit_row_iso': '.iso',
+                'edit_row_kv': '.kv-value',
+                'edit_row_boost': '.pressure-boost',
+                'edit_row_type': '.tap-type'
+            };
+
+            for (const [modalId, cssClass] of Object.entries(map)) {
+                const mInp = document.getElementById(modalId);
+                const tInp = tr.querySelector(cssClass);
+                if (mInp && tInp) {
+                    tInp.value = mInp.value;
+                    // Trigger change event så event listeners i tabellen opfatter det
+                    tInp.dispatchEvent(new Event('change')); 
+                }
+            }
+        }
+    }
+
+    // Luk Modal
+    const modalEl = document.getElementById('editNodeModal');
+    const modal = bootstrap.Modal.getInstance(modalEl);
+    modal.hide();
+
+    // Opdater systemet
+    setProjektErÆndret(); // Opdaterer UI og beder om beregning
+    
+    // Hvis vi ændrede navne, opdater diagram labels med det samme
+    updateDiagramStyles(); 
+}
+
 
 </script>
 <script>
