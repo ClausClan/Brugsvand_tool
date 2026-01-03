@@ -8075,6 +8075,12 @@ function showConnectHint() {
 // Global variabel til at huske hvilken node vi redigerer
 let currentNodeData = null;
 
+/**
+ * Viser redigeringsmodalen for en given node.
+ * Dynamisk opbygger indhold baseret på nodetype og ID.
+ * Håndterer låste navne for Vandstik og Beholder.
+ * @param {object} d - Data-objektet for den klikkede node.
+ */
 function showEditModal(d) {
     currentNodeData = d;
     const modalEl = document.getElementById('editNodeModal');
@@ -8088,24 +8094,22 @@ function showEditModal(d) {
     const nameInput = document.getElementById('editNodeName');
     const nameHint = document.getElementById('editNodeNameHint');
     
-    // RETTELSE: Vi bruger nu det korrekte ID 'toggleNames'
+    // Sikkerhedstjek: Findes switchen?
     const navneSwitch = document.getElementById('toggleNames');
     const showNames = navneSwitch ? navneSwitch.checked : false; 
     
-    // Find det nuværende navn
     let currentName = "";
+    // Navne på Vandstik og Beholder er låste
     if (d.id === 'Vandstik' || d.id === 'Beholder') {
         currentName = d.id; 
-        nameInput.disabled = true; // Disse kan aldrig omdøbes
+        nameInput.disabled = true; 
     } else {
-        // Hent navnet fra input-feltet i tabellen
         const tr = document.querySelector(`tr[data-id="${d.id}"]`);
         if (tr) {
-            const nInp = tr.querySelector('.navn'); // Sørg for at klassen '.navn' passer med dine input felter
+            const nInp = tr.querySelector('.navn');
             if (nInp) currentName = nInp.value;
         }
         
-        // Lås feltet hvis switchen er slukket
         nameInput.disabled = !showNames;
         nameHint.style.display = showNames ? 'none' : 'block';
     }
@@ -8148,58 +8152,70 @@ function showEditModal(d) {
             return;
         }
 
-        // Kote
-        if (d.type === 'tapsted' || d.type === 'knudepunkt') {
-            const koteInp = tr.querySelector('.kote');
-            if (koteInp) html += buildInputRow('Kote (m)', 'edit_row_kote', koteInp.value, 'number', 'step="0.1"');
-        }
+        // Kote (For Tapsteder/Knudepunkter)
+        const koteInp = tr.querySelector('.kote');
+        if (koteInp) html += buildInputRow('Kote (m)', 'edit_row_kote', koteInp.value, 'number', 'step="0.1"');
 
-        // Længde
+        // Længde (Rør)
         const lenInp = tr.querySelector('.length');
         if (lenInp) html += buildInputRow('Længde (m)', 'edit_row_len', lenInp.value, 'number', 'step="0.1"');
 
-        // Dimension Dropdown
+        // Dimension (Dropdown ELLER Input) - RETTET HER
         const dimInp = tr.querySelector('.dim');
         if (dimInp) {
-             let options = '';
-             Array.from(dimInp.options).forEach(opt => {
-                 const sel = (opt.value === dimInp.value) ? 'selected' : '';
-                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
-             });
-             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Dimension</label>
-                      <div class="col-sm-6"><select id="edit_row_dim" class="form-select form-select-sm">${options}</select></div></div>`;
+             if (dimInp.tagName === 'SELECT') {
+                 // Det er en Dropdown
+                 let options = '';
+                 Array.from(dimInp.options).forEach(opt => {
+                     const sel = (opt.value === dimInp.value) ? 'selected' : '';
+                     options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+                 });
+                 html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Dimension</label>
+                          <div class="col-sm-6"><select id="edit_row_dim" class="form-select form-select-sm">${options}</select></div></div>`;
+             } else {
+                 // Det er et Input (Fallback)
+                 html += buildInputRow('Dimension', 'edit_row_dim', dimInp.value, 'text', '');
+             }
         }
         
-        // Isolering Dropdown
+        // Isolering (Dropdown ELLER Input) - RETTET HER
         const isoInp = tr.querySelector('.iso');
         if (isoInp) {
-             let options = '';
-             Array.from(isoInp.options).forEach(opt => {
-                 const sel = (opt.value === isoInp.value) ? 'selected' : '';
-                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
-             });
-             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Isolering</label>
-                      <div class="col-sm-6"><select id="edit_row_iso" class="form-select form-select-sm">${options}</select></div></div>`;
+             if (isoInp.tagName === 'SELECT') {
+                 let options = '';
+                 Array.from(isoInp.options).forEach(opt => {
+                     const sel = (opt.value === isoInp.value) ? 'selected' : '';
+                     options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+                 });
+                 html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Isolering</label>
+                          <div class="col-sm-6"><select id="edit_row_iso" class="form-select form-select-sm">${options}</select></div></div>`;
+             } else {
+                 html += buildInputRow('Isolering', 'edit_row_iso', isoInp.value, 'text', '');
+             }
         }
 
-        // Kv Værdi (Ventiler / Målere)
+        // Kv Værdi
         const kvInp = tr.querySelector('.kv-value'); 
         if (kvInp) html += buildInputRow('Kv Værdi', 'edit_row_kv', kvInp.value, 'number', 'step="0.01"');
         
-        // Trykændring (Booster/Reducer)
+        // Trykændring
         const boostInp = tr.querySelector('.pressure-boost'); 
         if (boostInp) html += buildInputRow('Trykændring (kPa)', 'edit_row_boost', boostInp.value, 'number', 'step="1"');
         
-        // Tapsted Type Dropdown
+        // Type (Dropdown ELLER Input) - RETTET HER
         const typeInp = tr.querySelector('.tap-type');
         if (typeInp) {
-             let options = '';
-             Array.from(typeInp.options).forEach(opt => {
-                 const sel = (opt.value === typeInp.value) ? 'selected' : '';
-                 options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
-             });
-             html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Type</label>
-                      <div class="col-sm-6"><select id="edit_row_type" class="form-select form-select-sm">${options}</select></div></div>`;
+             if (typeInp.tagName === 'SELECT') {
+                 let options = '';
+                 Array.from(typeInp.options).forEach(opt => {
+                     const sel = (opt.value === typeInp.value) ? 'selected' : '';
+                     options += `<option value="${opt.value}" ${sel}>${opt.text}</option>`;
+                 });
+                 html += `<div class="mb-2 row"><label class="col-sm-6 col-form-label col-form-label-sm">Type</label>
+                          <div class="col-sm-6"><select id="edit_row_type" class="form-select form-select-sm">${options}</select></div></div>`;
+             } else {
+                 html += buildInputRow('Type', 'edit_row_type', typeInp.value, 'text', '');
+             }
         }
     }
 
