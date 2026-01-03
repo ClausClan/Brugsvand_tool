@@ -8063,18 +8063,32 @@ function showConnectHint() {
 }
 
 // --- KONFIGURATION AF FELTER ---
-// Her definerer vi mapping mellem tabel-klasser og labels i modalen.
-// Systemet tjekker selv, om feltet findes på den aktuelle node.
+// Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
 const fieldConfig = [
-    { class: '.navn',           label: 'Navn / Beskrivelse' },
-    { class: '.kote',           label: 'Kote (m)',           type: 'number', attr: 'step="0.1"' },
-    { class: '.length',         label: 'Længde (m)',         type: 'number', attr: 'step="0.1"' },
-    { class: '.dim',            label: 'Dimension' },       // Dropdown detekteres automatisk
-    { class: '.iso',            label: 'Isolering' },       // Dropdown detekteres automatisk
-    { class: '.tap-type',       label: 'Type' },            // Dropdown detekteres automatisk
-    { class: '.kv-value',       label: 'Kv Værdi',           type: 'number', attr: 'step="0.01"' },
-    { class: '.pressure-boost', label: 'Trykændring (kPa)',  type: 'number', attr: 'step="1"' },
-    // Tilføj evt. flere her, fx '.parent' hvis du tør lade dem ændre forældre herfra
+    // Fælles
+    { class: '.name-input',       label: 'Navn' },
+    { class: '.parent',           label: 'Forælder' },          // Dropdown
+
+    // Rør (KV, VV, Cirkulation)
+    { class: '.material',         label: 'Materiale' },         // Dropdown
+    { class: '.location',         label: 'Placering' },         // Dropdown
+    { class: '.insulation-class', label: 'Isolering' },         // Input m. Datalist
+    { class: '.dim',              label: 'Dimension (mm)' },    // Input m. Datalist
+    { class: '.len',              label: 'Længde (m)',          type: 'number', attr: 'min="0" step="0.1"' },
+    { class: '.fittings',         label: 'Zeta (Modstand)',     type: 'number', attr: 'min="0" step="0.1"' },
+
+    // Komponenter (Booster/Reducer)
+    { class: '.pressure-change',  label: 'Trykændring (kPa)',   type: 'number', attr: 'step="1"' },
+
+    // Målere & Ventiler
+    { class: '.meter-type-select',label: 'Målerstørrelse' },    // Dropdown
+    { class: '.valve-type-select',label: 'Ventiltype' },        // Dropdown
+    { class: '.kv-value',         label: 'Kv Værdi',            type: 'number', attr: 'step="0.01"' }, // (Hvis til stede)
+
+    // Tapsteder
+    { class: '.tap-type',         label: 'Type' },              // Dropdown
+    { class: '.qf',               label: 'Normvandstrøm (l/s)', type: 'number', attr: 'min="0" step="0.01"' },
+    { class: '.kote',             label: 'Kote (m)',            type: 'number', attr: 'step="0.1"' }
 ];
 
 let currentNodeData = null;
