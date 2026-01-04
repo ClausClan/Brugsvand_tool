@@ -8435,7 +8435,7 @@ function toggleSidebar() {
         left.classList.remove('d-none');
         
         // Sæt højre side tilbage til normal bredde (Bootstrap classes fra din fil)
-        right.className = 'col-lg-6 d-flex flex-column';
+        right.className = 'col-lg-6 d-flex flex-column h-100 p-0 position-relative overflow-hidden';
         
         if(btn) {
             btn.innerHTML = '↔️ Udvid Diagram';
@@ -8446,7 +8446,7 @@ function toggleSidebar() {
         left.classList.add('d-none');
         
         // Sæt højre side til FULD bredde (12 kolonner)
-        right.className = 'col-12  d-flex flex-column';
+        right.className = 'col-12 d-flex flex-column h-100 p-0 position-relative overflow-hidden';
         
         if(btn) {
             btn.innerHTML = '⬅️ Vis Input';
