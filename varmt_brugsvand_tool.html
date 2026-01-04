@@ -1475,9 +1475,9 @@ function addStreng_vv(startParentId = null) {
     const id = `S${counterVal}`;
 
     // Hent template
-    const template = document.getElementById('vvstrengTemplate');
+    const template = document.getElementById('vvStrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvstrengTemplate'>.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvStrengTemplate'>.");
         return;
     }
     
@@ -1527,9 +1527,9 @@ function addStreng_kv(startParentId = null) {
     
     const id = `S${counterVal}`;
 
-    const template = document.getElementById('kvstrengTemplate');
+    const template = document.getElementById('kvStrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvstrengTemplate'>.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvStrengTemplate'>.");
         return;
     }
 
@@ -5196,7 +5196,7 @@ function loadProjectData(data) {
 
     // --- BYG VV STRENGE ---
     (data.strenge_vv || data.strenge || []).forEach(s => {
-        const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+        const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
         const card = clone.querySelector('.card');
         card.dataset.id = s.id;
         card.querySelector('.id-text').textContent = `VV-Streng ${s.id}`;
