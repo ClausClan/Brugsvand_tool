@@ -8317,50 +8317,84 @@ function showEditModal(d) {
     modal.show();
 }
 
+
+
 function saveEditModal() {
+    // Sikkerhedstjek: Har vi data at gemme?
     if (!currentNodeData) return;
     const d = currentNodeData;
 
-    // --- GEM SPECIALE TILFÆLDE ---
+    // =========================================================
+    // 1. HÅNDTER SPECIALE TILFÆLDE (Globale noder)
+    // =========================================================
     if (d.id === 'Vandstik') {
+        // Opdater de bagvedliggende felter for Vandstikket
         document.getElementById('forsyningens_kote').value = document.getElementById('edit_global_kote').value;
         document.getElementById('pln').value = document.getElementById('edit_global_tryk').value;
         document.getElementById('T_k').value = document.getElementById('edit_global_temp').value;
     } 
     else if (d.id === 'Beholder') {
+        // Opdater de bagvedliggende felter for Beholderen
         document.getElementById('T_v').value = document.getElementById('edit_global_temp_v').value;
         document.getElementById('dT').value = document.getElementById('edit_global_dt').value;
     }
     
-    // --- GEM GENERISKE FELTER ---
+    // =========================================================
+    // 2. HÅNDTER GENERISKE FELTER (Rør, Tapsteder, Ventiler)
+    // =========================================================
     else {
-        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
-        if (tr) {
+        // VIGTIGT: Vi bruger querySelectorAll for at finde ALLE rækker med dette ID.
+        // Dette sikrer, at hvis et tapsted (fx T1) findes i både VV og KV tabellen,
+        // bliver begge rækker opdateret samtidig.
+        const rows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
+        
+        if (rows.length > 0) {
             // Find alle inputs i modalen, der har data-target-class attributten
+            // (Disse inputs blev genereret da modalen åbnede)
             const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
             
-            modalInputs.forEach(mInp => {
-                const targetClass = mInp.getAttribute('data-target-class');
-                const targetInp = tr.querySelector(targetClass);
-                
-                if (targetInp) {
-                    // Kun opdater og trigger event hvis værdien er ændret
-                    if (targetInp.value !== mInp.value) {
-                        targetInp.value = mInp.value;
-                        targetInp.dispatchEvent(new Event('change', { bubbles: true }));
+            // Loop igennem hver fundet række i hoved-tabellerne (VV, KV, Retur)
+            rows.forEach(tr => {
+                // For hver række, opdater de felter der er ændret i modalen
+                modalInputs.forEach(mInp => {
+                    // Hent klassenavnet vi skal lede efter (fx ".qf", ".kote", ".name-text")
+                    const targetClass = mInp.getAttribute('data-target-class');
+                    
+                    // Find det specifikke input-felt nede i rækken
+                    const targetInp = tr.querySelector(targetClass);
+                    
+                    if (targetInp) {
+                        // Kun opdater og trigger event hvis værdien faktisk er ændret
+                        // Dette forhindrer unødvendige genberegninger
+                        if (targetInp.value !== mInp.value) {
+                            targetInp.value = mInp.value;
+                            
+                            // Trigger events så systemet opdager ændringen og genberegner
+                            targetInp.dispatchEvent(new Event('change', { bubbles: true }));
+                            targetInp.dispatchEvent(new Event('input', { bubbles: true })); 
+                        }
                     }
-                }
+                });
             });
         }
     }
 
-    // Luk og opdater
+    // =========================================================
+    // 3. AFSLUTNING
+    // =========================================================
+    
+    // Luk modalen korrekt
     const modalEl = document.getElementById('editNodeModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
-    modal.hide();
+    if (modal) modal.hide();
 
+    // Marker at projektet er ændret (til "Gem" advarsler)
     setProjektErÆndret(); 
-    updateDiagramStyles(); // Opdaterer labels (navne) i diagrammet
+    
+    // Opdater visuelle labels i diagrammet (hvis navne blev ændret)
+    if (typeof updateDiagramStyles === 'function') {
+        updateDiagramStyles(); 
+    }
 }
 
 // Hjælper (uændret)
