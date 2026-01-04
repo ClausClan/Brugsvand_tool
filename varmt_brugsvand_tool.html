@@ -539,7 +539,12 @@
 <div id="diagram" class="flex-grow-1 position-relative">
                         <div id="diagram-legend" class="p-2 bg-light border rounded" style="position:absolute; bottom:10px; right:10px; display:none; font-size: 0.8rem;"></div>
                     </div>
-                </div> </div> </div> </div> </div> <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+                </div> </div> </div> </div> </div> 
+
+
+
+
+<div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-light">
@@ -752,6 +757,39 @@
     </div>
 </div>
 
+
+
+<div class="modal fade" id="editNodeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white py-2">
+                <h6 class="modal-title">Rediger Data</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editNodeForm">
+                    <div class="mb-3 row">
+                        <label class="col-sm-4 col-form-label col-form-label-sm fw-bold">ID / Type</label>
+                        <div class="col-sm-8">
+                            <input type="text" class="form-control form-control-sm bg-light" id="editNodeId" readonly>
+                            <input type="hidden" id="editNodeType">
+                        </div>
+                    </div>
+
+                    <div id="editNodeDynamicContent"></div>
+                </form>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuller</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveEditModal()">Gem Ændringer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
 <template id="kvStrengTemplate">
     <div class="card mb-3 streng-card kv-card" data-type="streng-card-kv" style="border-left: 4px solid #0d6efd;">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
@@ -799,7 +837,7 @@
     </div>
 </template>
 
-<template id="vvstrengTemplate">
+<template id="vvStrengTemplate">
     <div class="card mb-3 streng-card" data-type="streng-card">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv strengen et unikt navn"></h6>
@@ -1426,71 +1464,163 @@ function handleMaterialChange(e) {
 }
 	
 function addStreng_vv(startParentId = null) {
-    state.sC++;
-    const id = `S${state.sC}`;
-    const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+    if (typeof state !== 'undefined' && state.sC !== undefined) {
+        state.sC++;
+    } else {
+        if (!window.strengCounter) window.strengCounter = 0;
+        window.strengCounter++;
+    }
+    const counterVal = (typeof state !== 'undefined') ? state.sC : window.strengCounter;
+    
+    const id = `S${counterVal}`;
+
+    // Hent template
+    const template = document.getElementById('vvStrengTemplate');
+    if (!template) {
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvStrengTemplate'>.");
+        return;
+    }
+    
+    const clone = template.content.cloneNode(true);
     const card = clone.querySelector('.card');
+    
+    // Sæt ID og data
     card.dataset.id = id;
-    card.querySelector('.id-text').textContent = `VV-Streng ${id}`;
-    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    const idText = card.querySelector('.id-text');
+    if (idText) idText.textContent = `VV-Streng ${id}`;
     
-    document.getElementById('strengeContainerVV').appendChild(clone); // Rettet ID til VV container
-    
-    // Send startParentId med ned til røret
-    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_vv', startParentId);
+    const nameInput = card.querySelector('.name-text');
+    if (nameInput && typeof state !== 'undefined') {
+        nameInput.onchange = (e) => state.names.set(id, e.target.value);
+    }
+
+    // Indsæt i container
+    const container = document.getElementById('strengeContainer') || document.getElementById('strengeContainerVV');
+    if (!container) return;
+    container.appendChild(clone);
+
+    // Find det nye kort og tilføj det første rør
+    const newCard = container.querySelector(`[data-id="${id}"]`);
+    if (newCard) {
+        const btnRor = newCard.querySelector('button[onclick*="addRorSektion"]') || 
+                       newCard.querySelector('.btn-outline-secondary');
+        
+        if (btnRor) {
+            // Slet evt. placeholder indhold
+            const rorBody = newCard.querySelector('.ror-container');
+            if (rorBody) rorBody.innerHTML = '';
+            
+            // Tilføj KUN rør (Tapsted-linjen er slettet herfra)
+            addRorSektion(btnRor, 'ror_vv', startParentId || 'Beholder');
+        }
+    }
 }
 
 function addStreng_kv(startParentId = null) {
-    if (!state.sC_kv) state.sC_kv = 0;
-    state.sC_kv++;
+    if (typeof state !== 'undefined' && state.sC !== undefined) {
+        state.sC++;
+    } else {
+        if (!window.strengCounter) window.strengCounter = 0;
+        window.strengCounter++;
+    }
+    const counterVal = (typeof state !== 'undefined') ? state.sC : window.strengCounter;
     
-    const id = `K${state.sC_kv}`;
-    const clone = document.getElementById('kvStrengTemplate').content.cloneNode(true);
+    const id = `S${counterVal}`;
+
+    const template = document.getElementById('kvStrengTemplate');
+    if (!template) {
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvStrengTemplate'>.");
+        return;
+    }
+
+    const clone = template.content.cloneNode(true);
     const card = clone.querySelector('.card');
+    
     card.dataset.id = id;
-    card.querySelector('.id-text').textContent = `KV-Streng ${id}`;
-    card.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
+    // card.classList.add('streng-card-kv'); // Aktiver hvis du styrer farver via JS
     
-    document.getElementById('strengeContainerKV').appendChild(clone);
-    
-    // Send startParentId med ned til røret
-    addRorSektion(card.querySelector('.btn-outline-secondary'), 'ror_kv', startParentId);
+    const idText = card.querySelector('.id-text');
+    if (idText) idText.textContent = `KV-Streng ${id}`;
+
+    const container = document.getElementById('strengeContainerKV') || document.getElementById('strengeContainer');
+    if (!container) return;
+    container.appendChild(clone);
+
+    const newCard = container.querySelector(`[data-id="${id}"]`);
+    if (newCard) {
+        const rorBody = newCard.querySelector('.ror-container-kv') || newCard.querySelector('.ror-container');
+        if (rorBody) rorBody.innerHTML = '';
+
+        const btnRor = newCard.querySelector('button[onclick*="addRorSektion"]') || 
+                       newCard.querySelector('.btn-outline-secondary');
+        
+        if (btnRor) {
+            // Tilføj KUN rør (Tapsted-linjen er slettet herfra)
+            addRorSektion(btnRor, 'ror_kv', startParentId || 'Stikledning');
+        }
+    }
 }
 
 function addCirkulationRor() {
-    state.rC++;
-    const id = `Cirk${state.rC}`; 
+    // Tæl op på retur-tælleren
+    if (typeof state !== 'undefined' && state.rC !== undefined) {
+        state.rC++;
+    } else {
+        if (!window.returCounter) window.returCounter = 0;
+        window.returCounter++;
+    }
+    const counterVal = (typeof state !== 'undefined') ? state.rC : window.returCounter;
     
-    // RETTELSE HER: Bruger nu 'vvcirkulationTRTemplate'
-    const clone = document.getElementById('vvcirkulationTRTemplate').content.cloneNode(true); 
+    const id = `Retur${counterVal}`;
+    
+    // NYT: Unikt ID til datalisten (Vigtigt for at dropdown virker)
+    const datalistId = `list-${id}`;
+    
+    // 1. Find og klon templaten (vvcirkulationTRTemplate)
+    const template = document.getElementById('vvcirkulationTRTemplate');
+    if (!template) {
+        console.error("Fejl: Kunne ikke finde <template id='vvcirkulationTRTemplate'>.");
+        return;
+    }
+    
+    const clone = template.content.cloneNode(true); 
     const tr = clone.querySelector('tr'); 
+    
+    // 2. Sæt metadata
     tr.dataset.id = id;
     tr.dataset.type = 'cirkulation_vv';
     
-    const datalistId = `list-${id}`;
+    // 3. Forbind Input og Datalist med det unikke ID
     const dimInput = tr.querySelector('.dim-input');
     const datalist = tr.querySelector('datalist');
-    dimInput.setAttribute('list', datalistId);
-    datalist.id = datalistId;
-
-    tr.querySelector('.id-text').textContent = id;
-    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     
-    const materialSelect = tr.querySelector('.material');
-    materialSelect.onchange = handleMaterialChange;
-    
-    document.getElementById('returContainerBody').appendChild(clone); 
-    
-    // Sæt intelligent forælder
-    const allCirc = document.querySelectorAll('#returContainerBody > tr[data-type="cirkulation_vv"]');
-    const pSel = tr.querySelector('.parent');
-    if (allCirc.length > 1) {
-         pSel.value = allCirc[allCirc.length - 2].dataset.id;
+    if (dimInput && datalist) {
+        dimInput.setAttribute('list', datalistId);
+        datalist.id = datalistId;
     } else {
-         pSel.value = 'Beholder';
+        console.warn("Advarsel: Mangler .dim-input eller datalist i vvcirkulationTRTemplate");
     }
 
-    updateDimOptions(materialSelect);
+    // 4. Opdater visuelle tekster
+    const idText = tr.querySelector('.id-text');
+    if (idText) idText.textContent = id;
+    
+    const nameInput = tr.querySelector('.name-text');
+    if (nameInput) {
+        nameInput.onchange = (e) => state.names.set(id, e.target.value);
+    }
+    
+    // 5. Aktiver Materiale-vælger og Datalist
+    const materialSelect = tr.querySelector('.material');
+    if (materialSelect) {
+        materialSelect.onchange = handleMaterialChange;
+        // Fyld listen med det samme
+        setTimeout(() => updateDimOptions(materialSelect), 0);
+    }
+    
+    // 6. Indsæt i tabellen
+    document.getElementById('returContainerBody').appendChild(clone); 
+    
     updateAllSelects();
 }
 
@@ -1501,123 +1631,108 @@ function addCirkulationRor() {
  * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
  * Opdeler et rør (både fremløb og retur).
  */
-function splitPipe(targetId) {
+function splitPipe(targetId, segments) {
     const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
     if (!targetRow) return;
     
-    const segmentsStr = prompt("Antal segmenter røret skal opdeles i:", "2");
-    if (!segmentsStr) return;
-    const segments = parseInt(segmentsStr, 10);
-    if (isNaN(segments) || segments < 2) return alert("Ugyldigt antal.");
-
-    const type = targetRow.dataset.type;
+    const type = targetRow.dataset.type; // 'ror_vv', 'ror_kv', 'cirkulation_vv'
+    
+    // 1. Hent data fra eksisterende
     const currentParentId = targetRow.querySelector('.parent').value;
-    
-    // Beregn Koordinater (Vektor fra Parent -> Target)
-    const startNode = state.nodes.find(n => n.id === currentParentId);
-    const endNode = state.nodes.find(n => n.id === targetId);
-    
-    let startX = 0, startY = 0, endX = 0, endY = 0;
-    let hasCoords = false;
-
-    if (startNode && endNode) {
-        // Prioriter faste koordinater (fx)
-        startX = (startNode.fx !== undefined && startNode.fx !== null) ? startNode.fx : startNode.x;
-        startY = (startNode.fy !== undefined && startNode.fy !== null) ? startNode.fy : startNode.y;
-        endX = (endNode.fx !== undefined && endNode.fx !== null) ? endNode.fx : endNode.x;
-        endY = (endNode.fy !== undefined && endNode.fy !== null) ? endNode.fy : endNode.y;
-        hasCoords = true;
-    }
-
-    const lenInput = targetRow.querySelector('.len');
-    const totalLen = parseFloat(lenInput.value) || 0;
-    const segmentLen = totalLen / segments;
-    
-    // Kopier egenskaber
+    const originalLen = parseFloat(targetRow.querySelector('.len').value) || 0;
+    const newLen = originalLen / segments;
     const material = targetRow.querySelector('.material').value;
-    const location = targetRow.querySelector('.location').value;
     const dim = targetRow.querySelector('.dim').value;
     const insulation = targetRow.querySelector('.insulation-class').value;
+    
+    let lastParentId = currentParentId;
 
-    let idPrefix = "";
-    if (type !== 'cirkulation_vv') { // Tjekker mod den nye type-navngivning (hvis relevant) eller fallback
-        const card = targetRow.closest('.streng-card');
-        idPrefix = card ? card.dataset.id : 'XX';
-    }
-
-    let anchorParent = currentParentId; 
-
+    // 2. Loop
     for (let i = 1; i < segments; i++) {
         let newId;
-        // Håndter ID-generering baseret på typen (ror vs retur/cirkulation)
-        if (type === 'retur' || type === 'cirkulation_vv') {
-            state.rC++; newId = `Retur${state.rC}`;
-        } else {
-            state.tC++; newId = `${idPrefix}-R${state.tC}`;
+        
+        // ID logik tilpasset KV/VV
+        if (type === 'ror_vv') {
+            const sId = targetId.split('-')[0]; 
+            state.tC++; 
+            newId = `${sId}-R${state.tC}`;
+        } else if (type === 'ror_kv') {
+            const sId = targetId.split('-')[0]; 
+            state.tC++; 
+            newId = `${sId}-K${state.tC}`;
+        } else { 
+            state.rC++;
+            newId = `Retur${state.rC}`;
         }
         
-        // Beregn Position (Lineær interpolation)
-        if (hasCoords) {
-            const ratio = i / segments;
-            const newX = startX + (endX - startX) * ratio;
-            const newY = startY + (endY - startY) * ratio;
-            
-            // Push direkte til noder for at undgå "hop" i diagrammet
-            state.nodes.push({ id: newId, type: type, fx: newX, fy: newY, x: newX, y: newY });
-        }
+        // NYT: Unikt Datalist ID
+        const datalistId = `list-${newId}`;
 
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = type;
-        const datalistId = `list-${newId}`;
-
-        // Standard HTML for rør (Virker til både frem og retur pga. fælles struktur)
+        
+        // HTML strengen - HUSK <datalist>
         tr.innerHTML = `
-            <td><span class="input-group input-group-sm"><span class="input-group-text id-text">${newId}</span><input type="text" class="form-control name-input d-none name-text" placeholder="Navn"></span></td>
-            <td><select class="form-select form-select-sm parent"></select></td>
-            <td><select class="form-select form-select-sm material"><option value="Kobber">Kobber</option><option value="Rustfri Press 316L">Rustfri Press 316L</option><option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option><option value="Pex">Pex</option><option value="Alupex">Alupex</option><option value="PE100">PE100</option><option value="Geberit Mepla">Geberit Mepla</option></select></td>
-            <td><select class="form-select form-select-sm location"><option value="heated">Opvarmet</option><option value="unheated">Uopvarmet</option><option value="outside">Udendørs</option></select></td>
+            <td>
+                <span class="input-group input-group-sm">
+                    <span class="input-group-text id-text">${newId}</span>
+                    <input type="text" class="form-control name-input d-none name-text" placeholder="Navn">
+                </span>
+            </td>
+            <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+            <td><select class="form-select form-select-sm material" title="Materiale">
+                <option value="Kobber">Kobber</option><option value="Pex">Pex</option>
+                </select></td>
+            <td>
+                <select class="form-select form-select-sm location">
+                    <option value="heated">Opvarmet rum</option>
+                    <option value="unheated">Uopvarmet rum</option>
+                    <option value="outside">Udendørs</option>
+                </select>
+            </td>
             <td><input type="text" class="form-control form-control-sm insulation-class" value="${insulation}" list="insulationClassOptions"></td>
-            <td><input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" list="${datalistId}"><datalist id="${datalistId}"></datalist></td>
-            <td><input type="number" min="0" class="form-control form-control-sm len" value="${segmentLen.toFixed(2)}"></td>
+            <td>
+                <input type="text" class="form-control form-control-sm dim-input dim" value="${dim}" list="${datalistId}">
+                <datalist id="${datalistId}"></datalist>
+            </td>
+            <td><input type="number" min="0" class="form-control form-control-sm len" value="${newLen.toFixed(2)}"></td>
             <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)" title="Fjern">&times;</button></td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
         `;
 
+        // Sæt værdier
         tr.querySelector('.material').value = material;
-        tr.querySelector('.location').value = location;
-        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
         
+        // Events og Data
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
         const matSelect = tr.querySelector('.material');
         matSelect.onchange = handleMaterialChange;
         
+        // Indsæt FØR målrækken
         targetRow.parentNode.insertBefore(tr, targetRow);
         
-        // Sæt parent direkte (midlertidigt i DOM for at holde rækkefølgen)
+        // Fyld listen
+        updateDimOptions(matSelect);
+        
+        // Håndter forældre-link
         const pSel = tr.querySelector('.parent');
         const tempOpt = document.createElement('option');
-        tempOpt.value = anchorParent; tempOpt.text = anchorParent; 
-        pSel.add(tempOpt); pSel.value = anchorParent;
+        tempOpt.value = lastParentId;
+        tempOpt.text = lastParentId;
+        pSel.add(tempOpt);
+        pSel.value = lastParentId;
 
-        anchorParent = newId;
-        updateDimOptions(matSelect);
+        lastParentId = newId;
     }
-
-    // Opdater slut-segmentet (det oprindelige rør)
-    targetRow.querySelector('.len').value = segmentLen.toFixed(2);
     
-    // TRIN 1: Opdater alle lister, så de nye rør findes som options
-    updateAllSelects(); 
+    // Opdater den oprindelige række til sidst
+    targetRow.querySelector('.len').value = newLen.toFixed(2);
+    // ... (resten af logikken for at opdatere targetRow's forælder) ...
     
-    // TRIN 2: Sæt den nye forælder på det oprindelige rør (Nu findes optionen i listen)
-    const targetParentSel = targetRow.querySelector('.parent');
-    targetParentSel.value = anchorParent; 
-
-    // TRIN 3: (VIGTIG RETTELSE) Genopbyg modellen og diagrammet fra DOM'en
-    buildNetworkAndRender();
-    
-    setProjektErÆndret();
+    updateAllSelects();
 }
+
 
 /**
  * Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
@@ -1979,84 +2094,141 @@ function pasteBranch(targetParentId, mode = 'current') {
  * Sikrer korrekt ID-navngivning (Sxx-Rxx) ved at udlede Streng-ID fra konteksten.
  */
 function addRorSektion(btn, type, parentId = null) {
-    if (!window.rorCounter) window.rorCounter = 0;
-    window.rorCounter++;
-
-    // 1. Find Container (Hvor skal røret bo?)
-    let container = null;
-    let contextRow = null;
-
-    // A: Fra Parent ID (Højreklik / Forlæng)
-    if (parentId) {
-        contextRow = document.querySelector(`tr[data-id="${parentId}"]`);
-        if (contextRow) container = contextRow.closest('tbody');
+    // Brug den tæller der passer til dit system (state.tC eller window.rorCounter)
+    // Her antager jeg state.tC baseret på index(1).html logikken
+    if (typeof state !== 'undefined' && state.tC !== undefined) {
+        state.tC++;
+    } else {
+        if (!window.rorCounter) window.rorCounter = 0;
+        window.rorCounter++;
     }
+    const counterVal = (typeof state !== 'undefined') ? state.tC : window.rorCounter;
 
-    // B: Fra Knap (Klik i UI)
-    if (!container && btn) {
-        const card = btn.closest('.streng-card');
-        if (card) {
-            container = card.querySelector('.ror-container');
-        } else {
-            container = btn.closest('tbody');
+    // 1. FIND CONTAINER (Robust metode fra din gamle kode)
+    let container = null;
+    let stringPrefix = '';
+
+    // A: Hvis vi har et parentId (fx fra højrekliks-menu)
+    if (parentId) {
+        const contextRow = document.querySelector(`tr[data-id="${parentId}"]`);
+        if (contextRow) {
+            // Find den tbody, rækken ligger i
+            container = contextRow.closest('tbody');
+            // Prøv at udlede streng-navn fra parentId (fx S1 fra S1-R2)
+            if (parentId.includes('-')) stringPrefix = parentId.split('-')[0];
         }
     }
 
-    // C: Fallback
+    // B: Hvis vi har en knap (Klik i UI)
+    if (!container && btn) {
+        const card = btn.closest('.card') || btn.closest('.streng-card'); // Understøtter begge klassenavne
+        if (card) {
+            // Vælg korrekt container baseret på type
+            const selector = (type === 'ror_kv') ? '.ror-container-kv' : '.ror-container';
+            container = card.querySelector(selector) || card.querySelector('.ror-container');
+            if (card.dataset.id) stringPrefix = card.dataset.id;
+        }
+    }
+
+    // C: Fallback (hvis kaldt automatisk uden knap og uden parentId)
     if (!container) {
-        // Hvis alt fejler, gæt på den første streng af typen
-        const selector = (type === 'ror_kv') ? '#strengeContainerKV tbody' : '#strengeContainerVV tbody';
-        container = document.querySelector(selector);
+        // Find den senest tilføjede streng-kort
+        const cards = document.querySelectorAll('.card, .streng-card');
+        if (cards.length > 0) {
+            const lastCard = cards[cards.length - 1];
+            const selector = (type === 'ror_kv') ? '.ror-container-kv' : '.ror-container';
+            container = lastCard.querySelector(selector) || lastCard.querySelector('.ror-container');
+            if (lastCard.dataset.id) stringPrefix = lastCard.dataset.id;
+        }
     }
 
     if (!container) {
-        console.error("Kritisk fejl: Ingen container fundet til nyt rør.");
+        console.error("Kunne ikke finde container til nyt rør", {btn, type, parentId});
         return;
     }
 
-    // 2. Bestem Streng-ID (Prefix) - RETTET HER
-    let stringPrefix = ''; 
+    // 2. GENERER ID
+    const prefix = (type === 'ror_kv') ? 'K' : 'R';
+    // Hvis vi fandt et streng-navn (S1), bliver det S1-R5. Ellers bare R5.
+    const id = stringPrefix ? `${stringPrefix}-${prefix}${counterVal}` : `${prefix}${counterVal}`;
+    
+    // 3. GENERER UNIK DATALIST ID (Det nye trick)
+    const datalistId = `list-${id}`;
 
-    // Metode 1: Hent direkte fra Streng-kortet (Det sikreste)
-    const card = container.closest('.streng-card');
-    if (card && card.dataset.id) {
-        stringPrefix = card.dataset.id; // Fx "K1" eller "S1"
+    // 4. OPRET HTML
+    const tr = document.createElement('tr');
+    tr.dataset.id = id;
+    tr.dataset.type = type; // 'ror_vv' eller 'ror_kv'
+
+    tr.innerHTML = `
+        <td>
+            <span class="input-group input-group-sm">
+                <span class="input-group-text id-text">${id}</span>
+                <input type="text" class="form-control name-input d-none name-text" placeholder="Navn">
+            </span>
+        </td>
+        <td><select class="form-select form-select-sm parent" title="Forælder"></select></td>
+        <td><select class="form-select form-select-sm material" title="Materiale">
+            <option value="Pex">Pex</option>
+            <option value="Alupex">Alupex</option>
+            <option value="Kobber">Kobber</option>
+            <option value="Rustfri Press 316L">Rustfri Press 316L</option>
+            <option value="Rustfri Svejse 316L">Rustfri Svejse 316L</option>
+            <option value="PE100">PE100</option>
+            <option value="Geberit Mepla">Geberit Mepla</option>
+        </select></td>
+        <td>
+            <select class="form-select form-select-sm location" title="Placering">
+                <option value="heated" selected>Opvarmet rum</option>
+                <option value="unheated">Uopvarmet rum</option>
+                <option value="outside">Udendørs</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm insulation-class" value="Auto" list="insulationClassOptions"></td>
+        <td>
+            <input type="text" class="form-control form-control-sm dim-input dim" value="20" list="${datalistId}">
+            <datalist id="${datalistId}"></datalist>
+        </td>
+        <td><input type="number" min="0" class="form-control form-control-sm len" value="10"></td>
+        <td><input type="number" min="0" class="form-control form-control-sm fittings" value="0"></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
+    `;
+
+    // 5. TILFØJ LOGIK OG INDSÆT
+    if (typeof state !== 'undefined') {
+        tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     }
     
-    // Metode 2: Fallback - Hent fra parentId (hvis parent er fx S1-R2)
-    if (!stringPrefix && parentId && parentId.includes('-')) {
-        stringPrefix = parentId.split('-')[0];
-    }
-
-    // 3. Generer ID
-    // Hvis vi fandt et prefix (fx K1), bliver ID'et "K1-R[tæller]"
-    // Hvis ikke, falder vi tilbage til K[tæller] eller R[tæller]
-    let newId;
-    if (stringPrefix) {
-        newId = `${stringPrefix}-R${window.rorCounter}`;
-    } else {
-        // Fallback hvis vi er udenfor en streng (burde ikke ske ofte)
-        const typeCode = (type === 'ror_kv') ? 'K' : 'R';
-        newId = `${typeCode}${window.rorCounter}`;
-    }
-
-    // 4. Opret og Indsæt
-    const tr = createRowHTML(newId, type);
+    const materialSelect = tr.querySelector('.material');
+    materialSelect.onchange = handleMaterialChange; // Sørg for denne funktion findes globalt
+    
     container.appendChild(tr);
 
-    // 5. Opdater State
-    updateAllSelects();
-    
-    // Sæt forælder automatisk
+    // 6. SÆT FORÆLDER
+    const pSel = tr.querySelector('.parent');
     if (parentId) {
-        const pInput = tr.querySelector('.parent');
-        if (pInput) pInput.value = parentId;
+        // Hvis vi kender forælderen (fra argumentet)
+        const opt = document.createElement('option');
+        opt.value = parentId;
+        opt.text = parentId;
+        pSel.add(opt);
+        pSel.value = parentId;
+    } else {
+        // Gæt forælder: Tag det forrige rør i listen
+        const siblings = container.querySelectorAll(`[data-type="${type}"]`);
+        // siblings.length - 2 fordi vi lige har tilføjet os selv som det sidste
+        if (siblings.length > 1) {
+            pSel.value = siblings[siblings.length - 2].dataset.id;
+        } else {
+            // Hvis det er det første rør
+            pSel.value = (type === 'ror_kv') ? 'Stikledning' : 'Beholder';
+        }
     }
 
-    updateAllSelects();
-    setProjektErÆndret();
+    // 7. AKTIVER DATALISTEN
+    updateDimOptions(materialSelect); // Fyld listen med det samme
+    if (typeof updateAllSelects === 'function') updateAllSelects();
 }
-
 
 function addTapsted(btn) {
     state.tC++;
@@ -2133,7 +2305,7 @@ function addValve() {
         idText.textContent = `${id} (${newType.substring(0, 10)}...)`;
     };
 
-    tr.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
+    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     document.getElementById('returContainerBody').appendChild(clone); 
     updateAllSelects();
 }
@@ -2614,7 +2786,14 @@ function updateDiagram() {
         .attr("class", "node")
         .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
         .on('click', handleNodeClick)
-        .on('contextmenu', handleNodeRightClick);
+        .on('contextmenu', function(event, d) {
+        if (event.shiftKey) {
+            event.preventDefault();
+            showEditModal(d);
+        } else {
+            handleNodeRightClick(event, d);
+        }
+        });
 
     node.each(function(d) {
         const group = d3.select(this);
@@ -2758,6 +2937,7 @@ function updateDiagram() {
     updateSelectionVisuals();
     if (state.lastModel) updateDiagramStyles();
 }
+
 
 /**
  * NY FUNKTION: Zoomer og panorerer så hele netværket er synligt.
@@ -5016,7 +5196,7 @@ function loadProjectData(data) {
 
     // --- BYG VV STRENGE ---
     (data.strenge_vv || data.strenge || []).forEach(s => {
-        const clone = document.getElementById('vvstrengTemplate').content.cloneNode(true);
+        const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
         const card = clone.querySelector('.card');
         card.dataset.id = s.id;
         card.querySelector('.id-text').textContent = `VV-Streng ${s.id}`;
@@ -8015,6 +8195,221 @@ function showConnectHint() {
 
     modal.show();
 }
+
+// --- KONFIGURATION AF FELTER ---
+// Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
+const fieldConfig = [
+    // Fælles
+    { class: '.name-text',        label: 'Navn' },              // Text
+    { class: '.parent',           label: 'Forælder' },          // Dropdown
+
+    // Rør (KV, VV, Cirkulation)
+    { class: '.material',         label: 'Materiale' },         // Dropdown
+    { class: '.location',         label: 'Placering' },         // Dropdown
+    { class: '.insulation-class', label: 'Isolering' },         // Dropdown
+    { class: '.dim',              label: 'Dimension (mm)' },    // Dropdown
+    { class: '.len',              label: 'Længde (m)',          type: 'number', attr: 'min="0" step="0.1"' },
+    { class: '.fittings',         label: 'Zeta (Modstand)',     type: 'number', attr: 'min="0" step="0.1"' },
+
+    // Komponenter (Booster/Reducer)
+    { class: '.pressure-change',  label: 'Trykændring (kPa)',   type: 'number', attr: 'step="1"' },
+
+    // Målere & Ventiler
+    { class: '.meter-type-select',label: 'Målerstørrelse' },    // Dropdown
+    { class: '.valve-type-select',label: 'Ventiltype' },        // Dropdown
+    { class: '.kv-value',         label: 'Kv Værdi',            type: 'number', attr: 'step="0.01"' }, // (Hvis til stede)
+
+    // Tapsteder
+    { class: '.tap-type',         label: 'Type' },              // Dropdown
+    { class: '.qf',               label: 'Normvandstrøm (l/s)', type: 'number', attr: 'min="0" step="0.01"' },
+    { class: '.kote',             label: 'Kote (m)',            type: 'number', attr: 'step="0.1"' }
+];
+
+let currentNodeData = null;
+
+function showEditModal(d) {
+    currentNodeData = d;
+    const modalEl = document.getElementById('editNodeModal');
+    const modal = new bootstrap.Modal(modalEl);
+    
+    // 1. Sæt ID
+    document.getElementById('editNodeId').value = d.id;
+    document.getElementById('editNodeType').value = d.type;
+
+    const container = document.getElementById('editNodeDynamicContent');
+    container.innerHTML = ''; 
+    let html = '';
+
+    // --- A: VANDSTIK ---
+    if (d.id === 'Vandstik') {
+        const kote = document.getElementById('forsyningens_kote').value;
+        const tryk = document.getElementById('pln').value; 
+        const temp = document.getElementById('T_k').value;
+
+        html += buildInputRow('Kote (m)', 'edit_global_kote', kote, 'number', 'step="0.1"');
+        html += buildInputRow('Forsyningstryk (Pa)', 'edit_global_tryk', tryk, 'number', '');
+        html += buildInputRow('KV Temperatur (°C)', 'edit_global_temp', temp, 'number', 'step="0.1"');
+    }
+
+    // --- B: BEHOLDER ---
+    else if (d.id === 'Beholder') {
+        const tempV = document.getElementById('T_v').value;
+        const dT = document.getElementById('dT').value;
+        const kote = d.kote || 0; 
+        
+        html += buildInputRow('VV Temperatur (°C)', 'edit_global_temp_v', tempV, 'number', 'step="0.1"');
+        html += buildInputRow('Afkøling dT (°C)', 'edit_global_dt', dT, 'number', 'step="0.1"');
+        html += buildInputRow('Kote (m)', 'edit_global_kote_beh', kote, 'number', 'step="0.1" readonly disabled'); 
+    }
+
+    // --- C: GENERISK TABEL-OPSLAG ---
+    else {
+        // Find den originale række (hvis den findes i flere tabeller, tager vi bare den første, 
+        // da layout/datalist ID er det samme for samme rør)
+        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        
+        if (tr) {
+            fieldConfig.forEach(conf => {
+                const inputEl = tr.querySelector(conf.class);
+                
+                if (inputEl) {
+                    const modalId = 'modal_field_' + conf.class.replace('.', ''); 
+                    
+                    // Case 1: Dropdown (SELECT)
+                    if (inputEl.tagName === 'SELECT') {
+                        let options = '';
+                        Array.from(inputEl.options).forEach(opt => {
+                            const selected = (opt.value === inputEl.value) ? 'selected' : '';
+                            options += `<option value="${opt.value}" ${selected}>${opt.text}</option>`;
+                        });
+                        
+                        html += `<div class="mb-2 row">
+                                    <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
+                                    <div class="col-sm-8">
+                                        <select id="${modalId}" class="form-select form-select-sm" data-target-class="${conf.class}">
+                                            ${options}
+                                        </select>
+                                    </div>
+                                 </div>`;
+                    } 
+                    // Case 2: Almindeligt Input (Tekst, Tal, Datalist)
+                    else {
+                        const type = conf.type || 'text';
+                        let attr = conf.attr || ''; // Ændret til 'let' så vi kan tilføje mere
+
+                        // NYT: Tjek for datalist og kopier ID'et
+                        if (inputEl.hasAttribute('list')) {
+                            const listId = inputEl.getAttribute('list');
+                            attr += ` list="${listId}"`; // Tilføj list="list-R1" til inputtet
+                        }
+
+                        html += `<div class="mb-2 row">
+                                    <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
+                                    <div class="col-sm-8">
+                                        <input type="${type}" id="${modalId}" class="form-control form-control-sm" value="${inputEl.value}" ${attr} data-target-class="${conf.class}">
+                                    </div>
+                                 </div>`;
+                    }
+                }
+            });
+        } else {
+            html = '<p class="text-muted small">Ingen redigerbare felter fundet.</p>';
+        }
+    }
+
+    container.innerHTML = html;
+    modal.show();
+}
+
+
+function saveEditModal() {
+    // Sikkerhedstjek: Har vi data at gemme?
+    if (!currentNodeData) return;
+    const d = currentNodeData;
+
+    // =========================================================
+    // 1. HÅNDTER SPECIALE TILFÆLDE (Globale noder)
+    // =========================================================
+    if (d.id === 'Vandstik') {
+        // Opdater de bagvedliggende felter for Vandstikket
+        document.getElementById('forsyningens_kote').value = document.getElementById('edit_global_kote').value;
+        document.getElementById('pln').value = document.getElementById('edit_global_tryk').value;
+        document.getElementById('T_k').value = document.getElementById('edit_global_temp').value;
+    } 
+    else if (d.id === 'Beholder') {
+        // Opdater de bagvedliggende felter for Beholderen
+        document.getElementById('T_v').value = document.getElementById('edit_global_temp_v').value;
+        document.getElementById('dT').value = document.getElementById('edit_global_dt').value;
+    }
+    
+    // =========================================================
+    // 2. HÅNDTER GENERISKE FELTER (Rør, Tapsteder, Ventiler)
+    // =========================================================
+    else {
+        // VIGTIGT: Vi bruger querySelectorAll for at finde ALLE rækker med dette ID.
+        // Dette sikrer, at hvis et tapsted (fx T1) findes i både VV og KV tabellen,
+        // bliver begge rækker opdateret samtidig.
+        const rows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
+        
+        if (rows.length > 0) {
+            // Find alle inputs i modalen, der har data-target-class attributten
+            // (Disse inputs blev genereret da modalen åbnede)
+            const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
+            
+            // Loop igennem hver fundet række i hoved-tabellerne (VV, KV, Retur)
+            rows.forEach(tr => {
+                // For hver række, opdater de felter der er ændret i modalen
+                modalInputs.forEach(mInp => {
+                    // Hent klassenavnet vi skal lede efter (fx ".qf", ".kote", ".name-text")
+                    const targetClass = mInp.getAttribute('data-target-class');
+                    
+                    // Find det specifikke input-felt nede i rækken
+                    const targetInp = tr.querySelector(targetClass);
+                    
+                    if (targetInp) {
+                        // Kun opdater og trigger event hvis værdien faktisk er ændret
+                        // Dette forhindrer unødvendige genberegninger
+                        if (targetInp.value !== mInp.value) {
+                            targetInp.value = mInp.value;
+                            
+                            // Trigger events så systemet opdager ændringen og genberegner
+                            targetInp.dispatchEvent(new Event('change', { bubbles: true }));
+                            targetInp.dispatchEvent(new Event('input', { bubbles: true })); 
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    // =========================================================
+    // 3. AFSLUTNING
+    // =========================================================
+    
+    // Luk modalen korrekt
+    const modalEl = document.getElementById('editNodeModal');
+    const modal = bootstrap.Modal.getInstance(modalEl);
+    if (modal) modal.hide();
+
+    // Marker at projektet er ændret (til "Gem" advarsler)
+    setProjektErÆndret(); 
+    
+    // Opdater visuelle labels i diagrammet (hvis navne blev ændret)
+    if (typeof updateDiagramStyles === 'function') {
+        updateDiagramStyles(); 
+    }
+}
+
+// Hjælper (uændret)
+function buildInputRow(label, id, val, type, extras) {
+    return `<div class="mb-2 row">
+                <label class="col-sm-4 col-form-label col-form-label-sm">${label}</label>
+                <div class="col-sm-8">
+                    <input type="${type}" class="form-control form-control-sm" id="${id}" value="${val}" ${extras}>
+                </div>
+            </div>`;
+}
+
 
 </script>
 <script>
