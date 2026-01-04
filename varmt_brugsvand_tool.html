@@ -2305,7 +2305,7 @@ function addValve() {
         idText.textContent = `${id} (${newType.substring(0, 10)}...)`;
     };
 
-    tr.querySelector('.name-input').onchange = (e) => state.names.set(id, e.target.value);
+    tr.querySelector('.name-text').onchange = (e) => state.names.set(id, e.target.value);
     document.getElementById('returContainerBody').appendChild(clone); 
     updateAllSelects();
 }
@@ -8200,7 +8200,7 @@ function showConnectHint() {
 // Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
 const fieldConfig = [
     // Fælles
-    { class: '.name-input',       label: 'Navn' },
+    { class: '.name-text',        label: 'Navn' },              // Text
     { class: '.parent',           label: 'Forælder' },          // Dropdown
 
     // Rør (KV, VV, Cirkulation)
@@ -8232,19 +8232,15 @@ function showEditModal(d) {
     const modalEl = document.getElementById('editNodeModal');
     const modal = new bootstrap.Modal(modalEl);
     
-    // 1. Sæt ID (Altid Read-only)
+    // 1. Sæt ID
     document.getElementById('editNodeId').value = d.id;
     document.getElementById('editNodeType').value = d.type;
-
-    // Vi fjerner det separate navne-felt fra toppen af modalen i HTML'en, 
-    // da navnet nu håndteres generisk sammen med de andre felter via fieldConfig.
-    // (Husk at opdatere HTML'en nedenfor, så den passer)
 
     const container = document.getElementById('editNodeDynamicContent');
     container.innerHTML = ''; 
     let html = '';
 
-    // --- A: VANDSTIK (Globale Inputs - Specialtilfælde) ---
+    // --- A: VANDSTIK ---
     if (d.id === 'Vandstik') {
         const kote = document.getElementById('forsyningens_kote').value;
         const tryk = document.getElementById('pln').value; 
@@ -8255,7 +8251,7 @@ function showEditModal(d) {
         html += buildInputRow('KV Temperatur (°C)', 'edit_global_temp', temp, 'number', 'step="0.1"');
     }
 
-    // --- B: BEHOLDER (Globale Inputs - Specialtilfælde) ---
+    // --- B: BEHOLDER ---
     else if (d.id === 'Beholder') {
         const tempV = document.getElementById('T_v').value;
         const dT = document.getElementById('dT').value;
@@ -8266,19 +8262,20 @@ function showEditModal(d) {
         html += buildInputRow('Kote (m)', 'edit_global_kote_beh', kote, 'number', 'step="0.1" readonly disabled'); 
     }
 
-    // --- C: GENERISK TABEL-OPSLAG (Det smarte!) ---
+    // --- C: GENERISK TABEL-OPSLAG ---
     else {
+        // Find den originale række (hvis den findes i flere tabeller, tager vi bare den første, 
+        // da layout/datalist ID er det samme for samme rør)
         const tr = document.querySelector(`tr[data-id="${d.id}"]`);
         
         if (tr) {
-            // Løb igennem konfigurationen og se hvad vi finder i rækken
             fieldConfig.forEach(conf => {
                 const inputEl = tr.querySelector(conf.class);
                 
                 if (inputEl) {
-                    const modalId = 'modal_field_' + conf.class.replace('.', ''); // Unikt ID
+                    const modalId = 'modal_field_' + conf.class.replace('.', ''); 
                     
-                    // Tjek om det er en Dropdown (SELECT)
+                    // Case 1: Dropdown (SELECT)
                     if (inputEl.tagName === 'SELECT') {
                         let options = '';
                         Array.from(inputEl.options).forEach(opt => {
@@ -8295,10 +8292,17 @@ function showEditModal(d) {
                                     </div>
                                  </div>`;
                     } 
-                    // Ellers er det et almindeligt Input
+                    // Case 2: Almindeligt Input (Tekst, Tal, Datalist)
                     else {
                         const type = conf.type || 'text';
-                        const attr = conf.attr || '';
+                        let attr = conf.attr || ''; // Ændret til 'let' så vi kan tilføje mere
+
+                        // NYT: Tjek for datalist og kopier ID'et
+                        if (inputEl.hasAttribute('list')) {
+                            const listId = inputEl.getAttribute('list');
+                            attr += ` list="${listId}"`; // Tilføj list="list-R1" til inputtet
+                        }
+
                         html += `<div class="mb-2 row">
                                     <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
                                     <div class="col-sm-8">
@@ -8316,7 +8320,6 @@ function showEditModal(d) {
     container.innerHTML = html;
     modal.show();
 }
-
 
 
 function saveEditModal() {
