@@ -837,7 +837,7 @@
     </div>
 </template>
 
-<template id="vvstrengTemplate">
+<template id="vvStrengTemplate">
     <div class="card mb-3 streng-card" data-type="streng-card">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><span class="id-text"></span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv strengen et unikt navn"></h6>
@@ -1476,10 +1476,10 @@ function addStreng_vv(startParentId = null) {
     
     const id = `S${counterVal}`;
 
-    // --- RETTELSE HER: Bruger nu 'vvstrengTemplate' ---
-    const template = document.getElementById('vvstrengTemplate');
+    // --- RETTELSE HER: Bruger nu 'vvStrengTemplate' ---
+    const template = document.getElementById('vvStrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvstrengTemplate'> i din HTML.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvStrengTemplate'> i din HTML.");
         return;
     }
     
@@ -1544,10 +1544,10 @@ function addStreng_kv(startParentId = null) {
     
     const id = `S${counterVal}`;
 
-    // --- RETTELSE HER: Bruger nu 'kvstrengTemplate' ---
-    const template = document.getElementById('kvstrengTemplate');
+    // --- RETTELSE HER: Bruger nu 'kvStrengTemplate' ---
+    const template = document.getElementById('kvStrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvstrengTemplate'> i din HTML.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvStrengTemplate'> i din HTML.");
         return;
     }
 
