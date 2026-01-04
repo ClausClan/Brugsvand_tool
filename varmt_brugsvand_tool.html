@@ -1464,11 +1464,9 @@ function handleMaterialChange(e) {
 }
 	
 function addStreng_vv(startParentId = null) {
-    // Tæl op til næste streng-nummer
     if (typeof state !== 'undefined' && state.sC !== undefined) {
         state.sC++;
     } else {
-        // Fallback hvis 'state' objektet mangler
         if (!window.strengCounter) window.strengCounter = 0;
         window.strengCounter++;
     }
@@ -1476,64 +1474,49 @@ function addStreng_vv(startParentId = null) {
     
     const id = `S${counterVal}`;
 
-    // --- RETTELSE HER: Bruger nu 'vvStrengTemplate' ---
-    const template = document.getElementById('vvStrengTemplate');
+    // Hent template
+    const template = document.getElementById('vvstrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvStrengTemplate'> i din HTML.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='vvstrengTemplate'>.");
         return;
     }
     
     const clone = template.content.cloneNode(true);
     const card = clone.querySelector('.card');
     
-    // Sæt ID og Titel
+    // Sæt ID og data
     card.dataset.id = id;
     const idText = card.querySelector('.id-text');
     if (idText) idText.textContent = `VV-Streng ${id}`;
     
-    // Håndter navne-feltet
     const nameInput = card.querySelector('.name-text');
     if (nameInput && typeof state !== 'undefined') {
         nameInput.onchange = (e) => state.names.set(id, e.target.value);
     }
 
-    // Indsæt i DOM (i VV containeren)
-    // Sørg for at du har en container med id="strengeContainer" (eller "strengeContainerVV")
+    // Indsæt i container
     const container = document.getElementById('strengeContainer') || document.getElementById('strengeContainerVV');
-    if (container) {
-        container.appendChild(clone);
-    } else {
-        console.error("Kunne ikke finde containeren til at indsætte strengen i (strengeContainer).");
-        return;
-    }
+    if (!container) return;
+    container.appendChild(clone);
 
-    // Tilføj det første rør og tapsted automatisk
-    // Vi finder det nyligt indsatte kort for at få fat i knappen
+    // Find det nye kort og tilføj det første rør
     const newCard = container.querySelector(`[data-id="${id}"]`);
     if (newCard) {
-        // Vi finder knappen "Tilføj Rør" for at bruge den som reference (btn)
-        // Knappen har typisk teksten "+ Rør" eller klassen btn-outline-secondary
-        // Vi søger bredt for at være sikre
         const btnRor = newCard.querySelector('button[onclick*="addRorSektion"]') || 
                        newCard.querySelector('.btn-outline-secondary');
         
         if (btnRor) {
-            // Slet evt. placeholder-indhold fra templaten, så vi starter rent
+            // Slet evt. placeholder indhold
             const rorBody = newCard.querySelector('.ror-container');
             if (rorBody) rorBody.innerHTML = '';
             
-            // Kald funktionen med korrekte argumenter
+            // Tilføj KUN rør (Tapsted-linjen er slettet herfra)
             addRorSektion(btnRor, 'ror_vv', startParentId || 'Beholder');
-            
-            // Tilføj tapsted
-            if (typeof addTapsted === 'function') addTapsted(btnRor);
         }
     }
 }
 
-
 function addStreng_kv(startParentId = null) {
-    // Tæl op (genbruger sC eller sC_kv afhængigt af din logik - her bruger vi samme tæller for unikke S-numre)
     if (typeof state !== 'undefined' && state.sC !== undefined) {
         state.sC++;
     } else {
@@ -1544,55 +1527,39 @@ function addStreng_kv(startParentId = null) {
     
     const id = `S${counterVal}`;
 
-    // --- RETTELSE HER: Bruger nu 'kvStrengTemplate' ---
-    const template = document.getElementById('kvStrengTemplate');
+    const template = document.getElementById('kvstrengTemplate');
     if (!template) {
-        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvStrengTemplate'> i din HTML.");
+        console.error("KRITISK FEJL: Kunne ikke finde <template id='kvstrengTemplate'>.");
         return;
     }
 
     const clone = template.content.cloneNode(true);
     const card = clone.querySelector('.card');
     
-    // Sæt ID
     card.dataset.id = id;
-    
-    // Hvis templaten ikke allerede har sat klassen for koldt vand, gør vi det her
-    // (Antager du bruger .streng-card-kv til blå styling e.l.)
-    // card.classList.add('streng-card-kv'); 
+    // card.classList.add('streng-card-kv'); // Aktiver hvis du styrer farver via JS
     
     const idText = card.querySelector('.id-text');
     if (idText) idText.textContent = `KV-Streng ${id}`;
 
-    // Indsæt i DOM (i KV containeren)
     const container = document.getElementById('strengeContainerKV') || document.getElementById('strengeContainer');
-    if (container) {
-        container.appendChild(clone);
-    } else {
-        console.error("Kunne ikke finde containeren til at indsætte strengen i (strengeContainerKV).");
-        return;
-    }
+    if (!container) return;
+    container.appendChild(clone);
 
-    // Tilføj første rør og tapsted
     const newCard = container.querySelector(`[data-id="${id}"]`);
     if (newCard) {
-        // Ryd rør-containeren for en sikkerheds skyld
         const rorBody = newCard.querySelector('.ror-container-kv') || newCard.querySelector('.ror-container');
         if (rorBody) rorBody.innerHTML = '';
 
-        // Find knappen
         const btnRor = newCard.querySelector('button[onclick*="addRorSektion"]') || 
                        newCard.querySelector('.btn-outline-secondary');
         
         if (btnRor) {
-            // VIGTIGT: Kald med 'ror_kv' og 'Stikledning' som standard forælder
+            // Tilføj KUN rør (Tapsted-linjen er slettet herfra)
             addRorSektion(btnRor, 'ror_kv', startParentId || 'Stikledning');
-            
-            if (typeof addTapsted === 'function') addTapsted(btnRor);
         }
     }
 }
-
 
 function addCirkulationRor() {
     // Tæl op på retur-tælleren
