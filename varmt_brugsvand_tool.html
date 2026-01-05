@@ -12,6 +12,19 @@
 	<link rel="apple-touch-icon" href="icon-192.png">
 
     <style>
+        /* Sæt grund-størrelsen ned. Bootstrap skalerer alt (knapper, inputs, padding) efter denne. */
+        html {
+            /* Standard er normalt 16px. */
+            /* 12px svarer til 75% zoom */
+            /* 11px svarer til ca. 68% zoom */
+            font-size: 11px; 
+        }
+
+        /* Sørg for at diagrammet stadig har en læsbar tekststørrelse, hvis det bliver for småt */
+        #diagram text {
+            font-size: 12px; /* Tving diagram-tekst til at være lidt større hvis nødvendigt */
+        }
+        
         html, body {
             height: 100%;
             overflow: hidden;
@@ -154,7 +167,7 @@
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             
             /* Sikrer at indholdet ikke flyder over, mens den krymper */
-            overflow: hidden; 
+            overflow: auto; 
             white-space: nowrap; /* Forhindrer tekst i at wrappe grimt mens den lukker */
             opacity: 1;
         }
