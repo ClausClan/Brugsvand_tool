@@ -12,6 +12,19 @@
 	<link rel="apple-touch-icon" href="icon-192.png">
 
     <style>
+        /* Sæt grund-størrelsen ned. Bootstrap skalerer alt (knapper, inputs, padding) efter denne. */
+        html {
+            /* Standard er normalt 16px. */
+            /* 12px svarer til 75% zoom */
+            /* 11px svarer til ca. 68% zoom */
+            font-size: 11px; 
+        }
+
+        /* Sørg for at diagrammet stadig har en læsbar tekststørrelse, hvis det bliver for småt */
+        #diagram text {
+            font-size: 12px; /* Tving diagram-tekst til at være lidt større hvis nødvendigt */
+        }
+        
         html, body {
             height: 100%;
             overflow: hidden;
@@ -59,15 +72,6 @@
             height: 100%;
             display: block;      /* Fjerner evt. lille margin i bunden */
         }
-
-/*        #diagram, #diagram svg {
-*            width: 100%;
-*           height: 100%;
-*           cursor: grab;
-*        }
-*/
-
-
 
         .card-header h5 { margin-bottom: 0; }
         .accordion-button:not(.collapsed) { background-color: #eef7ff; }
@@ -157,7 +161,32 @@
             display: block;
         }
 
-        
+        /* 1. Gør venstre panel klar til animation */
+        #leftPanel {
+            /* Vi animerer bredde, flex-basis (bootstrap), padding og opacitet */
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            
+            /* Sikrer at indholdet ikke flyder over, mens den krymper */
+            overflow: auto; 
+            white-space: nowrap; /* Forhindrer tekst i at wrappe grimt mens den lukker */
+            opacity: 1;
+        }
+
+        /* 2. Klassen der lukker panelet (Vi bruger denne i stedet for d-none) */
+        #leftPanel.sidebar-closed {
+            max-width: 0 !important;
+            flex: 0 0 0 !important; /* Tvinger Bootstrap kolonnen til 0 bredde */
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin: 0 !important;
+            border: none !important; /* Fjerner den grå streg til højre */
+            opacity: 0;
+        }
+
+        /* 3. Gør højre panel "blødt", så det følger med */
+        #rightPanel {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
 
     </style>
@@ -8434,51 +8463,63 @@ function buildInputRow(label, id, val, type, extras) {
 
 // FUNKTION TIL AT TOGGLE SIDEBAR (INPUT PANEL : ID 'leftPanel'
 function toggleSidebar() {
-    // 1. Vi finder venstre panel (det ID vi lige satte ind)
     const left = document.getElementById('leftPanel');
-    
-    // 2. Vi finder højre panel (det ID du allerede havde i filen)
     const right = document.getElementById('diagramContainer'); 
-    
     const btn = document.getElementById('toggleSidebarBtn');
 
-    if (!left || !right) {
-        console.error("Fejl: Kunne ikke finde leftPanel eller diagramContainer");
-        return;
-    }
+    if (!left || !right) return;
 
-    // Tjek om venstre side er skjult
-    const isHidden = left.classList.contains('d-none');
+    // Tjek om den er lukket ved at se efter vores nye CSS klasse
+    const isClosed = left.classList.contains('sidebar-closed');
 
-    if (isHidden) {
-        // --- VIS INPUT IGEN (Normal tilstand) ---
-        left.classList.remove('d-none');
+    if (isClosed) {
+        // --- ÅBEN INPUT (Glid ind) ---
         
-        // Sæt højre side tilbage til normal bredde (Bootstrap classes fra din fil)
+        // 1. Fjern lukke-klassen, så CSS transitionen starter
+        left.classList.remove('sidebar-closed');
+        
+        // 2. Vi skal fortælle højre side, at den skal give plads igen.
+        // Vi sætter den tilbage til dine originale Bootstrap kolonner (7 og 8).
+        // Højden (h-100) bevares.
         right.className = 'col-lg-6 p-0 position-relative h-100 d-flex flex-column overflow-hidden';
         
-        if(btn) {
+    if(btn) {
             btn.innerHTML = '↔️ Udvid Diagram';
             btn.classList.remove('active');
         }
+
     } else {
-        // --- SKJUL INPUT (Fuldskærm) ---
-        left.classList.add('d-none');
+        // --- LUK INPUT (Glid ud) ---
         
-        // Sæt højre side til FULD bredde (12 kolonner)
+        // 1. Tilføj lukke-klassen. CSS klarer resten (animering til bredde 0).
+        left.classList.add('sidebar-closed');
+        
+        // 2. VIGTIGT TRICK: Vi sætter højre side til 'col'. 
+        // 'col' betyder i Bootstrap: "Fyld al den plads der er tilbage".
+        // Da venstre side animerer mod 0, vil højre side animere mod 100%.
         right.className = 'col-12 p-0 position-relative h-100 d-flex flex-column overflow-hidden';
-        
-        if(btn) {
+ if(btn) {
             btn.innerHTML = '⬅️ Vis Input';
             btn.classList.add('active');
         }
     }
 
-    // Opdater D3 (Vigtigt for at diagrammet tilpasser sig den nye bredde)
+    // --- OPDATER DIAGRAM ---
+    // Vi opdaterer D3 løbende mens animationen kører, for at det ser helt glat ud.
+    // Vi kører en lille timer der firer 'resize' eventet flere gange.
+    
+    let steps = 0;
+    const interval = setInterval(() => {
+        window.dispatchEvent(new Event('resize'));
+        steps++;
+        if (steps > 25) clearInterval(interval); // Stop efter ca 500ms (animationens længde)
+    }, 20);
+    
+    // Og en sidste gang for en sikkerheds skyld
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
         if (typeof resizeDiagram === 'function') resizeDiagram();
-    }, 50);
+    }, 550);
 }
 
 </script>
