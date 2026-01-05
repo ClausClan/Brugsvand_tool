@@ -43,11 +43,31 @@
             z-index: 100; /* Sikrer at den ligger 'ovenpå' hvis der er skygger */
             position: relative; /* Nødvendig for at z-index og outline virker optimalt */
         }
-        #diagram, #diagram svg {
+
+        /* Gør #diagram fleksibelt, så det aldrig presser ud over kanten */
+        #diagram {
+            flex-grow: 1;        /* Tag al den plads der er tilovers */
+            height: 0;           /* VIGTIGT: Dette tillader flexbox at styre højden */
             width: 100%;
-            height: 100%;
+            position: relative;
             cursor: grab;
         }
+
+        /* SVG'en skal bare fylde #diagram containeren helt ud */
+        #diagram svg {
+            width: 100%;
+            height: 100%;
+            display: block;      /* Fjerner evt. lille margin i bunden */
+        }
+
+/*        #diagram, #diagram svg {
+*            width: 100%;
+*           height: 100%;
+*           cursor: grab;
+*        }
+*/
+
+
 
         .card-header h5 { margin-bottom: 0; }
         .accordion-button:not(.collapsed) { background-color: #eef7ff; }
@@ -8435,7 +8455,7 @@ function toggleSidebar() {
         left.classList.remove('d-none');
         
         // Sæt højre side tilbage til normal bredde (Bootstrap classes fra din fil)
-        right.className = 'col-lg-6 d-flex flex-column h-100 p-0 position-relative overflow-hidden';
+        right.className = 'col-lg-6 p-0 position-relative h-100 d-flex flex-column overflow-hidden';
         
         if(btn) {
             btn.innerHTML = '↔️ Udvid Diagram';
@@ -8446,7 +8466,7 @@ function toggleSidebar() {
         left.classList.add('d-none');
         
         // Sæt højre side til FULD bredde (12 kolonner)
-        right.className = 'col-12 d-flex flex-column h-100 p-0 position-relative overflow-hidden';
+        right.className = 'col-12 p-0 position-relative h-100 d-flex flex-column overflow-hidden';
         
         if(btn) {
             btn.innerHTML = '⬅️ Vis Input';
