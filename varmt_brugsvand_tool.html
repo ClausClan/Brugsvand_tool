@@ -8451,104 +8451,139 @@ function showEditModal(d) {
     console.groupEnd(); // Slut på debug
     modal.show();
 }
-function saveEditModal() {
-    // Sikkerhedstjek: Har vi data at gemme?
-    if (!currentNodeData) return;
-    const d = currentNodeData;
 
-    // =========================================================
-    // 1. HÅNDTER SPECIALE TILFÆLDE (Globale noder)
-    // =========================================================
+	
+function saveEditModal() {
+    console.group("💾 DEBUG: saveEditModal Startede");
+    
+    if (!currentNodeData) {
+        console.error("❌ Ingen currentNodeData fundet!");
+        console.groupEnd();
+        return;
+    }
+    
+    const d = currentNodeData;
+    console.log("1. Gemmer data for ID:", d.id);
+
+    // --- A & B: Specialtilfælde (Vandstik / Beholder) ---
+    // (Beholdes simple for overskuelighedens skyld)
     if (d.id === 'Vandstik') {
-        // Opdater de bagvedliggende felter for Vandstikket
+        // ... (Din eksisterende logik for vandstik kan stå her)
+        console.log("   Gemmer Vandstik data...");
         document.getElementById('forsyningens_kote').value = document.getElementById('edit_global_kote').value;
         document.getElementById('pln').value = document.getElementById('edit_global_tryk').value;
         document.getElementById('T_k').value = document.getElementById('edit_global_temp').value;
+        updateDiagramStyles();
     } 
     else if (d.id === 'Beholder') {
-        // Opdater de bagvedliggende felter for Beholderen
+         console.log("   Gemmer Beholder data...");
         document.getElementById('T_v').value = document.getElementById('edit_global_temp_v').value;
         document.getElementById('dT').value = document.getElementById('edit_global_dt').value;
+        updateDiagramStyles();
     }
     
-    // =========================================================
-    // 2. HÅNDTER GENERISKE FELTER (Rør, Tapsteder, Ventiler)
-    // =========================================================
-else {
+    // --- C: GENERISKE NODER (Det vigtige!) ---
+    else {
+        // Find alle rækker i tabellerne der matcher dette ID
         const rows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
+        console.log(`2. Fandt ${rows.length} rækker i tabellerne, der skal opdateres.`);
+
+        // Find alle inputs i modalen, som har en kobling til tabellen
+        const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
         
-        if (rows.length > 0) {
-            // 1. Gem generiske felter (Navn, Kote, Type, etc.)
-            const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
-            rows.forEach(tr => {
-                modalInputs.forEach(mInp => {
-                    const targetClass = mInp.getAttribute('data-target-class');
-                    const targetInp = tr.querySelector(targetClass);
-                    if (targetInp && targetInp.value !== mInp.value) {
-                        targetInp.value = mInp.value;
+        // Hent vores special-felter (QF)
+        const hotInput = document.getElementById('edit_qf_hot');
+        const coldInput = document.getElementById('edit_qf_cold');
+        
+        if (hotInput) console.log(`   Specialfelter fundet -> Hot: ${hotInput.value}, Cold: ${coldInput.value}`);
+
+        // Gennemgå hver række i tabellen
+        rows.forEach((tr, index) => {
+            console.groupCollapsed(`   ➡️ Opdaterer Række ${index + 1} (${tr.closest('table')?.id || 'Ukendt tabel'})`);
+            
+            // 1. Opdater standard felter (Navn, Type, Kote, etc.)
+            modalInputs.forEach(mInp => {
+                const targetClass = mInp.getAttribute('data-target-class');
+                const targetInp = tr.querySelector(targetClass);
+                
+                if (targetInp) {
+                    // --- SPECIALHÅNDTERING AF DROPDOWNS (SELECT) ---
+                    if (targetInp.tagName === 'SELECT') {
+                        // Fordi vi ændrede modalen til at bruge NAVNE som values, men tabellen måske bruger TAL,
+                        // er vi nødt til at matche på TEKSTEN i stedet for value.
+                        
+                        // Hent den tekst der er valgt i modalen (fx "Udvendig Hane")
+                        const modalSelectedText = mInp.options[mInp.selectedIndex].text;
+                        console.log(`      Dropdown '${targetClass}': Modal viser '${modalSelectedText}'. Leder efter match i tabel...`);
+
+                        let matchFound = false;
+                        // Loop gennem tabellens dropdown-muligheder
+                        for (let i = 0; i < targetInp.options.length; i++) {
+                            if (targetInp.options[i].text === modalSelectedText) {
+                                targetInp.selectedIndex = i; // Vælg den option der har samme tekst
+                                console.log(`      ✅ Match fundet på index ${i}. Value er nu: '${targetInp.value}'`);
+                                matchFound = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!matchFound) {
+                            console.warn(`      ⚠️ Kunne ikke finde teksten '${modalSelectedText}' i tabellens dropdown. Prøver fallback til value copy.`);
+                            targetInp.value = mInp.value;
+                        }
+                        
+                        // Udløs change event så tabellen opdaterer sig selv (hvis den har listeners)
                         targetInp.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
-            });
-
-            // 2. SPECIAL: Gem qf_hot og qf_cold
-            const hotInput = document.getElementById('edit_qf_hot');
-            const coldInput = document.getElementById('edit_qf_cold');
-
-            if (hotInput && coldInput) {
-                const newHot = hotInput.value;
-                const newCold = coldInput.value;
-
-                rows.forEach(tr => {
-                    // Find qf feltet i denne række
-                    const qfField = tr.querySelector('.qf');
-                    
-                    if (qfField) {
-                        // Tjek hvilken container rækken bor i
-                        // (Tilpas ID'et 'strengeContainerKV' hvis dit hedder noget andet)
-                        const isColdNetwork = tr.closest('#strengeContainerKV') || tr.closest('#koldtVandTable');
-                        
-                        let valueToSave = isColdNetwork ? newCold : newHot;
-                        
-                        if (qfField.value !== valueToSave) {
-                            qfField.value = valueToSave;
-                            qfField.dispatchEvent(new Event('change', { bubbles: true }));
-                            qfField.dispatchEvent(new Event('input', { bubbles: true }));
+                    } 
+                    // --- ALMINDELIGE INPUTS ---
+                    else {
+                        if (targetInp.value !== mInp.value) {
+                            console.log(`      Felt '${targetClass}': Ændrer '${targetInp.value}' -> '${mInp.value}'`);
+                            targetInp.value = mInp.value;
+                            targetInp.dispatchEvent(new Event('change', { bubbles: true }));
+                            targetInp.dispatchEvent(new Event('input', { bubbles: true }));
                         }
                     }
-                });
+                }
+            });
+
+            // 2. Opdater QF (Vandstrøm) - Special Logic
+            if (hotInput && coldInput) {
+                const qfField = tr.querySelector('.qf');
+                if (qfField) {
+                    // Find ud af om vi er i koldt eller varmt netværk
+                    const isColdNetwork = tr.closest('#strengeContainerKV') || tr.closest('#koldtVandTable') || tr.closest('.kv-table');
+                    
+                    const valueToSave = isColdNetwork ? coldInput.value : hotInput.value;
+                    const typeStr = isColdNetwork ? 'KOLDT (KV)' : 'VARMT (VV)';
+
+                    console.log(`      💧 QF Opdatering (${typeStr}): Sætter værdi til ${valueToSave}`);
+                    
+                    if (qfField.value !== valueToSave) {
+                        qfField.value = valueToSave;
+                        qfField.dispatchEvent(new Event('change', { bubbles: true }));
+                        qfField.dispatchEvent(new Event('input', { bubbles: true }));
+                    } else {
+                        console.log(`         (Værdien var allerede korrekt)`);
+                    }
+                }
             }
-        }
+            console.groupEnd();
+        });
     }
 
-    // =========================================================
-    // 3. AFSLUTNING
-    // =========================================================
-    
-    // Luk modalen korrekt
+    // Luk modalen
     const modalEl = document.getElementById('editNodeModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
-    if (modal) modal.hide();
+    if(modal) modal.hide();
 
-    // Marker at projektet er ændret (til "Gem" advarsler)
+    // Opdater flag og diagram
+    console.log("3. Afslutter: Sætter 'ProjektErÆndret' og opdaterer diagram styles.");
     setProjektErÆndret(); 
+    if (typeof updateDiagramStyles === 'function') updateDiagramStyles(); 
     
-    // Opdater visuelle labels i diagrammet (hvis navne blev ændret)
-    if (typeof updateDiagramStyles === 'function') {
-        updateDiagramStyles(); 
-    }
+    console.groupEnd();
 }
-
-// Hjælper (uændret)
-function buildInputRow(label, id, val, type, extras) {
-    return `<div class="mb-2 row">
-                <label class="col-sm-4 col-form-label col-form-label-sm">${label}</label>
-                <div class="col-sm-8">
-                    <input type="${type}" class="form-control form-control-sm" id="${id}" value="${val}" ${extras}>
-                </div>
-            </div>`;
-}
-
 
 // FUNKTION TIL AT TOGGLE SIDEBAR (INPUT PANEL : ID 'leftPanel'
 function toggleSidebar() {
