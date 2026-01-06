@@ -8279,23 +8279,54 @@ function showEditModal(d) {
             console.log("4. Bruger primær række:", primaryRow);
 
             // Gennemgå fieldConfig
+// 1. Byg standard felter
             fieldConfig.forEach(conf => {
-                // Debug: Hvad leder vi efter?
-                // console.log(`   Leder efter class: '${conf.class}'`);
-                
                 const inputEl = primaryRow.querySelector(conf.class);
                 
                 if (inputEl) {
+                    // Rens ID for punktummer m.m.
                     const modalId = 'modal_field_' + conf.class.replace(/[\.,]/g, '').trim();
                     
-                    if (inputEl.tagName === 'SELECT') {
-                        // TJEK: Er det vores Type-vælger?
-                        if (conf.class.includes('tap') || conf.label === 'Type') {
-                            foundTypeValue = inputEl.value;
-                            console.log("5. FANDT TYPE-VÆLGER! Nuværende værdi i tabellen er:", foundTypeValue);
+                    // --- SPECIALHÅNDTERING AF TYPE-DROPDOWN ---
+                    if (inputEl.tagName === 'SELECT' && (conf.class.includes('tap') || conf.label === 'Type')) {
+                        
+                        // 1. Find ud af hvad der rent faktisk står af TEKST i tabellen (fx "Udvendig Hane")
+                        // Vi stoler ikke på 'value' (fordi den er 0.2), vi stoler på teksten.
+                        let currentText = "";
+                        if (inputEl.selectedIndex >= 0) {
+                            currentText = inputEl.options[inputEl.selectedIndex].text;
+                        }
+                        
+                        // Gem denne tekst, så vi kan tvinge dropdownen til den senere
+                        foundTypeValue = currentText; 
+                        console.log(`   🔧 FIX: Ignorerer værdi '${inputEl.value}'. Bruger tekst '${currentText}' som nøgle.`);
+
+                        // 2. Genopbyg options direkte fra ST-listen
+                        // Dette sikrer at value="Udvendig Hane" og ikke "0.2"
+                        let optionsHtml = '';
+                        if (typeof ST !== 'undefined') {
+                            for (const key in ST) {
+                                // Tjek om denne nøgle matcher teksten fra tabellen
+                                const isSelected = (key === currentText) ? 'selected' : '';
+                                optionsHtml += `<option value="${key}" ${isSelected}>${key}</option>`;
+                            }
+                        } else {
+                            // Fallback hvis ST mangler (bør ikke ske)
+                            optionsHtml = inputEl.innerHTML;
                         }
 
                         html += `<div class="mb-2 row">
+                                    <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
+                                    <div class="col-sm-8">
+                                        <select id="${modalId}" class="form-select form-select-sm" data-target-class="${conf.class}">
+                                            ${optionsHtml} 
+                                        </select>
+                                    </div>
+                                 </div>`;
+                    } 
+                    // --- ALMINDELIG DROPDOWN (Ikke Type) ---
+                    else if (inputEl.tagName === 'SELECT') {
+                         html += `<div class="mb-2 row">
                                     <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
                                     <div class="col-sm-8">
                                         <select id="${modalId}" class="form-select form-select-sm" data-target-class="${conf.class}">
@@ -8303,8 +8334,9 @@ function showEditModal(d) {
                                         </select>
                                     </div>
                                  </div>`;
-                    } else {
-                        // Almindelig input logik
+                    }
+                    // --- ALMINDELIGE INPUTS ---
+                    else {
                         const type = conf.type || 'text';
                         let attr = conf.attr || '';
                         if (inputEl.hasAttribute('list')) attr += ` list="${inputEl.getAttribute('list')}"`; 
@@ -8316,8 +8348,6 @@ function showEditModal(d) {
                                     </div>
                                  </div>`;
                     }
-                } else {
-                    // console.warn(`   ⚠️ Kunne ikke finde element for ${conf.label} (${conf.class})`);
                 }
             });
 
