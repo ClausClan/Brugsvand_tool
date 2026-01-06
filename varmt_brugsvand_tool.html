@@ -8198,96 +8198,14 @@ function removeContextMenu() {
  * Viser en instruktions-dialog for tilslutning.
  * Håndterer "Vis ikke igen" via localStorage.
  */
-function showConnectHint() {
-    // 1. Tjek om brugeren har slået det fra
-    if (localStorage.getItem('varmtBrugsvand_suppressMirrorHint') === 'true') return;
-
-    // 2. Fjern eksisterende modal hvis den findes (oprydning)
-    const oldModal = document.getElementById('connectHintModal');
-    if (oldModal) oldModal.remove();
-
-    // 3. Opret HTML dynamisk
-    const modalHtml = `
-    <div class="modal fade" id="connectHintModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header bg-light py-2">
-                    <h6 class="modal-title">🔗 Tilslut Eksisterende Tapsted</h6>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="mb-2">Klik nu på det <strong>Tapsted</strong> i diagrammet eller listen, som du vil forbinde til dette rør.</p>
-                    <small class="text-muted">Dette vil oprette en "spejlet" forbindelse, så tapstedet forsynes fra både koldt og varmt vand.</small>
-                    <div class="form-check mt-3">
-                        <input class="form-check-input" type="checkbox" id="dontShowMirrorHintAgain">
-                        <label class="form-check-label small text-secondary" for="dontShowMirrorHintAgain">
-                            Vis ikke denne besked igen
-                        </label>
-                    </div>
-                </div>
-                <div class="modal-footer py-1">
-                    <button type="button" class="btn btn-primary btn-sm" id="confirmMirrorHint">OK, jeg vælger nu</button>
-                </div>
-            </div>
-        </div>
-    </div>`;
-
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    // 4. Initier og vis Bootstrap Modal
-    const modalEl = document.getElementById('connectHintModal');
-    const modal = new bootstrap.Modal(modalEl);
-    
-    // 5. Event Listener på knappen
-    const btn = document.getElementById('confirmMirrorHint');
-    btn.onclick = () => {
-        const chk = document.getElementById('dontShowMirrorHintAgain');
-        if (chk && chk.checked) {
-            localStorage.setItem('varmtBrugsvand_suppressMirrorHint', 'true');
-        }
-        modal.hide();
-    };
-
-    modal.show();
-}
-
-// --- KONFIGURATION AF FELTER ---
-// Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
-const fieldConfig = [
-    // Fælles
-    { class: '.name-text',        label: 'Navn' },              // Text
-    { class: '.parent',           label: 'Forælder' },          // Dropdown
-
-    // Rør (KV, VV, Cirkulation)
-    { class: '.material',         label: 'Materiale' },         // Dropdown
-    { class: '.location',         label: 'Placering' },         // Dropdown
-    { class: '.insulation-class', label: 'Isolering' },         // Dropdown
-    { class: '.dim',              label: 'Dimension (mm)' },    // Dropdown
-    { class: '.len',              label: 'Længde (m)',          type: 'number', attr: 'min="0" step="0.1"' },
-    { class: '.fittings',         label: 'Zeta (Modstand)',     type: 'number', attr: 'min="0" step="0.1"' },
-
-    // Komponenter (Booster/Reducer)
-    { class: '.pressure-change',  label: 'Trykændring (kPa)',   type: 'number', attr: 'step="1"' },
-
-    // Målere & Ventiler
-    { class: '.meter-type-select',label: 'Målerstørrelse' },    // Dropdown
-    { class: '.valve-type-select',label: 'Ventiltype' },        // Dropdown
-    { class: '.kv-value',         label: 'Kv Værdi',            type: 'number', attr: 'step="0.01"' }, // (Hvis til stede)
-
-    // Tapsteder
-    { class: '.tapType',  label: 'Type' },              // Dropdown
-    { class: '.qf',               label: 'Normvandstrøm (l/s)', type: 'number', attr: 'min="0" step="0.01"' },
-    { class: '.kote',             label: 'Kote (m)',            type: 'number', attr: 'step="0.1"' }
-];
-
-let currentNodeData = null;
-
 function showEditModal(d) {
+    // Gem referencen globalt så vi kan gemme senere
     currentNodeData = d;
+    
     const modalEl = document.getElementById('editNodeModal');
     const modal = new bootstrap.Modal(modalEl);
     
-    // 1. Sæt ID
+    // Sæt ID og Type (Read-only felter i toppen af modalen)
     document.getElementById('editNodeId').value = d.id;
     document.getElementById('editNodeType').value = d.type;
 
@@ -8295,7 +8213,9 @@ function showEditModal(d) {
     container.innerHTML = ''; 
     let html = '';
 
-    // --- A: VANDSTIK ---
+    // ============================================================
+    // A: VANDSTIK (Globale Inputs)
+    // ============================================================
     if (d.id === 'Vandstik') {
         const kote = document.getElementById('forsyningens_kote').value;
         const tryk = document.getElementById('pln').value; 
@@ -8306,7 +8226,9 @@ function showEditModal(d) {
         html += buildInputRow('KV Temperatur (°C)', 'edit_global_temp', temp, 'number', 'step="0.1"');
     }
 
-    // --- B: BEHOLDER ---
+    // ============================================================
+    // B: BEHOLDER (Globale Inputs)
+    // ============================================================
     else if (d.id === 'Beholder') {
         const tempV = document.getElementById('T_v').value;
         const dT = document.getElementById('dT').value;
@@ -8317,20 +8239,26 @@ function showEditModal(d) {
         html += buildInputRow('Kote (m)', 'edit_global_kote_beh', kote, 'number', 'step="0.1" readonly disabled'); 
     }
 
-    // --- C: GENERISK TABEL-OPSLAG ---
+    // ============================================================
+    // C: GENERISK NODER (Rør, Tapsteder, Ventiler)
+    // ============================================================
     else {
-        // Find den originale række (hvis den findes i flere tabeller, tager vi bare den første, 
-        // da layout/datalist ID er det samme for samme rør)
-        const tr = document.querySelector(`tr[data-id="${d.id}"]`);
+        // 1. Find alle forekomster af denne node (både i VV og KV tabeller)
+        const allRows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
         
-        if (tr) {
+        // Vi bruger den første række vi finder til at hente fælles data (Navn, Kote, etc.)
+        const primaryRow = allRows[0]; 
+
+        if (primaryRow) {
+            // --- C1: Byg standard felter fra fieldConfig ---
             fieldConfig.forEach(conf => {
-                const inputEl = tr.querySelector(conf.class);
+                const inputEl = primaryRow.querySelector(conf.class);
                 
                 if (inputEl) {
-                    const modalId = 'modal_field_' + conf.class.replace('.', ''); 
+                    // Generer et unikt ID til modal-feltet
+                    const modalId = 'modal_field_' + conf.class.replace('.', '').replace(',', '').trim();
                     
-                    // Case 1: Dropdown (SELECT)
+                    // TYPE: DROPDOWN (Select)
                     if (inputEl.tagName === 'SELECT') {
                         let options = '';
                         Array.from(inputEl.options).forEach(opt => {
@@ -8347,15 +8275,15 @@ function showEditModal(d) {
                                     </div>
                                  </div>`;
                     } 
-                    // Case 2: Almindeligt Input (Tekst, Tal, Datalist)
+                    // TYPE: STANDARD INPUT (Text, Number, Datalist)
                     else {
                         const type = conf.type || 'text';
-                        let attr = conf.attr || ''; // Ændret til 'let' så vi kan tilføje mere
+                        let attr = conf.attr || '';
 
-                        // NYT: Tjek for datalist og kopier ID'et
+                        // VIGTIGT: Kopier datalist-reference hvis den findes (til Dimension/Isolering)
                         if (inputEl.hasAttribute('list')) {
                             const listId = inputEl.getAttribute('list');
-                            attr += ` list="${listId}"`; // Tilføj list="list-R1" til inputtet
+                            attr += ` list="${listId}"`; 
                         }
 
                         html += `<div class="mb-2 row">
@@ -8367,12 +8295,102 @@ function showEditModal(d) {
                     }
                 }
             });
+
+            // --- C2: SPECIAL HÅNDTERING AF VANDSTRØM (Tapsteder) ---
+            // Hvis noden har et .qf felt (dvs. det er et tapsted), viser vi Hot/Cold felter manuelt
+            if (primaryRow.querySelector('.qf')) {
+                
+                let currentHot = 0;
+                let currentCold = 0;
+
+                // Loop gennem alle fundne rækker for at finde værdier i hhv. VV og KV tabeller
+                allRows.forEach(row => {
+                    const qfVal = parseFloat(row.querySelector('.qf').value) || 0;
+                    
+                    // Tjek om rækken ligger i Koldt vands containeren
+                    // (Ret 'strengeContainerKV' hvis dit ID er anderledes)
+                    if (row.closest('#strengeContainerKV') || row.closest('#koldtVandTable')) {
+                        currentCold = qfVal;
+                    } else {
+                        // Ellers antager vi det er varmt vand (VV)
+                        currentHot = qfVal;
+                    }
+                });
+
+                html += `<hr class="my-2 text-muted">`;
+                html += `<div class="mb-2 row">
+                            <label class="col-sm-4 col-form-label col-form-label-sm">VV-Strøm (l/s)</label>
+                            <div class="col-sm-8">
+                                <input type="number" id="edit_qf_hot" class="form-control form-control-sm" value="${currentHot}" step="0.01" min="0">
+                            </div>
+                         </div>`;
+                html += `<div class="mb-2 row">
+                            <label class="col-sm-4 col-form-label col-form-label-sm">KV-Strøm (l/s)</label>
+                            <div class="col-sm-8">
+                                <input type="number" id="edit_qf_cold" class="form-control form-control-sm" value="${currentCold}" step="0.01" min="0">
+                            </div>
+                         </div>`;
+            }
         } else {
             html = '<p class="text-muted small">Ingen redigerbare felter fundet.</p>';
         }
     }
 
     container.innerHTML = html;
+
+    // ============================================================
+    // D: EVENT LISTENERS (Automatisk opdatering ved Type-valg)
+    // ============================================================
+    
+    // Vi leder efter de felter vi lige har oprettet i HTML'en
+    // (Navnet på type-feltet afhænger af din fieldConfig, typisk 'modal_field_tap-type')
+    const typeSelect = document.querySelector('[id^="modal_field_tap-type"]'); 
+    const inpHot = document.getElementById('edit_qf_hot');
+    const inpCold = document.getElementById('edit_qf_cold');
+
+    if (typeSelect && inpHot && inpCold) {
+        
+        // Intern funktion til at opdatere tallene
+        const updateFlows = () => {
+            const valgt = typeSelect.value;
+            // 'ST' er din tabel med standardværdier
+            const data = (typeof ST !== 'undefined') ? ST[valgt] : null; 
+
+            if (data) {
+                // Sæt værdier fra tabellen
+                inpHot.value = data.qf_hot;
+                inpCold.value = data.qf_cold;
+
+                // Hvis typen kun er til koldt vand (fx WC), så lås VV-feltet
+                if (data.mode === 'cold_only') {
+                    inpHot.value = 0;
+                    inpHot.disabled = true;
+                    inpHot.title = "Dette tapsted bruger kun koldt vand";
+                } else {
+                    inpHot.disabled = false;
+                    inpHot.title = "";
+                }
+                
+                // Visuelt feedback (lille flash)
+                inpCold.style.backgroundColor = '#f0f8ff';
+                inpHot.style.backgroundColor = '#f0f8ff';
+                setTimeout(() => {
+                    inpCold.style.backgroundColor = '';
+                    inpHot.style.backgroundColor = '';
+                }, 300);
+            }
+        };
+
+        // 1. Kør logikken med det samme for at låse felter korrekt ved åbning
+        const initialData = (typeof ST !== 'undefined') ? ST[typeSelect.value] : null;
+        if (initialData && initialData.mode === 'cold_only') {
+            inpHot.disabled = true;
+        }
+
+        // 2. Lyt efter ændringer i dropdown
+        typeSelect.addEventListener('change', updateFlows);
+    }
+
     modal.show();
 }
 
@@ -8400,40 +8418,50 @@ function saveEditModal() {
     // =========================================================
     // 2. HÅNDTER GENERISKE FELTER (Rør, Tapsteder, Ventiler)
     // =========================================================
-    else {
-        // VIGTIGT: Vi bruger querySelectorAll for at finde ALLE rækker med dette ID.
-        // Dette sikrer, at hvis et tapsted (fx T1) findes i både VV og KV tabellen,
-        // bliver begge rækker opdateret samtidig.
+else {
         const rows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
         
         if (rows.length > 0) {
-            // Find alle inputs i modalen, der har data-target-class attributten
-            // (Disse inputs blev genereret da modalen åbnede)
+            // 1. Gem generiske felter (Navn, Kote, Type, etc.)
             const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
-            
-            // Loop igennem hver fundet række i hoved-tabellerne (VV, KV, Retur)
             rows.forEach(tr => {
-                // For hver række, opdater de felter der er ændret i modalen
                 modalInputs.forEach(mInp => {
-                    // Hent klassenavnet vi skal lede efter (fx ".qf", ".kote", ".name-text")
                     const targetClass = mInp.getAttribute('data-target-class');
-                    
-                    // Find det specifikke input-felt nede i rækken
                     const targetInp = tr.querySelector(targetClass);
-                    
-                    if (targetInp) {
-                        // Kun opdater og trigger event hvis værdien faktisk er ændret
-                        // Dette forhindrer unødvendige genberegninger
-                        if (targetInp.value !== mInp.value) {
-                            targetInp.value = mInp.value;
-                            
-                            // Trigger events så systemet opdager ændringen og genberegner
-                            targetInp.dispatchEvent(new Event('change', { bubbles: true }));
-                            targetInp.dispatchEvent(new Event('input', { bubbles: true })); 
-                        }
+                    if (targetInp && targetInp.value !== mInp.value) {
+                        targetInp.value = mInp.value;
+                        targetInp.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 });
             });
+
+            // 2. SPECIAL: Gem qf_hot og qf_cold
+            const hotInput = document.getElementById('edit_qf_hot');
+            const coldInput = document.getElementById('edit_qf_cold');
+
+            if (hotInput && coldInput) {
+                const newHot = hotInput.value;
+                const newCold = coldInput.value;
+
+                rows.forEach(tr => {
+                    // Find qf feltet i denne række
+                    const qfField = tr.querySelector('.qf');
+                    
+                    if (qfField) {
+                        // Tjek hvilken container rækken bor i
+                        // (Tilpas ID'et 'strengeContainerKV' hvis dit hedder noget andet)
+                        const isColdNetwork = tr.closest('#strengeContainerKV') || tr.closest('#koldtVandTable');
+                        
+                        let valueToSave = isColdNetwork ? newCold : newHot;
+                        
+                        if (qfField.value !== valueToSave) {
+                            qfField.value = valueToSave;
+                            qfField.dispatchEvent(new Event('change', { bubbles: true }));
+                            qfField.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                });
+            }
         }
     }
 
