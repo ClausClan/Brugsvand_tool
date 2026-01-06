@@ -8194,6 +8194,38 @@ function removeContextMenu() {
     }
 }
 
+// --- KONFIGURATION AF FELTER ---
+// Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
+const fieldConfig = [
+    // Fælles
+    { class: '.name-text',        label: 'Navn' },              // Text
+    { class: '.parent',           label: 'Forælder' },          // Dropdown
+
+    // Rør (KV, VV, Cirkulation)
+    { class: '.material',         label: 'Materiale' },         // Dropdown
+    { class: '.location',         label: 'Placering' },         // Dropdown
+    { class: '.insulation-class', label: 'Isolering' },         // Dropdown
+    { class: '.dim',              label: 'Dimension (mm)' },    // Dropdown
+    { class: '.len',              label: 'Længde (m)',          type: 'number', attr: 'min="0" step="0.1"' },
+    { class: '.fittings',         label: 'Zeta (Modstand)',     type: 'number', attr: 'min="0" step="0.1"' },
+
+    // Komponenter (Booster/Reducer)
+    { class: '.pressure-change',  label: 'Trykændring (kPa)',   type: 'number', attr: 'step="1"' },
+
+    // Målere & Ventiler
+    { class: '.meter-type-select',label: 'Målerstørrelse' },    // Dropdown
+    { class: '.valve-type-select',label: 'Ventiltype' },        // Dropdown
+    { class: '.kv-value',         label: 'Kv Værdi',            type: 'number', attr: 'step="0.01"' }, // (Hvis til stede)
+
+    // Tapsteder
+    { class: '.tapType',  label: 'Type' },              // Dropdown
+    //{ class: '.qf',               label: 'Normvandstrøm (l/s)', type: 'number', attr: 'min="0" step="0.01"' },
+    { class: '.kote',             label: 'Kote (m)',            type: 'number', attr: 'step="0.1"' }
+];
+
+let currentNodeData = null;
+
+	
 /**
  * Viser en instruktions-dialog for tilslutning.
  * Håndterer "Vis ikke igen" via localStorage.
