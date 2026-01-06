@@ -8194,6 +8194,65 @@ function removeContextMenu() {
     }
 }
 
+/**
+ * Viser en instruktions-dialog for tilslutning.
+ * Håndterer "Vis ikke igen" via localStorage.
+ */
+function showConnectHint() {
+    // 1. Tjek om brugeren har slået det fra
+    if (localStorage.getItem('varmtBrugsvand_suppressMirrorHint') === 'true') return;
+
+    // 2. Fjern eksisterende modal hvis den findes (oprydning)
+    const oldModal = document.getElementById('connectHintModal');
+    if (oldModal) oldModal.remove();
+
+    // 3. Opret HTML dynamisk
+    const modalHtml = `
+    <div class="modal fade" id="connectHintModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-light py-2">
+                    <h6 class="modal-title">🔗 Tilslut Eksisterende Tapsted</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">Klik nu på det <strong>Tapsted</strong> i diagrammet eller listen, som du vil forbinde til dette rør.</p>
+                    <small class="text-muted">Dette vil oprette en "spejlet" forbindelse, så tapstedet forsynes fra både koldt og varmt vand.</small>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="dontShowMirrorHintAgain">
+                        <label class="form-check-label small text-secondary" for="dontShowMirrorHintAgain">
+                            Vis ikke denne besked igen
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer py-1">
+                    <button type="button" class="btn btn-primary btn-sm" id="confirmMirrorHint">OK, jeg vælger nu</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 4. Initier og vis Bootstrap Modal
+    const modalEl = document.getElementById('connectHintModal');
+    const modal = new bootstrap.Modal(modalEl);
+    
+    // 5. Event Listener på knappen
+    const btn = document.getElementById('confirmMirrorHint');
+    btn.onclick = () => {
+        const chk = document.getElementById('dontShowMirrorHintAgain');
+        if (chk && chk.checked) {
+            localStorage.setItem('varmtBrugsvand_suppressMirrorHint', 'true');
+        }
+        modal.hide();
+    };
+
+    modal.show();
+}
+	
+
+	
 // --- KONFIGURATION AF FELTER ---
 // Mapper CSS-klasser fra dine templates til Labels i redigerings-modalen.
 const fieldConfig = [
