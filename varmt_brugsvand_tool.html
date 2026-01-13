@@ -8287,10 +8287,10 @@ let currentNodeData = null;
 	
 /**
  * Viser en instruktions-dialog for tilslutning.
- * Håndterer "Vis ikke igen" via localStorage.
+ * Opdateret: Skjuler 'Forælder' feltet for tapsteder.
  */
 function showEditModal(d) {
-    console.group("🔍 DEBUG: showEditModal Startede"); // Starter en gruppe i loggen
+    console.group("🔍 DEBUG: showEditModal Startede");
     console.log("1. Node ID:", d.id);
     console.log("2. Node Type:", d.type);
 
@@ -8308,7 +8308,7 @@ function showEditModal(d) {
     // Variabel til at gemme den fundne type-værdi
     let foundTypeValue = null;
 
-    // --- A & B: VANDSTIK / BEHOLDER (Uændret, springer over debug her) ---
+    // --- A & B: VANDSTIK / BEHOLDER (Uændret) ---
     if (d.id === 'Vandstik') {
         const kote = document.getElementById('forsyningens_kote').value;
         const tryk = document.getElementById('pln').value; 
@@ -8328,7 +8328,6 @@ function showEditModal(d) {
     
     // --- C: GENERISKE NODER ---
     else {
-        // Debug: Hvad finder vi af rækker?
         const allRows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
         console.log(`3. Fandt ${allRows.length} rækker i tabellen for ID: ${d.id}`);
 
@@ -8337,40 +8336,47 @@ function showEditModal(d) {
         if (primaryRow) {
             console.log("4. Bruger primær række:", primaryRow);
 
-            // Gennemgå fieldConfig
-// 1. Byg standard felter
+            // TJEK OM DET ER ET TAPSTED
+            // Vi bruger d.type ELLER tjekker om der findes et .qf felt i rækken
+            const isTap = (d.type === 'tapsted') || (primaryRow.querySelector('.qf') !== null);
+            console.log(`   - Er dette et tapsted? ${isTap}`);
+
+            // 1. Byg standard felter fra fieldConfig
             fieldConfig.forEach(conf => {
+                
+                // --- NY LOGIK START ---
+                // Hvis det er et tapsted, og feltet er 'Forælder', så hop over (return)
+                const isParentField = conf.label.toLowerCase().includes('forælder') || 
+                                      conf.class.toLowerCase().includes('parent');
+                
+                if (isTap && isParentField) {
+                    console.log(`   🚫 Skjuler feltet '${conf.label}' fordi det er et tapsted.`);
+                    return; // Spring over dette felt
+                }
+                // --- NY LOGIK SLUT ---
+
                 const inputEl = primaryRow.querySelector(conf.class);
                 
                 if (inputEl) {
-                    // Rens ID for punktummer m.m.
                     const modalId = 'modal_field_' + conf.class.replace(/[\.,]/g, '').trim();
                     
                     // --- SPECIALHÅNDTERING AF TYPE-DROPDOWN ---
                     if (inputEl.tagName === 'SELECT' && (conf.class.includes('tap') || conf.label === 'Type')) {
                         
-                        // 1. Find ud af hvad der rent faktisk står af TEKST i tabellen (fx "Udvendig Hane")
-                        // Vi stoler ikke på 'value' (fordi den er 0.2), vi stoler på teksten.
                         let currentText = "";
                         if (inputEl.selectedIndex >= 0) {
                             currentText = inputEl.options[inputEl.selectedIndex].text;
                         }
                         
-                        // Gem denne tekst, så vi kan tvinge dropdownen til den senere
                         foundTypeValue = currentText; 
-                        console.log(`   🔧 FIX: Ignorerer værdi '${inputEl.value}'. Bruger tekst '${currentText}' som nøgle.`);
-
-                        // 2. Genopbyg options direkte fra ST-listen
-                        // Dette sikrer at value="Udvendig Hane" og ikke "0.2"
+                        
                         let optionsHtml = '';
                         if (typeof ST !== 'undefined') {
                             for (const key in ST) {
-                                // Tjek om denne nøgle matcher teksten fra tabellen
                                 const isSelected = (key === currentText) ? 'selected' : '';
                                 optionsHtml += `<option value="${key}" ${isSelected}>${key}</option>`;
                             }
                         } else {
-                            // Fallback hvis ST mangler (bør ikke ske)
                             optionsHtml = inputEl.innerHTML;
                         }
 
@@ -8383,7 +8389,7 @@ function showEditModal(d) {
                                     </div>
                                  </div>`;
                     } 
-                    // --- ALMINDELIG DROPDOWN (Ikke Type) ---
+                    // --- ALMINDELIG DROPDOWN ---
                     else if (inputEl.tagName === 'SELECT') {
                          html += `<div class="mb-2 row">
                                     <label class="col-sm-4 col-form-label col-form-label-sm">${conf.label}</label>
@@ -8410,19 +8416,13 @@ function showEditModal(d) {
                 }
             });
 
-            // Specialfelter for Tapsteder
-            if (primaryRow.querySelector('.qf')) {
-                console.log("6. Det er et TAPSTED (fandt .qf felt)");
+            // Specialfelter for Tapsteder (Flow)
+            if (isTap) { // Vi kan bruge vores isTap variabel her
+                console.log("6. Tilføjer specialfelter for TAPSTED");
                 let currentHot = 0, currentCold = 0;
                 
                 allRows.forEach(row => {
-                    const qfVal = parseFloat(row.querySelector('.qf').value) || 0;
-                    // Debug: Tjek hvor rækken bor
-                    const parentTable = row.closest('table') ? row.closest('table').id : 'ukendt';
-                    const parentDiv = row.closest('div[id^="strengeContainer"]') ? row.closest('div[id^="strengeContainer"]').id : 'ukendt';
-                    
-                    console.log(`   Række fundet i tabel: ${parentTable}, Div: ${parentDiv}. Værdi: ${qfVal}`);
-
+                    const qfVal = parseFloat(row.querySelector('.qf')?.value) || 0; // Tilføjet ?. safe navigation
                     if (row.closest('#strengeContainerKV') || row.closest('#koldtVandTable') || row.closest('.kv-table')) {
                         currentCold = qfVal;
                     } else {
@@ -8430,8 +8430,6 @@ function showEditModal(d) {
                     }
                 });
                 
-                console.log(`7. Beregnede værdier -> Hot: ${currentHot}, Cold: ${currentCold}`);
-
                 html += `<hr class="my-2 text-muted">`;
                 html += buildInputRow('VV-Strøm', 'edit_qf_hot', currentHot, 'number', 'step="0.01"');
                 html += buildInputRow('KV-Strøm', 'edit_qf_cold', currentCold, 'number', 'step="0.01"');
@@ -8451,35 +8449,16 @@ function showEditModal(d) {
     const inpHot = document.getElementById('edit_qf_hot');
     const inpCold = document.getElementById('edit_qf_cold');
 
-    console.log("8. DOM Check efter modal-byg:");
-    console.log("   - Type Dropdown fundet?", !!typeSelect);
-    console.log("   - Hot Input fundet?", !!inpHot);
-
     if (typeSelect) {
-        // Tving værdi
         if (foundTypeValue) {
-            console.log(`9. Tvinger dropdown til at vise: '${foundTypeValue}'`);
             typeSelect.value = foundTypeValue;
-            
-            // Tjek om det lykkedes
-            if (typeSelect.value !== foundTypeValue) {
-                console.error(`❌ FEJL: Dropdown ville ikke acceptere værdien '${foundTypeValue}'. Tjek om teksten matcher options 100% (store/små bogstaver)!`);
-                console.log("   Mulige options er:", Array.from(typeSelect.options).map(o => o.value));
-            }
         }
 
         const updateFlows = (isInit) => {
             const valgt = typeSelect.value;
-            console.log(`⚡ EVENT: Type ændret til: '${valgt}'`);
-
-            // Tjek ST
-            if (typeof ST === 'undefined') {
-                console.error("❌ KRITISK: Variabel 'ST' findes ikke! Er den defineret globalt?");
-                return;
-            }
+            if (typeof ST === 'undefined') return;
 
             const data = ST[valgt];
-            console.log("   - Data fra ST:", data);
 
             if (data && inpHot && inpCold) {
                 if (data.mode === 'cold_only') {
@@ -8494,20 +8473,15 @@ function showEditModal(d) {
                 if (!isInit) {
                     inpHot.value = data.qf_hot;
                     inpCold.value = data.qf_cold;
-                    console.log(`   ✅ Opdaterede felter til: Hot=${data.qf_hot}, Cold=${data.qf_cold}`);
                 }
-            } else if (!data) {
-                console.warn(`⚠️ ADVARSEL: Fandt ingen data i ST for nøglen '${valgt}'`);
             }
         };
 
-        // Kør init
         updateFlows(true);
-
         typeSelect.addEventListener('change', () => updateFlows(false));
     }
 
-    console.groupEnd(); // Slut på debug
+    console.groupEnd(); 
     modal.show();
 }
 
@@ -8523,11 +8497,10 @@ function saveEditModal() {
     
     const d = currentNodeData;
     console.log("1. Gemmer data for ID:", d.id);
+    console.log("2. Node Type:", d.type);
 
     // --- A & B: Specialtilfælde (Vandstik / Beholder) ---
-    // (Beholdes simple for overskuelighedens skyld)
     if (d.id === 'Vandstik') {
-        // ... (Din eksisterende logik for vandstik kan stå her)
         console.log("   Gemmer Vandstik data...");
         document.getElementById('forsyningens_kote').value = document.getElementById('edit_global_kote').value;
         document.getElementById('pln').value = document.getElementById('edit_global_tryk').value;
@@ -8541,11 +8514,11 @@ function saveEditModal() {
         updateDiagramStyles();
     }
     
-    // --- C: GENERISKE NODER (Det vigtige!) ---
+    // --- C: GENERISKE NODER ---
     else {
         // Find alle rækker i tabellerne der matcher dette ID
         const rows = document.querySelectorAll(`tr[data-id="${d.id}"]`);
-        console.log(`2. Fandt ${rows.length} rækker i tabellerne, der skal opdateres.`);
+        console.log(`3. Fandt ${rows.length} rækker i tabellerne, der skal opdateres.`);
 
         // Find alle inputs i modalen, som har en kobling til tabellen
         const modalInputs = document.querySelectorAll('#editNodeDynamicContent [data-target-class]');
@@ -8554,50 +8527,56 @@ function saveEditModal() {
         const hotInput = document.getElementById('edit_qf_hot');
         const coldInput = document.getElementById('edit_qf_cold');
         
-        if (hotInput) console.log(`   Specialfelter fundet -> Hot: ${hotInput.value}, Cold: ${coldInput.value}`);
+        // Tjek om det er et tapsted (bruges til sikkerhedstjek)
+        // Vi tjekker både type-navn og om rækkerne har flow-felter (.qf)
+        const isTap = (d.type === 'tapsted') || (rows.length > 0 && rows[0].querySelector('.qf'));
 
-        // Gennemgå hver række i tabellen
+        // Gennemgå hver række i tabellen (fx én i koldt tabel, én i varmt tabel)
         rows.forEach((tr, index) => {
-            console.groupCollapsed(`   ➡️ Opdaterer Række ${index + 1} (${tr.closest('table')?.id || 'Ukendt tabel'})`);
+            const tableId = tr.closest('table')?.id || 'Ukendt tabel';
+            console.groupCollapsed(`   ➡️ Opdaterer Række ${index + 1} (${tableId})`);
             
             // 1. Opdater standard felter (Navn, Type, Kote, etc.)
             modalInputs.forEach(mInp => {
                 const targetClass = mInp.getAttribute('data-target-class');
+                
+                // --- SIKKERHEDS-CHECK START ---
+                // Hvis det er et tapsted, må vi IKKE røre forældre-id (parentId).
+                // Selvom feltet ikke burde være i modalen, sikrer vi os her.
+                if (isTap && targetClass.toLowerCase().includes('parent')) {
+                    console.log(`      🛡️ IGNORERER '${targetClass}' fordi det er et tapsted (Beholder tabel-data).`);
+                    return; // Spring til næste input
+                }
+                // --- SIKKERHEDS-CHECK SLUT ---
+
                 const targetInp = tr.querySelector(targetClass);
                 
                 if (targetInp) {
                     // --- SPECIALHÅNDTERING AF DROPDOWNS (SELECT) ---
                     if (targetInp.tagName === 'SELECT') {
-                        // Fordi vi ændrede modalen til at bruge NAVNE som values, men tabellen måske bruger TAL,
-                        // er vi nødt til at matche på TEKSTEN i stedet for value.
-                        
-                        // Hent den tekst der er valgt i modalen (fx "Udvendig Hane")
                         const modalSelectedText = mInp.options[mInp.selectedIndex].text;
-                        console.log(`      Dropdown '${targetClass}': Modal viser '${modalSelectedText}'. Leder efter match i tabel...`);
-
+                        
                         let matchFound = false;
-                        // Loop gennem tabellens dropdown-muligheder
                         for (let i = 0; i < targetInp.options.length; i++) {
                             if (targetInp.options[i].text === modalSelectedText) {
-                                targetInp.selectedIndex = i; // Vælg den option der har samme tekst
-                                console.log(`      ✅ Match fundet på index ${i}. Value er nu: '${targetInp.value}'`);
+                                targetInp.selectedIndex = i; 
                                 matchFound = true;
                                 break;
                             }
                         }
                         
                         if (!matchFound) {
-                            console.warn(`      ⚠️ Kunne ikke finde teksten '${modalSelectedText}' i tabellens dropdown. Prøver fallback til value copy.`);
+                            // Fallback
                             targetInp.value = mInp.value;
                         }
                         
-                        // Udløs change event så tabellen opdaterer sig selv (hvis den har listeners)
                         targetInp.dispatchEvent(new Event('change', { bubbles: true }));
                     } 
                     // --- ALMINDELIGE INPUTS ---
                     else {
+                        // Kun opdater hvis værdien er ændret
                         if (targetInp.value !== mInp.value) {
-                            console.log(`      Felt '${targetClass}': Ændrer '${targetInp.value}' -> '${mInp.value}'`);
+                            console.log(`      ✏️ Opdaterer '${targetClass}': '${targetInp.value}' -> '${mInp.value}'`);
                             targetInp.value = mInp.value;
                             targetInp.dispatchEvent(new Event('change', { bubbles: true }));
                             targetInp.dispatchEvent(new Event('input', { bubbles: true }));
@@ -8606,24 +8585,26 @@ function saveEditModal() {
                 }
             });
 
-            // 2. Opdater QF (Vandstrøm) - Special Logic
-            if (hotInput && coldInput) {
+            // 2. Opdater QF (Vandstrøm) - Kun relevant for tapsteder
+            if (isTap && hotInput && coldInput) {
                 const qfField = tr.querySelector('.qf');
                 if (qfField) {
-                    // Find ud af om vi er i koldt eller varmt netværk
-                    const isColdNetwork = tr.closest('#strengeContainerKV') || tr.closest('#koldtVandTable') || tr.closest('.kv-table');
+                    // Identificer om rækken hører til koldt eller varmt system
+                    // Tjekker forældre-containerens ID eller klasser
+                    const isColdNetwork = tr.closest('#strengeContainerKV') || 
+                                          tr.closest('#koldtVandTable') || 
+                                          tr.closest('.kv-table') ||
+                                          tableId.includes('koldt'); // Ekstra sikkerhed på ID
                     
                     const valueToSave = isColdNetwork ? coldInput.value : hotInput.value;
                     const typeStr = isColdNetwork ? 'KOLDT (KV)' : 'VARMT (VV)';
 
-                    console.log(`      💧 QF Opdatering (${typeStr}): Sætter værdi til ${valueToSave}`);
-                    
+                    // Kun log hvis vi rent faktisk ændrer noget
                     if (qfField.value !== valueToSave) {
+                        console.log(`      💧 QF Opdatering (${typeStr}): '${qfField.value}' -> '${valueToSave}'`);
                         qfField.value = valueToSave;
                         qfField.dispatchEvent(new Event('change', { bubbles: true }));
                         qfField.dispatchEvent(new Event('input', { bubbles: true }));
-                    } else {
-                        console.log(`         (Værdien var allerede korrekt)`);
                     }
                 }
             }
@@ -8637,7 +8618,7 @@ function saveEditModal() {
     if(modal) modal.hide();
 
     // Opdater flag og diagram
-    console.log("3. Afslutter: Sætter 'ProjektErÆndret' og opdaterer diagram styles.");
+    console.log("4. Afslutter: Opdaterer diagram...");
     setProjektErÆndret(); 
     if (typeof updateDiagramStyles === 'function') updateDiagramStyles(); 
     
