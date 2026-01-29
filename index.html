@@ -8047,7 +8047,15 @@ function handleNodeRightClick(event, d) {
     menu.appendChild(document.createElement('hr'));
 
     if (isPipe) {
-        menu.appendChild(createMenuItem('✂️ Opdel rør', () => splitPipe(d.id)));
+        menu.appendChild(createMenuItem('✂️ Opdel rør', () => {
+    // Spørg brugeren om antal segmenter
+    const segments = prompt("Hvor mange dele skal røret opdeles i?", "2");
+    
+    // Hvis brugeren trykker OK og har skrevet noget
+    if (segments) {
+        splitPipe(d.id, segments);
+    }
+}));
         menu.appendChild(createMenuItem('🖐️ Flyt gren', () => startMoveBranch(d.id)));
         menu.appendChild(createMenuItem('📋 Kopier gren', () => copyBranch(d.id)));
     }
