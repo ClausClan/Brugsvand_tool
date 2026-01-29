@@ -1088,6 +1088,38 @@
 </template>
 
 <script>
+
+/**
+ * Læser et dansk tal (f.eks. "1.000,50") og gør det til et JS-tal (1000.5).
+ * - Fjerner tusind-separator (punktum)
+ * - Erstatter komma med punktum
+ */
+function parseDanskFloat(str) {
+    if (typeof str === 'number') return str; // Hvis det allerede er et tal
+    if (!str) return 0;
+    
+    // 1. Fjern alle punktummer (tusind-separatorer)
+    // 2. Erstat komma med punktum (decimal-separator)
+    const cleanStr = str.toString().replace(/\./g, '').replace(',', '.');
+    
+    const val = parseDanskFloat(cleanStr);
+    return isNaN(val) ? 0 : val;
+}
+
+/**
+ * Formaterer et JS-tal til dansk format (f.eks. "1.000,50").
+ */
+function formatDanskFloat(num, decimals = 2) {
+    if (num === undefined || num === null || isNaN(num)) return "";
+    
+    // Bruger browserens indbyggede da-DK formatering
+    return num.toLocaleString('da-DK', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    });
+}
+	
+	
 // --- KONSTANTER OG DATA ---
 
 // Standard Tapsteder (ST) med normvandstrøm (qf) i l/s jf. DS 439:2024
@@ -1392,7 +1424,7 @@ function handleInputChange(e) {
             flowCold = state.customTapsteder[typeName].qf_cold || 0;
         } else {
             // Fallback hvis typen er ukendt, brug værdien fra optionen
-            flowHot = parseFloat(newVal) || 0;
+            flowHot = parseDanskFloat(newVal);
             flowCold = flowHot; 
         }
 
@@ -1723,9 +1755,7 @@ function splitPipe(targetId, segments) {
     // ---------------------------------------------
 
     const type = targetRow.dataset.type;
-    const lenInput = targetRow.querySelector('.len');
-    const rawLen = lenInput.value.replace(',', '.'); 
-    const originalLen = parseFloat(rawLen) || 0;
+	const originalLen = parseDanskFloat(targetRow.querySelector('.len').value);
     const newLen = originalLen / segments;
     
     const material = targetRow.querySelector('.material')?.value || 'Pex';
@@ -2496,30 +2526,6 @@ function addComponent(type, parentId = null) {
          updateAllSelects(); 
     }, 10);
 }
-/* FUNKTION IKKE I BRUG LÆNGERE
-function createInputElement(id, type) {
-    const div = document.createElement('div');
-    div.className = 'input-group input-group-sm mb-2'; div.dataset.id = id; div.dataset.type = type;
-    // Tilføjet title til name-input og parent-select
-    div.innerHTML = `<span class="input-group-text"><span class="id-text">${id}</span><input type="text" class="name-input d-none name-text" placeholder="Navn" title="Giv komponenten et unikt navn"></span><select class="form-select parent" aria-label="Forælder node" title="Vælg forælder-node (rør eller Beholder)"></select>`;
-    if (type === 'ror_vv') {
-        div.innerHTML += `<select class="form-select material" aria-label="Materiale" title="Vælg rørmateriale"><option>PEX</option><option>Kobber</option><option>Rustfri</option></select>
-            <select class="form-select location" title="Placering (ift. varmetabsberegning)">
-                <option value="heated" selected>Opvarmet rum</option>
-                <option value="unheated">Uopvarmet rum</option>
-                <option value="outside">Udendørs</option>
-            </select>
-            <input type="number" min="0" class="form-control dim-input dim" value="20" title="Nominel diameter (mm)" aria-label="Nominel diameter (mm)">
-            <input type="number" min="0" class="form-control len" value="10" title="Længde (m)" aria-label="Længde (m)">
-            <input type="number" min="0" class="form-control fittings" value="0" title="Sum af enkeltmodstande (zeta) for kun dette rørsegment" aria-label="Sum af enkeltmodstande (zeta)">`;
-    }
-    div.innerHTML += `<button class="btn btn-sm btn-outline-danger" aria-label="Fjern element" onclick="removeElement(this)" title="Fjern komponent">&times;</button>`;
-    if (type === 'ror_vv') {
-        div.querySelector('.material').onchange = handleMaterialChange;
-    }
-    return div;
-}
-*/
 
 function removeElement(btn) { 
     // Find det element, der skal fjernes (enten en tr, en div.retur-ror, en div[data-type=valve] or en .streng-card)
@@ -2655,7 +2661,7 @@ function toggleDisplayNames(useNames) {
 
 function addCustomTapsted() {
     const name = document.getElementById('newTapName').value.trim();
-    const qf = parseFloat(document.getElementById('newTapQf').value);
+    const qf = parseDanskFloat(document.getElementById('newTapQf').value);
     const isApartment = document.getElementById('newTapApartment').checked;
     
     if (!name || isNaN(qf) || qf <= 0) return alert('Ugyldigt navn eller qf.');
@@ -2812,7 +2818,7 @@ function buildNetworkAndRender() {
         if (!c.classList.contains('kv-card')) {
             const start = c.querySelector('.circ-start')?.value; 
             const end = c.querySelector('.circ-end')?.value;
-            const zeta = parseFloat(c.querySelector('.circ-zeta')?.value) || 0;
+            const zeta = parseDanskFloat(c.querySelector('.circ-zeta')?.value);
             if(start && end) {
                 state.links.push({source: start, target: end, type: 'cirkulation_vv', zeta: zeta});
             }
@@ -3075,7 +3081,7 @@ function zoomToFit() {
     const viewBoxAttr = state.svgElement.attr("viewBox");
     
     if (viewBoxAttr) {
-        const vb = viewBoxAttr.split(" ").map(parseFloat);
+        const vb = viewBoxAttr.split(" ").map(parseDanskFloat);
         width = vb[2]; // viewBox width
         height = vb[3]; // viewBox height
     } else {
@@ -3198,7 +3204,7 @@ function validateInputs(config) {
     document.querySelectorAll('input[type="number"]').forEach(inp => {
         // Tjek kun felter, der IKKE har klassen 'allow-negative'
         if (!inp.classList.contains('allow-negative')) {
-            if (parseFloat(inp.value) < parseFloat(inp.min || 0)) {
+            if (parseDanskFloat(inp.value) < parseDanskFloat(inp.min || 0)) {
                 // Brug .title eller .id for at give en mere specifik fejlmeddelelse
                 advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${inp.title || inp.id} må ikke være negativ.</p>`;
                 valid = false;
@@ -3208,7 +3214,7 @@ function validateInputs(config) {
     document.querySelectorAll('.dim-input').forEach(inp => {
         if (!inp.disabled) { // Kun tjek manuelle dimensioner
             const material = inp.closest('[data-id]').querySelector('.material').value;
-            const dim = parseFloat(inp.value);
+            const dim = parseDanskFloat(inp.value);
             if (!ID[material][dim]) {
                 advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: Dimension ${dim} mm er ugyldig for ${material}.</p>`;
                 valid = false;
@@ -3222,7 +3228,7 @@ function getGlobalConfig() {
     // Hjælper til sikker parsing
     const getVal = (id, def) => {
         const el = document.getElementById(id);
-        const val = parseFloat(el ? el.value : def);
+        const val = parseDanskFloat(el ? el.value : def);
         return isNaN(val) ? def : val;
     };
 
@@ -3314,20 +3320,20 @@ function buildModel(config) {
         // 4. Opdater Data (Overskrivning er OK, da data er ens i spejlene)
         if (type.includes('ror') || type === 'cirkulation_vv') {
             Object.assign(data, { 
-                L: parseFloat(el.querySelector('.len')?.value) || 0, 
-                zeta_sum: parseFloat(el.querySelector('.fittings')?.value) || 0, 
+                L: parseDanskFloat(el.querySelector('.len')?.value), 
+                zeta_sum: parseDanskFloat(el.querySelector('.fittings')?.value), 
                 material: el.querySelector('.material')?.value,
                 location: el.querySelector('.location')?.value || 'heated',
                 insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto'
             });
-            if (!config.isAuto) data.nom_dim = parseFloat(el.querySelector('.dim')?.value) || 0;
+            if (!config.isAuto) data.nom_dim = parseDanskFloat(el.querySelector('.dim')?.value);
         }
         
         if (type === 'tapsted') {
-            data.qf = parseFloat(el.querySelector('.qf')?.value) || 0;
+            data.qf = parseDanskFloat(el.querySelector('.qf')?.value);
             data.isSyst = el.querySelector('.syst')?.checked || false;
             data.isApartment = el.dataset.isApartment === 'true';
-            data.kote = parseFloat(el.querySelector('.kote')?.value) || 0;
+            data.kote = parseDanskFloat(el.querySelector('.kote')?.value);
             const tapSelect = el.querySelector('.tapType');
             if (tapSelect && tapSelect.selectedIndex >= 0) {
                 data.tapType = tapSelect.options[tapSelect.selectedIndex].text;
@@ -3335,7 +3341,7 @@ function buildModel(config) {
         }
         
         if (type === 'valve') data.valveType = el.querySelector('.valve-type-select')?.value || el.dataset.valveType;
-        if (type === 'booster' || type === 'reducer') data.pressure_change = parseFloat(el.querySelector('.pressure-change')?.value) || 0;
+        if (type === 'booster' || type === 'reducer') data.pressure_change = parseDanskFloat(el.querySelector('.pressure-change')?.value);
     });
 
     // 5. Byg Træstrukturen (Linking)
@@ -3362,7 +3368,7 @@ function buildModel(config) {
         if (!c.classList.contains('kv-card')) {
             const start = c.querySelector('.circ-start')?.value;
             const end = c.querySelector('.circ-end')?.value;
-            const zeta = parseFloat(c.querySelector('.circ-zeta')?.value) || 0;
+            const zeta = parseDanskFloat(c.querySelector('.circ-zeta')?.value);
             if(start && end) model.loops.push({ id: c.dataset.id, name: state.names.get(c.dataset.id)||'', startNodeId: start, endNodeId: end, zeta });
         }
     });
@@ -4411,31 +4417,6 @@ function calculateBeholder(model) {
     return model;
 }
 
-/* Funktion ikke i brug længere kan slettes
-function solveBeholder(model) {
-    const N = model.N;
-    if (!N || N <= 0) return;
-    const userEffekt = parseFloat(document.getElementById('userEffekt')?.value);
-    const userVolumen = parseFloat(document.getElementById('userVolumen')?.value);
-    const n_keys = Object.keys(model.pv_kurver).map(Number);
-    const closest_n = n_keys.reduce((p, c) => (Math.abs(c - N) < Math.abs(p - N) ? c : p));
-    const kurve = model.pv_kurver[closest_n];
-    const kurveVol = Object.keys(kurve).map(Number);
-    const kurveEff = Object.values(kurve);
-    if (!isNaN(userEffekt) && userEffekt > 0) {
-        const effektPrLejl = userEffekt / N;
-        const beregnetVolumen = interpolate(effektPrLejl, [...kurveEff].reverse(), [...kurveVol].reverse());
-        document.getElementById('beregnetVolumen').textContent = (beregnetVolumen * N).toFixed(0);
-        document.getElementById('userVolumen').value = '';
-    } else if (!isNaN(userVolumen) && userVolumen > 0) {
-        const volumenPrLejl = userVolumen / N;
-        const beregnetEffekt = interpolate(volumenPrLejl, kurveVol, kurveEff);
-        document.getElementById('beregnetEffekt').textContent = (beregnetEffekt * N).toFixed(1);
-        document.getElementById('userEffekt').value = '';
-    }
-}
-*/
-
 function calculateTemperatures_VV(model, config) {
     // Brug dynamisk faktor
     const meanTemp = config.T_v - (config.dT / 2);
@@ -4670,7 +4651,7 @@ function getDataForSave() {
                 id: card.dataset.id,
                 circ_start: card.querySelector('.circ-start')?.value || '',
                 circ_end: card.querySelector('.circ-end')?.value || '',
-                circ_zeta: parseFloat(card.querySelector('.circ-zeta')?.value) || 0,
+                circ_zeta: parseDanskFloat(card.querySelector('.circ-zeta')?.value),
                 ror: [], // Indeholder nu både rør, boostere og reducere i denne streng
                 tapsted: []
             };
@@ -4753,8 +4734,8 @@ function extractComponentData(el) {
             location: el.querySelector('.location')?.value,
             insulationClassSelection: el.querySelector('.insulation-class')?.value || 'Auto',
             dim: el.querySelector('.dim')?.value,
-            len: parseFloat(el.querySelector('.len')?.value) || 0,
-            fittings: parseFloat(el.querySelector('.fittings')?.value) || 0
+            len: parseDanskFloat(el.querySelector('.len')?.value),
+            fittings: parseDanskFloat(el.querySelector('.fittings')?.value)
         });
     }
     
@@ -4763,8 +4744,8 @@ function extractComponentData(el) {
         const sel = el.querySelector('.tapType');
         Object.assign(base, {
             tapType: sel.options[sel.selectedIndex]?.text || '',
-            qf: parseFloat(el.querySelector('.qf')?.value) || 0,
-            kote: parseFloat(el.querySelector('.kote')?.value) || 0,
+            qf: parseDanskFloat(el.querySelector('.qf')?.value),
+            kote: parseDanskFloat(el.querySelector('.kote')?.value),
             syst: el.querySelector('.syst')?.checked || false,
             isApartment: el.dataset.isApartment === 'true'
         });
@@ -4775,7 +4756,7 @@ function extractComponentData(el) {
         Object.assign(base, { valveType: el.querySelector('.valve-type-select')?.value || el.dataset.valveType });
     }
     if (type === 'booster' || type === 'reducer') {
-        Object.assign(base, { pressure_change: parseFloat(el.querySelector('.pressure-change')?.value) || 0 });
+        Object.assign(base, { pressure_change: parseDanskFloat(el.querySelector('.pressure-change')?.value) });
     }
 
     // NYT: VANDMÅLER DATA
@@ -7458,8 +7439,8 @@ function beregnBeholderMetodeA() {
         throw new Error('Metode A kræver, at der først køres en fuld systemberegning med tapsteder af typen "Lejlighed".');
     }
 
-    const userEffekt = parseFloat(document.getElementById('userEffekt')?.value);
-    const userVolumen = parseFloat(document.getElementById('userVolumen')?.value);
+    const userEffekt = parseDanskFloat(document.getElementById('userEffekt')?.value);
+    const userVolumen = parseDanskFloat(document.getElementById('userVolumen')?.value);
     const N = model.N;
     const n_keys = Object.keys(model.pv_kurver).map(Number);
     const closest_n = n_keys.reduce((p, c) => (Math.abs(c - N) < Math.abs(p - N) ? c : p));
@@ -7498,9 +7479,9 @@ function beregnBeholderMetodeA() {
  * @param {number} T_v - Fremløbstemperatur i °C.
  */
 function beregnBeholderMetodeB(T_v) {
-    const flow_ls = parseFloat(document.getElementById('metodeB_flow').value);
-    const varighed_min = parseFloat(document.getElementById('metodeB_varighed').value);
-    const effekt_kW = parseFloat(document.getElementById('metodeB_effekt').value);
+    const flow_ls = parseDanskFloat(document.getElementById('metodeB_flow').value);
+    const varighed_min = parseDanskFloat(document.getElementById('metodeB_varighed').value);
+    const effekt_kW = parseDanskFloat(document.getElementById('metodeB_effekt').value);
     
     if (isNaN(flow_ls) || isNaN(varighed_min) || isNaN(effekt_kW)) throw new Error("Ugyldige inputværdier.");
 
@@ -7533,7 +7514,7 @@ function beregnBeholderMetodeB(T_v) {
  * @param {number} T_v - Fremløbstemperatur i °C.
  */
 function beregnBeholderMetodeC(T_v) {
-    const effekt_kW = parseFloat(document.getElementById('metodeC_effekt').value);
+    const effekt_kW = parseDanskFloat(document.getElementById('metodeC_effekt').value);
     if (isNaN(effekt_kW)) throw new Error("Ugyldig effektværdi.");
 
     const rækker = document.querySelectorAll('#metodeC_tablebody tr');
@@ -7542,9 +7523,9 @@ function beregnBeholderMetodeC(T_v) {
 
     rækker.forEach(r => {
         const inputs = r.querySelectorAll('input');
-        const flow_ls = parseFloat(inputs[0].value);
-        const start_min = parseFloat(inputs[1].value);
-        const varighed_min = parseFloat(inputs[2].value);
+        const flow_ls = parseDanskFloat(inputs[0].value);
+        const start_min = parseDanskFloat(inputs[1].value);
+        const varighed_min = parseDanskFloat(inputs[2].value);
         if (![flow_ls, start_min, varighed_min].some(isNaN)) {
             const start_s = start_min * 60;
             const slut_s = start_s + (varighed_min * 60);
@@ -8491,7 +8472,7 @@ function showEditModal(d) {
                 let currentHot = 0, currentCold = 0;
                 
                 allRows.forEach(row => {
-                    const qfVal = parseFloat(row.querySelector('.qf')?.value) || 0; // Tilføjet ?. safe navigation
+                    const qfVal = parseDanskFloat(row.querySelector('.qf')?.value); // Tilføjet ?. safe navigation
                     if (row.closest('#strengeContainerKV') || row.closest('#koldtVandTable') || row.closest('.kv-table')) {
                         currentCold = qfVal;
                     } else {
