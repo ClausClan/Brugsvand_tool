@@ -1102,7 +1102,7 @@ function parseDanskFloat(str) {
     // 2. Erstat komma med punktum (decimal-separator)
     const cleanStr = str.toString().replace(/\./g, '').replace(',', '.');
     
-    const val = parseDanskFloat(cleanStr);
+    const val = parseFloat(cleanStr);
     return isNaN(val) ? 0 : val;
 }
 
