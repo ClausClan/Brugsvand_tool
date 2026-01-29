@@ -1685,38 +1685,62 @@ function addCirkulationRor() {
  * Indsætter nye rør før det valgte rør for at bevare nedstrøms-strukturen.
  * Inkluderer beregning af koordinater for at placere nye noder pænt på linjen.
  * Opdeler et rør (både fremløb og retur).
+ * Opdeler et eksisterende rør i flere segmenter.
+ * Opdateret: Beregner koordinater så nye noder placeres fast på linjen.
  */
 function splitPipe(targetId, segments) {
     const targetRow = document.querySelector(`tr[data-id="${targetId}"]`);
     if (!targetRow) return;
     
-    // Sikkerhedscheck: Gør segments til et tal
     segments = parseInt(segments);
     if (!segments || segments < 2) return;
 
-    const type = targetRow.dataset.type; // 'ror_vv', 'ror_kv', 'cirkulation_vv'
+    // --- TRIN A: GEM GEOMETRI FØR VI ÆNDRER NOGET ---
+    // Vi skal bruge start- og slutkoordinater for at kunne placere de nye noder
+    const targetNode = state.nodes.find(n => n.id === targetId);
     
-    // 1. Hent data fra eksisterende
-    const currentParentId = targetRow.querySelector('.parent').value;
-    
-    // FIX 1: Håndter komma for at undgå NaN
+    // Find parent ID fra DOM'en
+    const currentParentIdInput = targetRow.querySelector('.parent');
+    const currentParentId = currentParentIdInput.value;
+    const parentNode = state.nodes.find(n => n.id === currentParentId);
+
+    let startPos = { x: 0, y: 0 };
+    let endPos = { x: 100, y: 100 }; // Fallback
+    let canInterpolate = false;
+
+    if (targetNode && parentNode) {
+        // Vi foretrækker fx/fy (låste positioner), ellers bruger vi x/y
+        startPos = { 
+            x: (parentNode.fx !== undefined && parentNode.fx !== null) ? parentNode.fx : parentNode.x, 
+            y: (parentNode.fy !== undefined && parentNode.fy !== null) ? parentNode.fy : parentNode.y 
+        };
+        endPos = { 
+            x: (targetNode.fx !== undefined && targetNode.fx !== null) ? targetNode.fx : targetNode.x, 
+            y: (targetNode.fy !== undefined && targetNode.fy !== null) ? targetNode.fy : targetNode.y 
+        };
+        canInterpolate = true;
+    }
+    // ---------------------------------------------
+
+    const type = targetRow.dataset.type;
     const lenInput = targetRow.querySelector('.len');
     const rawLen = lenInput.value.replace(',', '.'); 
     const originalLen = parseFloat(rawLen) || 0;
+    const newLen = originalLen / segments;
     
-    const newLen = originalLen / segments; // Vi bruger 'newLen' konsekvent
-    
-    const material = targetRow.querySelector('.material').value;
-    const dim = targetRow.querySelector('.dim').value;
-    const insulation = targetRow.querySelector('.insulation-class').value;
+    const material = targetRow.querySelector('.material')?.value || 'Pex';
+    const dim = targetRow.querySelector('.dim')?.value || '';
+    const insulation = targetRow.querySelector('.insulation-class')?.value || '';
     
     let lastParentId = currentParentId;
+    
+    // Liste til at huske de nye ID'er, så vi kan sætte koordinater på dem senere
+    const createdIds = []; 
 
-    // 2. Loop (Opret de nye segmenter foran det gamle)
+    // 2. Loop: Opret de NYE segmenter
     for (let i = 1; i < segments; i++) {
         let newId;
         
-        // ID logik tilpasset KV/VV
         if (type === 'ror_vv') {
             const sId = targetId.split('-')[0]; 
             state.tC++; 
@@ -1730,14 +1754,13 @@ function splitPipe(targetId, segments) {
             newId = `Retur${state.rC}`;
         }
         
-        // Unikt Datalist ID
+        createdIds.push(newId); // Gem ID
+        
         const datalistId = `list-${newId}`;
-
         const tr = document.createElement('tr');
         tr.dataset.id = newId;
         tr.dataset.type = type;
         
-        // HTML strengen
         tr.innerHTML = `
             <td>
                 <span class="input-group input-group-sm">
@@ -1766,57 +1789,67 @@ function splitPipe(targetId, segments) {
             <td><button class="btn btn-sm btn-outline-danger" onclick="removeElement(this)">&times;</button></td>
         `;
 
-        // Sæt værdier
         tr.querySelector('.material').value = material;
-        
-        // Events og Data
         tr.querySelector('.name-text').onchange = (e) => state.names.set(newId, e.target.value);
         const matSelect = tr.querySelector('.material');
         matSelect.onchange = handleMaterialChange;
         
-        // Indsæt FØR målrækken
         targetRow.parentNode.insertBefore(tr, targetRow);
-        
-        // Fyld listen (Dimensionsvalg)
         updateDimOptions(matSelect);
         
-        // Håndter forældre-link for det nye rør
-        // Det skal pege på det forrige (eller oprindelige startpunkt)
         const pSel = tr.querySelector('.parent');
-        
-        // Vi opretter optionen manuelt her, så vi ikke behøver køre updateAllSelects inde i loopet
         const tempOpt = document.createElement('option');
         tempOpt.value = lastParentId;
         tempOpt.text = lastParentId;
         pSel.add(tempOpt);
         pSel.value = lastParentId;
 
-        // Gem dette ID som forælder til næste rør
         lastParentId = newId;
     }
     
-    // 3. Opdater slut-segmentet (det oprindelige rør)
-    // FIX 2: Brug 'newLen' i stedet for 'segmentLen'
-    targetRow.querySelector('.len').value = newLen.toFixed(2);
+    // 3. Opdater det oprindelige rør
+    if (lenInput) lenInput.value = newLen.toFixed(2);
     
-    // TRIN 1: Opdater alle lister, så de nye rør findes som options i hele systemet
     updateAllSelects(); 
     
-    // TRIN 2: Sæt den nye forælder på det oprindelige rør
-    // Det oprindelige rør skal nu pege på det SIDST oprettede nye rør
     const targetParentSel = targetRow.querySelector('.parent');
-    
-    // FIX 3: Brug 'lastParentId' i stedet for 'anchorParent'
     targetParentSel.value = lastParentId; 
 
-    // TRIN 3: Genopbyg modellen og diagrammet
+    // 4. Genopbyg modellen (Dette opretter noderne i state.nodes)
     if (typeof buildNetworkAndRender === 'function') {
         buildNetworkAndRender();
     }
     
+    // --- TRIN B: SÆT FASTLÅSTE KOORDINATER (fx, fy) ---
+    if (canInterpolate && createdIds.length > 0) {
+        createdIds.forEach((id, index) => {
+            // Find den nyoprettede node i state
+            const node = state.nodes.find(n => n.id === id);
+            if (node) {
+                // Beregn hvor langt nede ad linjen vi er (0.0 til 1.0)
+                // index 0 er første nye rør (tættest på start)
+                // Vi har 'createdIds.length' nye segmenter + 1 gammelt segment = total segmenter
+                // Forholdet er: (index + 1) / segments
+                const ratio = (index + 1) / segments;
+                
+                // Lineær interpolation (Lerp)
+                const newX = startPos.x + (endPos.x - startPos.x) * ratio;
+                const newY = startPos.y + (endPos.y - startPos.y) * ratio;
+                
+                // Sæt fx/fy for at låse dem fast, og x/y for at undgå visuelt hop
+                node.fx = newX;
+                node.fy = newY;
+                node.x = newX;
+                node.y = newY;
+            }
+        });
+        
+        // Opdater diagrammet igen for at anvende de nye koordinater
+        updateDiagram();
+    }
+    
     setProjektErÆndret();
 }
-
 /**
  * Kopierer en hel gren (rør + alle efterfølgende komponenter) til udklipsholderen.
  * Kopierer gren med RELATIVE KOORDINATER.
