@@ -1093,19 +1093,17 @@
  * Læser et dansk tal (f.eks. "1.000,50") og gør det til et JS-tal (1000.5).
  */
 function parseDanskFloat(str) {
-    // Hvis det allerede er et tal, så returner det bare
     if (typeof str === 'number') return str;
-    
-    // Hvis strengen er tom eller undefined
     if (!str) return 0;
     
     // 1. Fjern tusind-separator (punktum)
     // 2. Erstat decimal-komma med punktum
     const cleanStr = str.toString().replace(/\./g, '').replace(',', '.');
     
-    // VIGTIGT: Her skal stå 'parseFloat' (JavaScript indbygget), IKKE 'parseDanskFloat'
+    // RETTELSE HER: Brug parseFloat (IKKE parseDanskFloat)
     const val = parseFloat(cleanStr); 
     
+    // Her er din || 0 logik, som nu ligger inde i funktionen
     return isNaN(val) ? 0 : val;
 }
 
