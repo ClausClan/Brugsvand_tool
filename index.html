@@ -3082,7 +3082,7 @@ function zoomToFit() {
     const viewBoxAttr = state.svgElement.attr("viewBox");
     
     if (viewBoxAttr) {
-        const vb = viewBoxAttr.split(" ").map(parseDanskFloat);
+        const vb = viewBoxAttr.split(" ").map(parseFloat);
         width = vb[2]; // viewBox width
         height = vb[3]; // viewBox height
     } else {
