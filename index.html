@@ -3260,38 +3260,7 @@ function getGlobalConfig() {
     };
 }
 
-	/* --- FUNKTION: OPDATERER RESULAT-TABELLEN (kPa) --- */
-function updateSummaryTable(model, config, boosterPressurePa, kvHtml, vvStartHtml, dp_friction_vv, dp_geo_vv, resttryk) {
-    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
-    const meanTemp = config.T_v - (config.dT / 2);
-    const rho_circ = getWaterDensity(meanTemp);
 
-    // Konvertering Pa -> kPa til visning
-    const toKPa = (pa) => (pa / 1000).toFixed(2);
-    
-    document.getElementById('summaryTableBody').innerHTML = `
-        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
-        <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
-        ${boosterPressurePa > 0 ? `<tr><td>Trykforøger</td><td>+${toKPa(boosterPressurePa)} kPa</td></tr>` : ''}
-        
-        ${kvHtml /* Bemærk: Du bør også opdatere kvHtml genereringen til at bruge toKPa hvis muligt, ellers vises den i Pa */}
-        
-        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
-        ${vvStartHtml}
-        <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
-        <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
-        
-        <tr class="table-primary">
-            <td><strong>Resttryk v/ Tapsted</strong></td>
-            <td><strong>${toKPa(resttryk)} kPa</strong></td>
-        </tr>
-        
-        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
-        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
-        <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>
-    `;
-}
-	
 /**
  * Bygger beregningsmodellen fra DOM'en.
  * Håndterer 'Unified Taps' ved at linke tapsteder til både VV og KV forældre.
@@ -5830,24 +5799,27 @@ function displayResults(model, config) {
 
     // --- DATA INDSAMLING TIL TABEL ---
 
-    // A. Find Trykforøger (hvis den findes)
+	// Hjælper til konvertering (Pa -> kPa)
+    const toKPa = (val) => (val / 1000).toFixed(2);
+	
+// A. Find Trykforøger (hvis den findes)
     const booster = Array.from(model.nodes.values()).find(n => n.type === 'booster');
     let boosterHtml = '';
     let boosterPressurePa = 0;
     
     if (booster) {
         const bFlow = booster.qd || 0; // l/s
-        const bPressKPa = booster.pressure_change || 0; // kPa
+        const bPressKPa = booster.pressure_change || 0; // Allerede i kPa fra input
         boosterPressurePa = bPressKPa * 1000;
         
         boosterHtml = `
             <tr class="table-success"><td colspan="2"><strong>Trykforøger (Booster)</strong></td></tr>
             <tr><td>Dim. Flow</td><td>${bFlow.toFixed(3)} l/s</td></tr>
-            <tr><td>Løftehøjde</td><td>${bPressKPa.toFixed(0)} kPa (${(bPressKPa * 1000).toFixed(0)} Pa)</td></tr>
+            <tr><td>Løftehøjde</td><td>+${bPressKPa.toFixed(2)} kPa</td></tr>
         `;
     }
 
-    // B. Beregn KOLDT VAND (Kritisk vej data)
+// B. Beregn KOLDT VAND (Kritisk vej data)
     let kvHtml = '';
     let critKV = null;
     let minPKV = Infinity;
@@ -5866,19 +5838,18 @@ function displayResults(model, config) {
         const dp_geo_kv = rhoKV * G * hKV;
         
         // Friktion = (Starttryk + Booster) - Sluttryk - Højde
-        // Bemærk: config.pln er forsyningstrykket.
         const totalStartPressure = config.pln + boosterPressurePa;
         const dp_friction_kv = totalStartPressure - minPKV - dp_geo_kv;
 
         kvHtml = `
             <tr class="table-info"><td colspan="2"><strong>Koldt Vand (Kritisk Streng)</strong></td></tr>
-            <tr><td>Tab (Friktion & Fittings)</td><td>-${dp_friction_kv.toFixed(0)} Pa</td></tr>
-            <tr><td>Tab (Løftehøjde)</td><td>-${dp_geo_kv.toFixed(0)} Pa</td></tr>
-            <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${minPKV.toFixed(0)} Pa</strong></td></tr>
+            <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_kv)} kPa</td></tr>
+            <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_kv)} kPa</td></tr>
+            <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${toKPa(minPKV)} kPa</strong></td></tr>
         `;
     }
 
-    // C. Beregn VARMT VAND (Eksisterende logik + styling)
+// C. Beregn VARMT VAND (Eksisterende logik + styling)
     let dp_friction_vv = model.max_dp_tapning;
     let dp_geo_vv = 0;
     const rho_supply = getWaterDensity(config.T_v);
@@ -5889,49 +5860,45 @@ function displayResults(model, config) {
         const endTapstedNode = model.nodes.get(endTapstedId);
 
         if (endTapstedNode && endTapstedNode.type === 'tapsted') {
-            // VV højde regnes ofte fra beholder eller forsyning. Her fra forsyning for at vise total løft.
             const h = (endTapstedNode.kote || 0) - (config.forsyningens_kote || 0);
             dp_geo_vv = rho_supply * G * h;
             dp_friction_vv = model.max_dp_tapning - dp_geo_vv;
         }
     }
     
-    let vvStartHtml = '';
+	let vvStartHtml = '';
     if (state.beholderConnectionId) {
-        vvStartHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${(model.kv_pressure_loss_to_beholder || 0).toFixed(0)} Pa</small></td></tr>`;
+        // Viser tabet i KV-forsyningen frem til beholderen
+        vvStartHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${toKPa(model.kv_pressure_loss_to_beholder || 0)} kPa</small></td></tr>`;
     }
 
-    // D. Cirkulation
-	const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
-	const meanTemp = config.T_v - (config.dT / 2);
-	const rho_circ = getWaterDensity(meanTemp);
+	// D. Cirkulation
+    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
+    const meanTemp = config.T_v - (config.dT / 2);
+    const rho_circ = getWaterDensity(meanTemp);
 
+    // 3. BYG HTML TABELLEN (Alt i kPa)
+    document.getElementById('summaryTableBody').innerHTML = `
+        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
+        <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
+        ${boosterHtml}
 
-    // 3. BYG HTML TABELLEN
-	// Lille hjælper til at vise kPa pænt (lokalt her i funktionen)
-	const toKPa = (val) => (val / 1000).toFixed(2);
+        ${kvHtml}
 
-	document.getElementById('summaryTableBody').innerHTML = `
-    <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
-    <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
-    ${boosterPressurePa > 0 ? `<tr><td>Trykforøger</td><td>+${toKPa(boosterPressurePa)} kPa</td></tr>` : ''}
-    
-    ${kvHtml}
-    
-    <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
-    ${vvStartHtml}
-    <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
-    <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
-    
-    <tr class="table-primary">
-        <td><strong>Resttryk v/ Tapsted</strong></td>
-        <td><strong>${toKPa(resttryk)} kPa</strong></td>
-    </tr>
-    
-    <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
-    <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
-    <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * 9.81)).toFixed(2)} mVs)</td></tr>
-	`;
+        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
+        ${vvStartHtml}
+        <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
+        <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
+        
+        <tr class="table-primary">
+            <td><strong>Resttryk v/ Tapsted</strong></td>
+            <td><strong>${toKPa(resttryk)} kPa</strong></td>
+        </tr>
+        
+        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
+        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
+        <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>
+    `;
 
     // 4. Opdater Beholder Resultat (Uændret...)
     const metodeA_div = document.getElementById('metodeA_content');
