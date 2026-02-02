@@ -243,10 +243,10 @@
                                 <div class="accordion-body">
 									<h6>Grundlæggende Data</h6>
                                     <div class="row g-3 mb-3">
-                                        <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (Pa). Jf. DS 439:2024, afsnit 6.2.2.1.">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="pln">Forsyningstryk (p<sub>ln</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningstryk (p_ln)" data-bs-content="Laveste normalt forekommende vandtryk (p_ln) i forsyningspunktet. Angives i Pascal (KPa). Jf. DS 439:2024, afsnit 6.2.2.1.">(?)</a></label><div class="input-group"><input id="pln" type="number" min="0" class="form-control" value="400"><span class="input-group-text">KPa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="forsyningens_kote">Forsyningens kote <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Forsyningens Kote" data-bs-content="Den geodætiske kote (højde i meter) for forsyningspunktet. Anvendes som reference for beregning af løftehøjde til tapsteder. Jf. DS 439:2024, afsnit 6.3.5.1.">(?)</a></label><div class="input-group"><input id="forsyningens_kote" type="number" class="form-control allow-negative" value="0"><span class="input-group-text">m</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="T_k">Vandtemperatur v/stik (Koldt Vand) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Koldtvandstemperatur" data-bs-content="Temperaturen på det kolde vand, når det kommer ind i bygningen (Vandstik). Standard er 10°C jf. DS 439.">(?)</a></label><div class="input-group"><input id="T_k" type="number" min="0" class="form-control" value="10"><span class="input-group-text">°C</span></div></div>
-                                        <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 100.000 Pa / 1 bar). Jf. DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer.">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="100000"><span class="input-group-text">Pa</span></div></div>
+                                        <div class="col-md-6"><label class="form-label" for="min_tap_tryk">Min. tryk ved tapsted <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Minimumstryk ved Tapsted" data-bs-content="Det mindste tryk, der ønskes til rådighed *ved* tapstedet (efter koblingsledning og armatur). Dette er et designkrav (ofte 150-200 KPa / 1,5-2,0 bar). Jf. DS 439:2024, afsnit 6.3.5 vedr. tryktab i armaturer.">(?)</a></label><div class="input-group"><input id="min_tap_tryk" type="number" min="0" class="form-control" value="150"><span class="input-group-text">KPa</span></div></div>
                                         <div class="col-md-6"><label class="form-label" for="T_v">Varmtvandstemperatur (T<sub>v</sub>) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Varmtvandstemperatur (T_v)" data-bs-content="Dimensionerende temperatur for det varme brugsvand. Bør ikke falde til under 50°C. En typisk designtemperatur er 55°C. Jf. DS 439:2024, afsnit 5.6.1 og 6.6.2.1.">(?)</a></label><div class="input-group"><input id="T_v" type="number" min="0" class="form-control" value="55"><span class="input-group-text">°C</span></div></div>
                                         <div class="col-md-6">
     <label class="form-label" for="T_omg">Omgivelsestemperatur (Indendørs) <a tabindex="0" class="info-popover" role="button" data-bs-toggle="popover" data-bs-placement="right" data-bs-title="Omgivelsestemperatur (Indendørs)" data-bs-content="Den omgivende temperatur for rør placeret i opvarmede rum (rum > 5°C). Anvendes til beregning af varmetab. Jf. DS 452, afsnit 3.12 og 6.1.11.">(?)</a></label>
@@ -3237,8 +3237,8 @@ function getGlobalConfig() {
 
     return {
         projectName: document.getElementById('projectName')?.value || '',
-        pln: getVal('pln', 400000),
-        min_tap_tryk: getVal('min_tap_tryk', 100000),
+        pln: getVal('pln', 400) * 1000, 
+        min_tap_tryk: getVal('min_tap_tryk', 150) * 1000,
         T_k: getVal('T_k', 10),
         T_v: getVal('T_v', 55),
         T_omg_inde: getVal('T_omg', 20),
@@ -3260,6 +3260,38 @@ function getGlobalConfig() {
     };
 }
 
+	/* --- FUNKTION: OPDATERER RESULAT-TABELLEN (kPa) --- */
+function updateSummaryTable(model, config, boosterPressurePa, kvHtml, vvStartHtml, dp_friction_vv, dp_geo_vv, resttryk) {
+    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
+    const meanTemp = config.T_v - (config.dT / 2);
+    const rho_circ = getWaterDensity(meanTemp);
+
+    // Konvertering Pa -> kPa til visning
+    const toKPa = (pa) => (pa / 1000).toFixed(2);
+    
+    document.getElementById('summaryTableBody').innerHTML = `
+        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
+        <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
+        ${boosterPressurePa > 0 ? `<tr><td>Trykforøger</td><td>+${toKPa(boosterPressurePa)} kPa</td></tr>` : ''}
+        
+        ${kvHtml /* Bemærk: Du bør også opdatere kvHtml genereringen til at bruge toKPa hvis muligt, ellers vises den i Pa */}
+        
+        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
+        ${vvStartHtml}
+        <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
+        <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
+        
+        <tr class="table-primary">
+            <td><strong>Resttryk v/ Tapsted</strong></td>
+            <td><strong>${toKPa(resttryk)} kPa</strong></td>
+        </tr>
+        
+        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
+        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
+        <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>
+    `;
+}
+	
 /**
  * Bygger beregningsmodellen fra DOM'en.
  * Håndterer 'Unified Taps' ved at linke tapsteder til både VV og KV forældre.
@@ -5870,29 +5902,36 @@ function displayResults(model, config) {
     }
 
     // D. Cirkulation
-    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
-    const meanTemp = config.T_v - (config.dT / 2);
-    const rho_circ = getWaterDensity(meanTemp);
+	const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
+	const meanTemp = config.T_v - (config.dT / 2);
+	const rho_circ = getWaterDensity(meanTemp);
 
 
     // 3. BYG HTML TABELLEN
-    document.getElementById('summaryTableBody').innerHTML = `
-        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
-        <tr><td>Forsyningstryk (P0)</td><td>${config.pln.toFixed(0)} Pa</td></tr>
-        ${boosterHtml}
+	// Lille hjælper til at vise kPa pænt (lokalt her i funktionen)
+	const toKPa = (val) => (val / 1000).toFixed(2);
 
-        ${kvHtml}
-
-        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
-        ${vvStartHtml}
-        <tr><td>Tab (Friktion & Fittings)</td><td>-${dp_friction_vv.toFixed(0)} Pa</td></tr>
-        <tr><td>Tab (Løftehøjde)</td><td>-${dp_geo_vv.toFixed(0)} Pa</td></tr>
-        <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${resttryk.toFixed(0)} Pa</strong></td></tr>
-        
-        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
-        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
-        <tr><td>Løftehøjde (Tryk)</td><td><b>${model.max_dp_circ.toFixed(0)} Pa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>
-    `;
+	document.getElementById('summaryTableBody').innerHTML = `
+    <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
+    <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
+    ${boosterPressurePa > 0 ? `<tr><td>Trykforøger</td><td>+${toKPa(boosterPressurePa)} kPa</td></tr>` : ''}
+    
+    ${kvHtml}
+    
+    <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
+    ${vvStartHtml}
+    <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
+    <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
+    
+    <tr class="table-primary">
+        <td><strong>Resttryk v/ Tapsted</strong></td>
+        <td><strong>${toKPa(resttryk)} kPa</strong></td>
+    </tr>
+    
+    <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
+    <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
+    <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * 9.81)).toFixed(2)} mVs)</td></tr>
+	`;
 
     // 4. Opdater Beholder Resultat (Uændret...)
     const metodeA_div = document.getElementById('metodeA_content');
@@ -8367,7 +8406,7 @@ function showEditModal(d) {
         const tryk = document.getElementById('pln').value; 
         const temp = document.getElementById('T_k').value;
         html += buildInputRow('Kote (m)', 'edit_global_kote', kote, 'number', 'step="0.1"');
-        html += buildInputRow('Forsyningstryk (Pa)', 'edit_global_tryk', tryk, 'number', '');
+        html += buildInputRow('Forsyningstryk (KPa)', 'edit_global_tryk', tryk, 'number', '');
         html += buildInputRow('KV Temperatur (°C)', 'edit_global_temp', temp, 'number', 'step="0.1"');
     }
     else if (d.id === 'Beholder') {
