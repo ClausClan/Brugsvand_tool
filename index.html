@@ -1090,33 +1090,35 @@
 <script>
 
 /**
- * SIMPEL VERSION:
- * Tillader både komma og punktum som decimal-separator.
- * Ignorerer tusind-separatorer (vi bruger dem ikke).
- * Eks: "5,5" -> 5.5  |  "5.5" -> 5.5
+ * SIKKER VERSION:
+ * - Virker med type="number"
+ * - Erstatter bare komma med punktum (som du ønskede)
+ * - Ingen tusind-separator logik der kan drille
  */
 function parseDanskFloat(str) {
-    if (typeof str === 'number') return str;
-    if (!str) return 0;
+    // Hvis værdien mangler eller er tom
+    if (str === undefined || str === null || str === '') return 0;
     
-    // Erstat komma med punktum, så JavaScript forstår det
-    // Vi fjerner IKKE punktummer først, så 1.000 læses som 1
+    // Hvis det allerede er et tal, så bare returner det
+    if (typeof str === 'number') return str;
+    
+    // Den "gamle" logik: Lav komma om til punktum
     const cleanStr = str.toString().replace(',', '.');
     
-    const val = parseFloat(cleanStr);
-    return isNaN(val) ? 0 : val;
+    // Lav om til tal. Hvis det fejler, returner 0
+    return parseFloat(cleanStr) || 0;
 }
 
 /**
- * SIMPEL VERSION:
- * Returnerer bare tallet med punktum (standard JS format).
- * Sørger for at inputs viser f.eks. "5.50" i stedet for "5,50".
- * Dette forhindrer loops hvor komma/punktum byttes rundt hele tiden.
+ * STANDARD VERSION:
+ * - Returnerer tallet på standard computer-format (med punktum)
+ * - Det er nødvendigt for at type="number" felter viser tallet korrekt
  */
 function formatDanskFloat(num, decimals = 2) {
     if (num === undefined || num === null || isNaN(num)) return "";
-    // Vi bruger bare standard toFixed. 
-    // Inputs vil vise punktum, men man må gerne skrive komma.
+    
+    // Vi returnerer bare standard format (f.eks. "5.50")
+    // Browseren viser det så lokalt korrekt, hvis den kan.
     return parseFloat(num).toFixed(decimals);
 }
 	
