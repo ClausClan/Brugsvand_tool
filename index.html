@@ -1090,34 +1090,34 @@
 <script>
 
 /**
- * Læser et dansk tal (f.eks. "1.000,50") og gør det til et JS-tal (1000.5).
+ * SIMPEL VERSION:
+ * Tillader både komma og punktum som decimal-separator.
+ * Ignorerer tusind-separatorer (vi bruger dem ikke).
+ * Eks: "5,5" -> 5.5  |  "5.5" -> 5.5
  */
 function parseDanskFloat(str) {
     if (typeof str === 'number') return str;
     if (!str) return 0;
     
-    // 1. Fjern tusind-separator (punktum)
-    // 2. Erstat decimal-komma med punktum
-    const cleanStr = str.toString().replace(/\./g, '').replace(',', '.');
+    // Erstat komma med punktum, så JavaScript forstår det
+    // Vi fjerner IKKE punktummer først, så 1.000 læses som 1
+    const cleanStr = str.toString().replace(',', '.');
     
-    // RETTELSE HER: Brug parseFloat (IKKE parseDanskFloat)
-    const val = parseFloat(cleanStr); 
-    
-    // Her er din || 0 logik, som nu ligger inde i funktionen
+    const val = parseFloat(cleanStr);
     return isNaN(val) ? 0 : val;
 }
 
 /**
- * Formaterer et JS-tal til dansk format (f.eks. "1.000,50").
+ * SIMPEL VERSION:
+ * Returnerer bare tallet med punktum (standard JS format).
+ * Sørger for at inputs viser f.eks. "5.50" i stedet for "5,50".
+ * Dette forhindrer loops hvor komma/punktum byttes rundt hele tiden.
  */
 function formatDanskFloat(num, decimals = 2) {
     if (num === undefined || num === null || isNaN(num)) return "";
-    
-    // Bruger browserens indbyggede da-DK formatering
-    return num.toLocaleString('da-DK', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals
-    });
+    // Vi bruger bare standard toFixed. 
+    // Inputs vil vise punktum, men man må gerne skrive komma.
+    return parseFloat(num).toFixed(decimals);
 }
 	
 	
