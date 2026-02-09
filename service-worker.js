@@ -4,10 +4,10 @@ const CACHE_NAME = 'vv-tool-v1'; // Husk at ændre dette tal (v2, v3...), når d
 // Vi cacher også CDN-bibliotekerne, så du ikke er afhængig af nettet.
 const urlsToCache = [
   './',
-  './index.html',
-  './manifest.json',
-  './icon-192_BV.png',
-  './icon-512_BV.png',
+  'index.html',
+  'manifest.json',
+  'icon-192_BV.png',
+  'icon-512_BV.png',
   // Eksterne biblioteker (SKAL matche dine HTML-links præcist)
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js',
