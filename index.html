@@ -4006,16 +4006,15 @@ function findCriticalPaths(model) {
     let criticalNodeKV = null;
     let criticalNodeVV = null;
 
-    // 2. Scan alle noder for at finde laveste tryk i hhv. KV og VV
+    // 2. Scan alle noder for at finde laveste tryk (Facitlisten)
     model.nodes.forEach(node => {
         if (node.type === 'tapsted') {
-            // Tjek Koldt Vand (hvis beregnet og gyldigt)
+            // Tjek KV
             if (typeof node.P_absolute_KV === 'number' && node.P_absolute_KV < minPressureKV) {
                 minPressureKV = node.P_absolute_KV;
                 criticalNodeKV = node;
             }
-
-            // Tjek Varmt Vand (hvis beregnet og gyldigt)
+            // Tjek VV
             if (typeof node.P_absolute_VV === 'number' && node.P_absolute_VV < minPressureVV) {
                 minPressureVV = node.P_absolute_VV;
                 criticalNodeVV = node;
@@ -4023,42 +4022,41 @@ function findCriticalPaths(model) {
         }
     });
 
-    // 3. Hjælpefunktion til at trace ruten baglæns
+    // 3. Robust Backtracking via Edges
     const traceBack = (startNode) => {
-        const path = new Set();
+        const pathSet = new Set(); // Indeholder ID på Noderne i ruten
         let current = startNode;
         let safeGuard = 0;
         
+        // Tilføj startnoden
+        if(current) pathSet.add(current.id);
+
         while (current && safeGuard < 1000) {
-            path.add(current.id);
             safeGuard++;
             
-            // Find rør der fører IND i denne node.
-            // Vi leder i model.nodes via parentId (vores model er et træ/graf)
-            // Bemærk: 'current.parentId' er sat i buildModel.
-            if (!current.parentId) break; 
+            // Find det rør (edge), der peger på nuværende node (to === current.id)
+            const incomingEdge = Array.from(model.edges.values()).find(e => e.to === current.id);
             
-            // Tilføj forælderen til ruten
-            path.add(current.parentId);
-            current = model.nodes.get(current.parentId);
+            if (!incomingEdge) break; // Vi er ved start (ingen rør fører hertil)
+            
+            // Tilføj forælderen (fra-noden) til sættet
+            pathSet.add(incomingEdge.from);
+            
+            // Ryk en tak opstrøms
+            current = model.nodes.get(incomingEdge.from);
         }
-        return path;
+        return pathSet;
     };
 
-    // 4. Gem resultaterne i modellen
+    // 4. Gem resultaterne
     model.criticalNodeKV = criticalNodeKV;
     model.criticalNodeVV = criticalNodeVV;
     
-    // Vi tracer ruten for at kunne tegne den røde streg i diagrammet
     model.criticalPathKV = criticalNodeKV ? traceBack(criticalNodeKV) : new Set();
     model.criticalPathVV = criticalNodeVV ? traceBack(criticalNodeVV) : new Set();
     
-    // Kombiner dem til én 'criticalPath' som tegne-motoren bruger
-    model.criticalPath = new Set([...model.criticalPathKV, ...model.criticalPathVV]);
-    
-    // Gem max tryktab til validering (Pln - P_min)
-    // Bemærk: Dette er en approksimation, da P_absolute allerede indeholder højdetab.
-    // Men til visning i 'displayResults' bruger vi de eksakte tal fra noderne.
+    // Debug til konsol (så du kan se at den finder noget)
+    console.log(`🔍 Kritisk Vej Beregnet: KV=${model.criticalPathKV.size} noder, VV=${model.criticalPathVV.size} noder`);
 }
 
 // 5. Beregn Varmetab (VV & VVC)
@@ -6305,87 +6303,92 @@ function updateComponentTable(model) {
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
 // =================================================================================
-/* --- OPDATERET: STYRING AF DIAGRAM STYLES (KORRIGERET VERSION) --- */
+
+
+/* --- Funktion: STYRING AF DIAGRAM STYLES --- */
 function updateDiagramStyles() {
     if (!state.lastModel) return;
     const model = state.lastModel;
 
-    // 1. SELEKTER ALLE RØRTYPER (Inkl. de nye typer kv_feed og ror_vv)
+    // 1. SELEKTER ALLE RØR (Inkl. dine nye typer)
     const links = d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-ror_vv, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv, #diagram svg .link-kv_feed");
     
-    // Nulstil styles (Fjerner gamle farver/stregtyper før vi påfører nye)
+    // Nulstil styles
     links.style('stroke', null)
          .style('opacity', null)
          .style('stroke-dasharray', null)
          .style('stroke-width', null);
 
     // 2. TYKKELSE (Baseret på dimension)
-    // Vi medtager alle relevante nodetyper i beregningen
-    const pipeNodes = Array.from(model.nodes.values()).filter(n => 
-        (n.type === 'ror_vv' || n.type === 'cirkulation_vv' || n.type === 'ror_kv' || n.type === 'kv_feed') && n.nom_dim
-    );
-    
+    const pipeNodes = Array.from(model.nodes.values()).filter(n => n.nom_dim);
     if (pipeNodes.length > 0) {
         const dimDomain = d3.extent(pipeNodes, n => n.nom_dim);
-        if (dimDomain[0] === dimDomain[1]) dimDomain[0] -= 1; // Undgå division med 0
-        const thicknessScale = d3.scaleLinear().domain(dimDomain).range([1.5, 8]);
+        // Sikre at min/max ikke er ens for skalaens skyld
+        if (dimDomain[0] === dimDomain[1]) dimDomain[0] = Math.max(0, dimDomain[0] - 5);
+        
+        // Skaler fra 2px (tyndest) til 8px (tykkest)
+        const thicknessScale = d3.scaleLinear().domain(dimDomain).range([2, 8]);
         
         links.style('stroke-width', d => {
             const node = model.nodes.get(d.target.id);
-            return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '1.5px';
+            return (node && node.nom_dim) ? `${thicknessScale(node.nom_dim)}px` : '2px';
         });
     }
 
-    // 3. LOGIK FOR VISNING
+    // 3. VISNING
     const visModeInput = document.querySelector('input[name="visMode"]:checked');
     const visMode = visModeInput ? visModeInput.value : 'none';
     const showCritical = document.getElementById('visKritisk').checked;
 
     if (showCritical) {
-        // A: Vis Kritisk Vej (Den nye funktion vi lavede tidligere)
+        // A: Vis Kritisk Vej
         highlightCriticalPath(); 
     } 
-    else if (visMode !== 'none') {
+    else if (visMode !== 'none' && typeof applyColorGradient === 'function') {
         // B: Vis Gradient (Hastighed, Tryktab osv.)
-        if (typeof applyColorGradient === 'function') applyColorGradient(visMode);
+        applyColorGradient(visMode);
     } 
     else {
-        // C: STANDARD VISNING (Gendannet fra din kode)
-        // Her farver vi rørene baseret på kategori (Varm=Rød, Kold=Blå)
+        // C: STANDARD VISNING (ROBUST FARVNING)
         links.style('stroke', d => {
             const n = model.nodes.get(d.target.id);
-            // Hvis noden mangler kategori, giv den en neutral farve
-            if (!n || !n.category) return '#999';
+            if (!n) return '#ccc';
 
-            switch (n.category) {
-                // VARMT BRUGSVAND
-                case 'main': return '#8b0000';          // Mørkerød (Hovedstreng)
-                case 'distribution': return '#dc3545';  // Rød (Fordeling)
-                case 'connection': return '#f08080';    // Lyserød (Kobling)
-                
-                // CIRKULATION
-                case 'main_return': return '#8b0000';   // Mørkerød
-                case 'return': return '#dc3545';        // Rød
-                
-                // KOLDT VAND
-                case 'cold_main': return '#00008b';       // Mørkeblå (Hovedstreng)
-                case 'cold_distribution': return '#0d6efd'; // Blå (Fordeling)
-                case 'cold_connection': return '#89cff0';   // Lyseblå (Kobling)
-                
-                default: return '#ccc';
+            // TRIN 1: Prøv Kategori (Den pæne løsning)
+            if (n.category) {
+                switch (n.category) {
+                    case 'main': return '#8b0000';         // Mørkerød
+                    case 'distribution': return '#dc3545'; // Rød
+                    case 'connection': return '#f08080';   // Lyserød
+                    case 'main_return': return '#8b0000';  // Mørkerød (Cirk)
+                    case 'return': return '#dc3545';       // Rød (Cirk)
+                    case 'cold_main': return '#00008b';    // Mørkeblå
+                    case 'cold_distribution': return '#0d6efd'; // Blå
+                    case 'cold_connection': return '#89cff0';   // Lyseblå
+                }
             }
+
+            // TRIN 2: Fallback til Type (Sikkerhedsnettet)
+            // Hvis kategorien mangler, bruger vi typen til at gætte farven
+            if (n.type === 'kv_feed' || n.type === 'ror_kv') return '#0d6efd'; // Standard Blå
+            if (n.type === 'cirkulation_vv') return '#8b0000'; // Mørkerød
+            if (n.type === 'ror_vv' || n.type === 'fremløb') return '#dc3545'; // Standard Rød
+
+            return '#999'; // Grå (Kun hvis alt andet fejler)
         })
         .style('stroke-dasharray', d => {
-            // Stiplede linjer for cirkulation/retur
             const n = model.nodes.get(d.target.id);
             if (!n) return null;
-            if (['main_return', 'return'].includes(n.category)) return '6, 4'; 
+            // Stiplet linje hvis det er retur/cirkulation
+            if ((n.category && n.category.includes('return')) || n.type === 'cirkulation_vv') {
+                return '6, 4';
+            }
             return null; 
         })
-        .style('opacity', 1.0); // Sørg for fuld synlighed i standard-mode
+        .style('opacity', 1.0); // Fuld synlighed
     }
     
-    // Opdater labels og signaturforklaring
+    // Opdater labels
     if (typeof updateLegend === 'function') updateLegend();
     if (typeof updateLabels === 'function') updateLabels(model);
 }
@@ -6624,48 +6627,43 @@ function highlightCriticalPath() {
     if (!state.lastModel) return;
     const model = state.lastModel;
 
-    // 1. Hent de nye separate kritiske stier
-    // Vi bruger nu de specifikke sets, som vi beregnede i findCriticalPaths
     const critPathVV = model.criticalPathVV; 
     const critPathKV = model.criticalPathKV; 
 
-    // 2. Vælg ALLE rør-typer i diagrammet
-    // (Inkluderer nu også .link-kv_feed og .link-ror_vv for at fange alle varianter)
+    // Vælg alle relevante rør-klasser
     d3.selectAll("#diagram svg .link-fremløb, #diagram svg .link-ror_vv, #diagram svg .link-cirkulation_vv, #diagram svg .link-ror_kv, #diagram svg .link-kv_feed")
         .each(function(d) {
             const link = d3.select(this);
             
-            // Hvis data mangler, spring over
+            // D3 data binder source/target som objekter, vi skal bruge deres ID
             if (!d.source || !d.target) return;
+            const srcId = d.source.id;
+            const tgtId = d.target.id;
 
-            const src = d.source.id;
-            const tgt = d.target.id;
-
-            // 3. Tjek om linket ligger på en af de kritiske veje
-            // Et link er kritisk, hvis BÅDE start- og slut-noden er i det pågældende set
-            const isCritVV = critPathVV && critPathVV.has(src) && critPathVV.has(tgt);
-            const isCritKV = critPathKV && critPathKV.has(src) && critPathKV.has(tgt);
+            // Logik: Et rør er kritisk, hvis både start og slut er en del af ruten
+            const isCritVV = critPathVV && critPathVV.has(srcId) && critPathVV.has(tgtId);
+            const isCritKV = critPathKV && critPathKV.has(srcId) && critPathKV.has(tgtId);
 
             if (isCritVV) {
-                // VV Kritisk: Kraftig Orange/Rød
-                link.style('stroke', '#FF4500') 
+                // VV Kritisk = Orange
+                link.style('stroke', '#FF4500')
                     .style('stroke-width', '4px')
                     .style('opacity', 1.0);
             } 
             else if (isCritKV) {
-                // KV Kritisk: Kraftig Cyan/Neon Blå
-                link.style('stroke', '#00BFFF') 
+                // KV Kritisk = Neon Blå
+                link.style('stroke', '#00BFFF')
                     .style('stroke-width', '4px')
                     .style('opacity', 1.0);
             } 
             else {
-                // Ikke kritisk: Dæmpet (gælder nu også KV rør der ikke er kritiske)
-                link.style('opacity', 0.1);
+                // Ikke kritisk = Dæmpet
+                link.style('opacity', 0.15);
             }
         });
 }
 
-/**
+/*
  * legenden i bunden af diagrammet.
  * Viser dobbelt-legend for Temperatur (KV + VV).
  * OPDATERET: Kompakt design, placeret nede til venstre.
