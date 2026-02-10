@@ -3998,7 +3998,7 @@ function dimensionSupply_KV(model, config) {
     return model;
 }
 
-/* --- FUNKTION: FINDER KRITISKE STRENGE (Graf-baseret) --- */
+/* --- FIND KRITISKE STRENGE (Bruger Node-referencer i stedet for Edges) --- */
 function findCriticalPaths(model) {
     // 1. Nulstil
     let minPressureKV = Infinity;
@@ -4022,28 +4022,32 @@ function findCriticalPaths(model) {
         }
     });
 
-    // 3. Robust Backtracking via Edges
-    const traceBack = (startNode) => {
-        const pathSet = new Set(); // Indeholder ID på Noderne i ruten
+    // 3. Backtracking via Forældre-pointers (Sikker metode)
+    const traceBack = (startNode, systemType) => {
+        const pathSet = new Set(); 
         let current = startNode;
         let safeGuard = 0;
         
-        // Tilføj startnoden
-        if(current) pathSet.add(current.id);
-
         while (current && safeGuard < 1000) {
             safeGuard++;
+            pathSet.add(current.id); // Tilføj noden til ruten
+
+            let parentId = null;
+
+            // Find den rigtige forælder afhængigt af systemet
+            if (current.type === 'tapsted') {
+                if (systemType === 'KV') parentId = current.parentKV;
+                else parentId = current.parentVV; // Standard VV
+            } else {
+                // Rør, ventiler og andre komponenter har kun én parent
+                parentId = current.parentId;
+            }
+
+            // Stop hvis ingen forælder (Vi er nået til Beholder eller Vandstik)
+            if (!parentId) break;
             
-            // Find det rør (edge), der peger på nuværende node (to === current.id)
-            const incomingEdge = Array.from(model.edges.values()).find(e => e.to === current.id);
-            
-            if (!incomingEdge) break; // Vi er ved start (ingen rør fører hertil)
-            
-            // Tilføj forælderen (fra-noden) til sættet
-            pathSet.add(incomingEdge.from);
-            
-            // Ryk en tak opstrøms
-            current = model.nodes.get(incomingEdge.from);
+            // Hop op til forælderen
+            current = model.nodes.get(parentId);
         }
         return pathSet;
     };
@@ -4052,10 +4056,13 @@ function findCriticalPaths(model) {
     model.criticalNodeKV = criticalNodeKV;
     model.criticalNodeVV = criticalNodeVV;
     
-    model.criticalPathKV = criticalNodeKV ? traceBack(criticalNodeKV) : new Set();
-    model.criticalPathVV = criticalNodeVV ? traceBack(criticalNodeVV) : new Set();
+    // Vi sender 'KV' eller 'VV' med som argument, så traceBack vælger den rigtige vej fra tapstedet
+    model.criticalPathKV = criticalNodeKV ? traceBack(criticalNodeKV, 'KV') : new Set();
+    model.criticalPathVV = criticalNodeVV ? traceBack(criticalNodeVV, 'VV') : new Set();
     
-    // Debug til konsol (så du kan se at den finder noget)
+    // Kombineret sæt (til bagudkompatibilitet hvis nødvendigt)
+    model.criticalPath = new Set([...model.criticalPathKV, ...model.criticalPathVV]);
+    
     console.log(`🔍 Kritisk Vej Beregnet: KV=${model.criticalPathKV.size} noder, VV=${model.criticalPathVV.size} noder`);
 }
 
