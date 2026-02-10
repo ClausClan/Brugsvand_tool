@@ -5813,188 +5813,6 @@ function calculateMeterPressureDrop(node) {
 // =============================================================================
 // == VISNING AF RESULTATER (Med Temperaturafhængig Fysik)
 // =============================================================================
-function displayResults(model, config) {
-    const advarslerDiv = document.getElementById('advarsler');
-    // Rens kun advarsler hvis vi ikke allerede har kritiske fejl fra beregningen
-    if (!advarslerDiv.querySelector('.alert-danger')) advarslerDiv.innerHTML = '';
-    
-    // 1. TJEK FORSYNINGSTRYK (Med Link)
-    const startTryk = model.vv_start_pressure; 
-    const resttryk = startTryk - model.max_dp_tapning;
-    
-    if (resttryk < config.min_tap_tryk) {
-        advarslerDiv.innerHTML += `<p class="alert alert-danger">ADVARSEL: Tryk ved fjerneste VV-tapsted (${(resttryk / 1000).toFixed(0)} kPa) er for lavt (Krav: ${(config.min_tap_tryk/1000).toFixed(0)} kPa).</p>`;
-    } else {
-        advarslerDiv.innerHTML += `<p class="alert alert-success">OK: Tryk ved fjerneste VV-tapsted er tilstrækkeligt (${(resttryk / 1000).toFixed(0)} kPa).</p>`;
-    }
-
-    // 2. OPDATER INPUT (Auto-dim feedback)
-    if (config.isAuto) {
-        model.nodes.forEach(n => {
-            if ((n.type.includes('ror') || n.type === 'cirkulation_vv') && n.nom_dim) {
-                const el = document.querySelector(`tr[data-id="${n.id}"]`);
-                if (el) {
-                    const dimInput = el.querySelector('.dim');
-                    if (dimInput) dimInput.value = n.nom_dim;
-                }
-            }
-        });
-    }
-
-    // --- DATA INDSAMLING TIL TABEL ---
-
-	// Hjælper til konvertering (Pa -> kPa)
-    const toKPa = (val) => (val / 1000).toFixed(2);
-	
-// A. Find Trykforøger (hvis den findes)
-    const booster = Array.from(model.nodes.values()).find(n => n.type === 'booster');
-    let boosterHtml = '';
-    let boosterPressurePa = 0;
-    
-    if (booster) {
-        const bFlow = booster.qd || 0; // l/s
-        const bPressKPa = booster.pressure_change || 0; // Allerede i kPa fra input
-        boosterPressurePa = bPressKPa * 1000;
-        
-        boosterHtml = `
-            <tr class="table-success"><td colspan="2"><strong>Trykforøger (Booster)</strong></td></tr>
-            <tr><td>Dim. Flow</td><td>${bFlow.toFixed(3)} l/s</td></tr>
-            <tr><td>Løftehøjde</td><td>+${bPressKPa.toFixed(2)} kPa</td></tr>
-        `;
-    }
-
-// B. Beregn KOLDT VAND (Kritisk vej data)
-    let kvHtml = '';
-    const critKV = model.criticalNodeKV; // Hentet fra den nye funktion
-    
-    if (critKV) {
-        const minPKV = critKV.P_absolute_KV;
-        
-        // Højdetab (Geodætisk)
-        const hKV = (critKV.kote || 0) - (config.forsyningens_kote || 0);
-        const rhoKV = 999.7; // 10 grader
-        const dp_geo_kv = rhoKV * G * hKV;
-        
-        // Friktion = Starttryk - Sluttryk - Højde
-        // (Starttrykket for KV er altid PLN + evt. Booster på forsyningen)
-        const totalStartPressure = config.pln + boosterPressurePa;
-        const dp_friction_kv = totalStartPressure - minPKV - dp_geo_kv;
-
-        kvHtml = `
-            <tr class="table-info"><td colspan="2"><strong>Koldt Vand (Kritisk Streng)</strong></td></tr>
-            <tr><td>Kritisk Tapsted</td><td>${getDisplayName(critKV.id)}</td></tr>
-            <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_kv)} kPa</td></tr>
-            <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_kv)} kPa</td></tr>
-            <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${toKPa(minPKV)} kPa</strong></td></tr>
-        `;
-    }
-
-    // C. Beregn VARMT VAND (Kritisk vej data)
-    let vvStartHtml = '';
-    let dp_friction_vv = 0;
-    let dp_geo_vv = 0;
-    let resttryk_vv = 0;
-    
-    const critVV = model.criticalNodeVV; // Hentet fra den nye funktion
-
-    if (critVV) {
-        resttryk_vv = critVV.P_absolute_VV;
-        
-        // Højdetab VV
-        const rho_supply = getWaterDensity(config.T_v);
-        const hVV = (critVV.kote || 0) - (config.forsyningens_kote || 0);
-        dp_geo_vv = rho_supply * G * hVV;
-
-        // Friktion VV = Starttryk (Hovedforsyning) - Sluttryk - Højde
-        // Dette giver det TOTALE friktionstab fra vandstik til vv-tapsted
-        const totalStart = config.pln + boosterPressurePa;
-        dp_friction_vv = totalStart - resttryk_vv - dp_geo_vv;
-        
-        // Opdater model.max_dp_tapning til validering (bruges i advarsler)
-        model.max_dp_tapning = dp_friction_vv + dp_geo_vv; 
-
-        // Info om tabet frem til beholder (hvis relevant)
-        let beholderTabHtml = '';
-        if (model.kv_pressure_loss_to_beholder) {
-             beholderTabHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${toKPa(model.kv_pressure_loss_to_beholder)} kPa</small></td></tr>`;
-        }
-        
-        vvStartHtml = `
-            <tr><td>Kritisk Tapsted</td><td>${getDisplayName(critVV.id)}</td></tr>
-            ${beholderTabHtml}
-        `;
-    }
-
-	// D. Cirkulation
-    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
-    const meanTemp = config.T_v - (config.dT / 2);
-    const rho_circ = getWaterDensity(meanTemp);
-
-    // 3. BYG HTML TABELLEN (Alt i kPa)
-    document.getElementById('summaryTableBody').innerHTML = `
-        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
-        <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
-        ${boosterHtml}
-
-        ${kvHtml}
-
-        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
-        ${vvStartHtml}
-        <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
-        <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
-        
-        <tr class="table-primary">
-            <td><strong>Resttryk v/ Tapsted</strong></td>
-            <td><strong>${toKPa(resttryk)} kPa</strong></td>
-        </tr>
-        
-        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
-        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
-        <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * G)).toFixed(2)} mVs)</td></tr>
-    `;
-
-    // 4. Opdater Beholder Resultat (Uændret...)
-    const metodeA_div = document.getElementById('metodeA_content');
-    if (model.N > 0) {
-        metodeA_div.innerHTML = `
-            <p>Systemet indeholder <b>${model.N}</b> lejligheder. For et system uden beholder er det beregnede spidslastbehov til veksleren <b>${model.Pmax_veksler.toFixed(1)} kW</b>.</p>
-            <p>Brug P-V kurven nedenfor til interaktivt at finde en passende kombination af effekt og volumen.</p>
-            <div class="row g-3">
-                <div class="col-md-6"><label class="form-label">Indtast tilgængelig effekt</label><div class="input-group"><input id="userEffekt" type="number" step="0.1" class="form-control" placeholder="f.eks. 35"><span class="input-group-text">kW</span></div></div>
-                <div class="col-md-6"><label class="form-label">Indtast ønsket volumen</label><div class="input-group"><input id="userVolumen" type="number" class="form-control" placeholder="f.eks. 200"><span class="input-group-text">L</span></div></div>
-            </div>`;
-    } else {
-        metodeA_div.innerHTML = `<p class="text-muted">Metode A kræver, at du tilføjer tapsteder af typen "Lejlighed".</p>`;
-    }
-
-    // 5. Opdater øvrige tabeller
-    updateRorTable(model, config); 
-    updateCircTable(model); 
-    updateComponentTable(model); 
-
-    // 6. Opdater Vandmåler Display i UI
-    model.nodes.forEach(n => {
-        if (n.type === 'water_meter') {
-            const el = document.querySelector(`tr[data-id="${n.id}"]`);
-            if (el) {
-                const dpInput = el.querySelector('.meter-dp-display');
-                const infoSpan = el.querySelector('.meter-info-display');
-                if (dpInput) dpInput.value = (n.dp_tap || 0).toFixed(0);
-                if (infoSpan) {
-                    if (n.autoMeterName) infoSpan.textContent = `Auto-valgt: ${n.autoMeterName}`;
-                    else infoSpan.textContent = `Kv: ${n.meterKv || '-'}`;
-                }
-            }
-        }
-    });
-}
-
-
-// Hjælpefunktioner til tabellerne (hvis du ikke allerede har dem separeret, er her indholdet)
-/**
- * Opdaterer rør-tabellen med nye kolonner og sektioner.
- * NYT: Sektioner for VV/KV, Isolering [mm], Varmetab [W/m].
- */
 function updateRorTable(model, config) {
     const rørTable = document.getElementById('rørResultTable');
     if (!rørTable) return;
@@ -6183,6 +6001,7 @@ function updateCircTable(model) {
  * Indsættes dynamisk i resultaterne.
  */
 function updateComponentTable(model) {
+    // 1. STRUKTUR: Find eller Opret Containeren (Din oprindelige logik)
     let container = document.getElementById('componentResults');
     if (!container) {
         const parent = document.getElementById('cirkulation'); 
@@ -6193,112 +6012,90 @@ function updateComponentTable(model) {
         parent.appendChild(container);
     }
 
-    const activeComponents = [];
+    // 2. DATA SORTERING
+    const boosters = [];
     const meters = [];
-
-    // DEBUG: Vi logger hvad vi leder efter
-    console.log("--- Opdaterer Komponent Tabel (Leder efter 'water_meter') ---");
+    const circValves = [];
+    const otherValves = [];
 
     model.nodes.forEach(n => {
-        // 1. Pumper og Reducere
-        if (n.type === 'booster' || n.type === 'reducer') {
-            activeComponents.push(n);
-        }
-        
-        // 2. Målere (RETTET HER)
-        // Din kode bruger typen 'water_meter', ikke 'meter'
-        if (n.type === 'water_meter') {
-            meters.push(n);
-        }
+        if (n.type === 'booster') boosters.push(n);
+        else if (n.type === 'water_meter') meters.push(n);
+        else if (n.type === 'cirkulation_vv') circValves.push(n);
+        else if (['vent', 'kontra', 'reducer'].includes(n.type)) otherValves.push(n);
     });
 
-    console.log(`Fundet: ${activeComponents.length} komponenter, ${meters.length} målere.`);
-
-    // Hvis intet er fundet, vis besked
-    if (activeComponents.length === 0 && meters.length === 0) {
-        container.innerHTML = '<p class="text-muted fst-italic mt-3">Ingen aktive komponenter eller målere fundet.</p>';
+    // Hvis intet er fundet
+    if (boosters.length === 0 && meters.length === 0 && circValves.length === 0) {
+        container.innerHTML = '<p class="text-muted fst-italic mt-3">Ingen aktive komponenter fundet.</p>';
         return;
     }
 
     let html = '';
 
-    // --- TABEL 1: PUMPER / VENTILER ---
-    if (activeComponents.length > 0) {
-        html += `<h5>Aktive Komponenter</h5>
+    // --- A. BOOSTERS (Trykforøgere) ---
+    if (boosters.length > 0) {
+        html += `<h5>Trykforøgere (Boostere)</h5>
+        <table class="table table-sm table-bordered table-hover mb-4">
+            <thead class="table-light"><tr><th>Navn</th><th>Løftehøjde</th><th>Flow</th></tr></thead>
+            <tbody>`;
+        boosters.forEach(n => {
+            const pChangeKPa = (n.pressure_change || 0).toFixed(2);
+            const flow = n.qd || 0;
+            html += `<tr><td>${n.name || 'Booster'}</td><td>+${pChangeKPa} kPa</td><td>${flow.toFixed(3)} l/s</td></tr>`;
+        });
+        html += `</tbody></table>`;
+    }
+
+    // --- B. VANDMÅLERE (Din detaljerede visning) ---
+    if (meters.length > 0) {
+        meters.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+        html += `<h5>Vandmålere</h5>
         <table class="table table-sm table-bordered table-hover mb-4">
             <thead class="table-light">
-                <tr>
-                    <th>ID/Navn</th>
-                    <th>Type</th>
-                    <th>Indstillet ΔP [kPa]</th>
-                    <th>Effektiv ΔP [Pa]</th>
-                    <th>Flow [l/s]</th>
-                </tr>
+                <tr><th>Placering</th><th>Type</th><th>Dim.</th><th>Kv-værdi</th><th>Flow [l/s]</th><th>Tab [kPa]</th></tr>
             </thead>
             <tbody>`;
+        meters.forEach(m => {
+            const typeDesc = m.meterType || (m.autoMeterName ? `Auto: ${m.autoMeterName}` : 'Ukendt');
+            const dim = m.nom_dim ? `DN${m.nom_dim}` : '-';
+            const kv = m.meterKv ? m.meterKv.toFixed(1) : (m.kv_value ? m.kv_value.toFixed(1) : '-');
+            const flow = m.qd || 0;
+            // Husk at summere både tapning og cirkulationstab for måleren
+            const dpKPa = ((m.dp_tap || 0) + (m.dp_circ || 0)) / 1000;
 
-        activeComponents.forEach(n => {
-            const pChangeKPa = n.pressure_change || 0;
-            const pChangePa = pChangeKPa * 1000;
-            const effect = (n.type === 'booster') ? `+${pChangePa.toFixed(0)}` : `${pChangePa.toFixed(0)}`; 
-            const flow = (model.circFlows && model.circFlows.get(n.id)) || n.qd || 0;
-            
             html += `<tr>
-                <td>${getDisplayName(n.id)}</td>
-                <td>${n.type === 'booster' ? 'Trykforøger' : 'Reduktionsventil'}</td>
-                <td>${pChangeKPa}</td>
-                <td><strong>${effect}</strong></td>
-                <td>${flow.toFixed(3)}</td>
+                <td>${m.name || m.id}</td><td>${typeDesc}</td><td>${dim}</td><td>${kv}</td>
+                <td>${flow.toFixed(3)}</td><td><strong>${dpKPa.toFixed(2)}</strong></td>
             </tr>`;
         });
         html += `</tbody></table>`;
     }
 
-    // --- TABEL 2: MÅLERE ---
-    if (meters.length > 0) {
-        html += `<h5>Målere</h5>
-        <table class="table table-sm table-bordered table-hover">
+    // --- C. CIRKULATIONSVENTILER (NYT: Med Varmetab!) ---
+    if (circValves.length > 0) {
+        circValves.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+        html += `<h5>Cirkulationsventiler (Strengregulering)</h5>
+        <table class="table table-sm table-bordered table-hover mb-4">
             <thead class="table-light">
-                <tr>
-                    <th>ID / Placering</th>
-                    <th>Type / Model</th>
-                    <th>Dim.</th>
-                    <th>Kv-værdi</th>
-                    <th>Flow [l/s]</th>
-                    <th>Tab [kPa]</th>
-                </tr>
+                <tr><th>Ventil ID</th><th>Flow [l/s]</th><th>Varmetab [W]</th><th>Indstilling</th><th>Tab [kPa]</th></tr>
             </thead>
             <tbody>`;
-
-        // Sortering
-        meters.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
-
-        meters.forEach((m, index) => {
-            // ID håndtering
-            let displayName = getDisplayName(m.id);
+        
+        circValves.forEach(v => {
+            // Her finder vi kredsen for at hente varmetabet (Watt)
+            const loop = model.loops.find(l => l.valveId === v.id);
+            const watts = loop ? Math.round(loop.heat_loss || 0) : '-';
             
-            // Data
-            const typeDesc = m.meterType || (m.autoMeterName ? `Auto: ${m.autoMeterName}` : 'Ukendt Måler');
-            const dim = m.nom_dim ? `${m.nom_dim} mm` : '-';
-            const kv = m.meterKv ? m.meterKv.toFixed(1) : (m.kv_value ? m.kv_value.toFixed(1) : '-');
-            
-            // Flow
-            let flow = m.qd || 0;
-            if (model.circFlows && model.circFlows.has(m.id)) {
-                flow = model.circFlows.get(m.id);
-            }
-
-            // Tryktab (kPa)
-            const dpPa = (m.dp_tap || 0) + (m.dp_circ || 0);
-            const dpKPa = dpPa / 1000;
+            const flow = v.qd || 0;
+            const dpKPa = (v.dp_tap || 0) / 1000; 
+            const setting = v.kv_value ? `Kv: ${v.kv_value.toFixed(2)}` : '-';
 
             html += `<tr>
-                <td><strong>${displayName}</strong></td>
-                <td>${typeDesc}</td>
-                <td>${dim}</td>
-                <td>${kv}</td>
-                <td>${flow.toFixed(3)}</td>
-                <td><strong>${dpKPa.toFixed(2)}</strong></td>
+                <td>${v.name || v.id}</td>
+                <td><strong>${flow.toFixed(3)}</strong></td>
+                <td class="text-primary fw-bold">${watts} W</td> <td>${setting}</td>
+                <td>${dpKPa.toFixed(2)}</td>
             </tr>`;
         });
         html += `</tbody></table>`;
@@ -6306,6 +6103,7 @@ function updateComponentTable(model) {
 
     container.innerHTML = html;
 }
+
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
