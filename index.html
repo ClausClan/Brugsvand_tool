@@ -3506,16 +3506,21 @@ function finishCalculation(model, config) {
         return;
     }
     
-    // Kør begge temperatur-simulationer med de nye fysiske funktioner
+    // 1. Temperatur Simulation
     calculateTemperatures_VV(model, config);
     calculateTemperatures_KV(model, config);
 
-    // Beregn absolutte tryk til diagrammet
+    // 2. Beregn Absolutte Tryk (Resttryk på alle noder)
     calculateAbsolutePressures(model, config);
     
+    // 3. FIND KRITISKE VEJE (NYT KALD HER!)
+    findCriticalPaths(model); 
+    
+    // 4. Gem data til tegning
     syncModelToState(model);
     state.lastConfig = config;
     
+    // 5. Vis resultater
     displayResults(model, config);
     updateDiagram();
 }
@@ -3554,12 +3559,7 @@ function beregnStandard(config) {
         if (config.isAuto) dimensionSupply_KV(model, config);
         
         // Beregn tryktab i KV
-        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
-        
-        // Gem KV info
-        const kvRes = findMaxPathDp_KV(model, config);
-        model.max_dp_kv = kvRes.max_dp;
-        model.criticalPathKV = new Set(kvRes.path);
+        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);        
     }
 
     // TRIN B: Beregn Starttryk til VV (Hydraulisk Link)
@@ -3587,10 +3587,6 @@ function beregnStandard(config) {
     
     calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); 
     
-    const pressureDropResult = findMaxPathDp_VV(model.tree, config);
-    model.max_dp_tapning = pressureDropResult.max_dp;
-    model.criticalPath = new Set(pressureDropResult.path);
-    
     // Cirkulation
     calculateInsulation(model, config);
     calculateCirculationFlows_VV(model, config);
@@ -3608,7 +3604,7 @@ function beregnStandard(config) {
 }
 
 /**
- * NY FUNKTION (Fase 2): Analyserer systemets topologi og tildeler kategorier.
+ * FUNKTION (Fase 2): Analyserer systemets topologi og tildeler kategorier.
  * - Koblingsledning: Forsyner præcis 1 tapsted.
  * - Hovedledning (Fremløb): Forsyner en anden streng (sektion).
  * - Fordelingsledning (Fremløb): Forsyner >1 tapsted i samme streng.
@@ -3827,34 +3823,7 @@ function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
     return startNode;
 }
 
-// 4. Find Kritisk Vej (VV)
-function findMaxPathDp_VV(startNode, config) { 
-    let max_dp = 0;
-    let critical_path = []; 
-    const rho = getWaterDensity(config.T_v); // Varmt vand
 
-    function traverse(node, current_dp, current_path) {
-        const new_dp = current_dp + (node.dp_tap || 0);
-        const new_path = [...current_path, node.id];
-
-        if (node.type === 'tapsted') {
-            const forsyningsKote = config.forsyningens_kote || 0;
-            const tapstedsKote = node.kote || 0;
-            const h = tapstedsKote - forsyningsKote;
-            const delta_p_geo = rho * G * h;
-            const total_dp_for_path = new_dp + delta_p_geo;
-
-            if (total_dp_for_path > max_dp) {
-                max_dp = total_dp_for_path;
-                critical_path = new_path;
-            }
-        } else {
-            node.children.forEach(c => traverse(c, new_dp, new_path));
-        }
-    }
-    traverse(startNode, 0, []);
-    return { max_dp: max_dp, path: critical_path };
-}
 
 // =============================================================================
 // == BEREGNINGSKERNE: KOLDT VAND (KV)
@@ -4029,41 +3998,67 @@ function dimensionSupply_KV(model, config) {
     return model;
 }
 
-// 4. Kritisk Vej KV
-function findMaxPathDp_KV(model, config) { 
-    let max_dp = 0;
-    let critical_path = []; 
-    const rho = getWaterDensity(10); 
+/* --- FUNKTION: FINDER KRITISKE STRENGE (Graf-baseret) --- */
+function findCriticalPaths(model) {
+    // 1. Nulstil
+    let minPressureKV = Infinity;
+    let minPressureVV = Infinity;
+    let criticalNodeKV = null;
+    let criticalNodeVV = null;
 
-    function traverse(node, current_dp, current_path) {
-        const new_dp = current_dp + (node.dp_tap || 0);
-        const new_path = [...current_path, node.id];
-
+    // 2. Scan alle noder for at finde laveste tryk i hhv. KV og VV
+    model.nodes.forEach(node => {
         if (node.type === 'tapsted') {
-            // Tjek om dette tapsted har et koldt flow (ellers er det måske kun et varmt tapsted)
-            // Men hvis vi er nået her via KV-træet, er det relevant.
-            const forsyningsKote = config.forsyningens_kote || 0;
-            const tapstedsKote = node.kote || 0;
-            const h = tapstedsKote - forsyningsKote;
-            const delta_p_geo = rho * G * h;
-            const total_dp_for_path = new_dp + delta_p_geo;
-
-            if (total_dp_for_path > max_dp) {
-                max_dp = total_dp_for_path;
-                critical_path = new_path;
+            // Tjek Koldt Vand (hvis beregnet og gyldigt)
+            if (typeof node.P_absolute_KV === 'number' && node.P_absolute_KV < minPressureKV) {
+                minPressureKV = node.P_absolute_KV;
+                criticalNodeKV = node;
             }
-        } else {
-            if (node.children) {
-                node.children.forEach(c => traverse(c, new_dp, new_path));
+
+            // Tjek Varmt Vand (hvis beregnet og gyldigt)
+            if (typeof node.P_absolute_VV === 'number' && node.P_absolute_VV < minPressureVV) {
+                minPressureVV = node.P_absolute_VV;
+                criticalNodeVV = node;
             }
         }
-    }
+    });
+
+    // 3. Hjælpefunktion til at trace ruten baglæns
+    const traceBack = (startNode) => {
+        const path = new Set();
+        let current = startNode;
+        let safeGuard = 0;
+        
+        while (current && safeGuard < 1000) {
+            path.add(current.id);
+            safeGuard++;
+            
+            // Find rør der fører IND i denne node.
+            // Vi leder i model.nodes via parentId (vores model er et træ/graf)
+            // Bemærk: 'current.parentId' er sat i buildModel.
+            if (!current.parentId) break; 
+            
+            // Tilføj forælderen til ruten
+            path.add(current.parentId);
+            current = model.nodes.get(current.parentId);
+        }
+        return path;
+    };
+
+    // 4. Gem resultaterne i modellen
+    model.criticalNodeKV = criticalNodeKV;
+    model.criticalNodeVV = criticalNodeVV;
     
-    if (model.nodes.has('Vandstik')) {
-        traverse(model.nodes.get('Vandstik'), 0, []);
-    }
+    // Vi tracer ruten for at kunne tegne den røde streg i diagrammet
+    model.criticalPathKV = criticalNodeKV ? traceBack(criticalNodeKV) : new Set();
+    model.criticalPathVV = criticalNodeVV ? traceBack(criticalNodeVV) : new Set();
     
-    return { max_dp: max_dp, path: critical_path };
+    // Kombiner dem til én 'criticalPath' som tegne-motoren bruger
+    model.criticalPath = new Set([...model.criticalPathKV, ...model.criticalPathVV]);
+    
+    // Gem max tryktab til validering (Pln - P_min)
+    // Bemærk: Dette er en approksimation, da P_absolute allerede indeholder højdetab.
+    // Men til visning i 'displayResults' bruger vi de eksakte tal fra noderne.
 }
 
 // 5. Beregn Varmetab (VV & VVC)
@@ -5865,55 +5860,64 @@ function displayResults(model, config) {
 
 // B. Beregn KOLDT VAND (Kritisk vej data)
     let kvHtml = '';
-    let critKV = null;
-    let minPKV = Infinity;
+    const critKV = model.criticalNodeKV; // Hentet fra den nye funktion
     
-    // Find det kritiske KV tapsted (laveste tryk)
-    model.nodes.forEach(n => {
-        if(n.type === 'tapsted' && n.P_absolute_KV !== undefined && n.P_absolute_KV < minPKV) {
-            minPKV = n.P_absolute_KV;
-            critKV = n;
-        }
-    });
-
     if (critKV) {
-        const rhoKV = 999.7; // ca 10 grader
+        const minPKV = critKV.P_absolute_KV;
+        
+        // Højdetab (Geodætisk)
         const hKV = (critKV.kote || 0) - (config.forsyningens_kote || 0);
+        const rhoKV = 999.7; // 10 grader
         const dp_geo_kv = rhoKV * G * hKV;
         
-        // Friktion = (Starttryk + Booster) - Sluttryk - Højde
+        // Friktion = Starttryk - Sluttryk - Højde
+        // (Starttrykket for KV er altid PLN + evt. Booster på forsyningen)
         const totalStartPressure = config.pln + boosterPressurePa;
         const dp_friction_kv = totalStartPressure - minPKV - dp_geo_kv;
 
         kvHtml = `
             <tr class="table-info"><td colspan="2"><strong>Koldt Vand (Kritisk Streng)</strong></td></tr>
+            <tr><td>Kritisk Tapsted</td><td>${getDisplayName(critKV.id)}</td></tr>
             <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_kv)} kPa</td></tr>
             <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_kv)} kPa</td></tr>
             <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${toKPa(minPKV)} kPa</strong></td></tr>
         `;
     }
 
-// C. Beregn VARMT VAND (Eksisterende logik + styling)
-    let dp_friction_vv = model.max_dp_tapning;
+    // C. Beregn VARMT VAND (Kritisk vej data)
+    let vvStartHtml = '';
+    let dp_friction_vv = 0;
     let dp_geo_vv = 0;
-    const rho_supply = getWaterDensity(config.T_v);
+    let resttryk_vv = 0;
     
-    if (model.criticalPath && model.criticalPath.size > 0) {
-        const criticalPathArray = Array.from(model.criticalPath);
-        const endTapstedId = criticalPathArray[criticalPathArray.length - 1];
-        const endTapstedNode = model.nodes.get(endTapstedId);
+    const critVV = model.criticalNodeVV; // Hentet fra den nye funktion
 
-        if (endTapstedNode && endTapstedNode.type === 'tapsted') {
-            const h = (endTapstedNode.kote || 0) - (config.forsyningens_kote || 0);
-            dp_geo_vv = rho_supply * G * h;
-            dp_friction_vv = model.max_dp_tapning - dp_geo_vv;
+    if (critVV) {
+        resttryk_vv = critVV.P_absolute_VV;
+        
+        // Højdetab VV
+        const rho_supply = getWaterDensity(config.T_v);
+        const hVV = (critVV.kote || 0) - (config.forsyningens_kote || 0);
+        dp_geo_vv = rho_supply * G * hVV;
+
+        // Friktion VV = Starttryk (Hovedforsyning) - Sluttryk - Højde
+        // Dette giver det TOTALE friktionstab fra vandstik til vv-tapsted
+        const totalStart = config.pln + boosterPressurePa;
+        dp_friction_vv = totalStart - resttryk_vv - dp_geo_vv;
+        
+        // Opdater model.max_dp_tapning til validering (bruges i advarsler)
+        model.max_dp_tapning = dp_friction_vv + dp_geo_vv; 
+
+        // Info om tabet frem til beholder (hvis relevant)
+        let beholderTabHtml = '';
+        if (model.kv_pressure_loss_to_beholder) {
+             beholderTabHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${toKPa(model.kv_pressure_loss_to_beholder)} kPa</small></td></tr>`;
         }
-    }
-    
-	let vvStartHtml = '';
-    if (state.beholderConnectionId) {
-        // Viser tabet i KV-forsyningen frem til beholderen
-        vvStartHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${toKPa(model.kv_pressure_loss_to_beholder || 0)} kPa</small></td></tr>`;
+        
+        vvStartHtml = `
+            <tr><td>Kritisk Tapsted</td><td>${getDisplayName(critVV.id)}</td></tr>
+            ${beholderTabHtml}
+        `;
     }
 
 	// D. Cirkulation
