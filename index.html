@@ -6000,6 +6000,7 @@ function updateCircTable(model) {
  * Genererer en tabel over aktive komponenter (Boostere/Reducere).
  * Indsættes dynamisk i resultaterne.
  */
+/* --- FUSIONERET KOMPONENT TABEL (Boostere, Målere, Cirkulationsventiler) --- */
 function updateComponentTable(model) {
     // 1. STRUKTUR: Find eller Opret Containeren (Din oprindelige logik)
     let container = document.getElementById('componentResults');
@@ -6104,6 +6105,163 @@ function updateComponentTable(model) {
     container.innerHTML = html;
 }
 
+/* --- displayResults --- */
+function displayResults(model, config) {
+    const advarslerDiv = document.getElementById('advarsler');
+    
+    // 1. Rens advarsler (bevar dog evt. fatale fejl fra tidligere trin)
+    if (!advarslerDiv.querySelector('.alert-danger')) {
+        advarslerDiv.innerHTML = '';
+    }
+
+    // Hjælper til konvertering (Pa -> kPa)
+    const toKPa = (val) => (val / 1000).toFixed(2);
+
+    // 2. BOOSTER (Trykforøger)
+    const booster = Array.from(model.nodes.values()).find(n => n.type === 'booster');
+    let boosterHtml = '';
+    let boosterPressurePa = 0;
+    
+    if (booster) {
+        const bFlow = booster.qd || 0; 
+        const bPressKPa = booster.pressure_change || 0; 
+        boosterPressurePa = bPressKPa * 1000;
+        
+        boosterHtml = `
+            <tr class="table-success"><td colspan="2"><strong>Trykforøger (Booster)</strong></td></tr>
+            <tr><td>Dim. Flow</td><td>${bFlow.toFixed(3)} l/s</td></tr>
+            <tr><td>Løftehøjde</td><td>+${bPressKPa.toFixed(2)} kPa</td></tr>
+        `;
+    }
+
+    // 3. KOLDT VAND (Kritisk Streng)
+    let kvHtml = '';
+    const critKV = model.criticalNodeKV; 
+    let minPKV = 0;
+    
+    if (critKV) {
+        minPKV = critKV.P_absolute_KV;
+        const hKV = (critKV.kote || 0) - (config.forsyningens_kote || 0);
+        const rhoKV = 999.7; 
+        const dp_geo_kv = rhoKV * 9.81 * hKV; 
+        
+        const totalStartPressure = config.pln + boosterPressurePa;
+        const dp_friction_kv = totalStartPressure - minPKV - dp_geo_kv;
+
+        kvHtml = `
+            <tr class="table-info"><td colspan="2"><strong>Koldt Vand (Kritisk Streng)</strong></td></tr>
+            <tr><td>Kritisk Tapsted</td><td>${(critKV.name || critKV.id)}</td></tr>
+            <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_kv)} kPa</td></tr>
+            <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_kv)} kPa</td></tr>
+            <tr><td><strong>Resttryk v/ Tapsted</strong></td><td><strong>${toKPa(minPKV)} kPa</strong></td></tr>
+        `;
+        
+        // Tjek min. krav for KV (God info at have)
+        if (minPKV < config.min_tap_tryk) {
+             advarslerDiv.innerHTML += `<p class="alert alert-danger">ADVARSEL: Tryk ved kritisk KV-tapsted (${toKPa(minPKV)} kPa) er for lavt (Krav: ${toKPa(config.min_tap_tryk)} kPa).</p>`;
+        }
+    }
+
+    // 4. VARMT VAND (Kritisk Streng) & ADVARSELS-LOGIK
+    let vvStartHtml = '';
+    let dp_friction_vv = 0;
+    let dp_geo_vv = 0;
+    let resttryk_vv = 0;
+    let critVV_Html = '';
+    
+    const critVV = model.criticalNodeVV; 
+
+    if (critVV) {
+        // HER HENTER VI DET RIGTIGE TRYK (Ingen NaN!)
+        resttryk_vv = critVV.P_absolute_VV; 
+        
+        const rho_supply = getWaterDensity(config.T_v);
+        const hVV = (critVV.kote || 0) - (config.forsyningens_kote || 0);
+        dp_geo_vv = rho_supply * 9.81 * hVV;
+
+        const totalStart = config.pln + boosterPressurePa;
+        dp_friction_vv = totalStart - resttryk_vv - dp_geo_vv;
+        
+        // Info om tabet frem til beholder
+        if (model.kv_pressure_loss_to_beholder) {
+             vvStartHtml = `<tr><td class="ps-3 text-muted"><small>Tab i KV frem til Beholder</small></td><td class="text-muted"><small>-${toKPa(model.kv_pressure_loss_to_beholder)} kPa</small></td></tr>`;
+        }
+        
+        critVV_Html = `
+            <tr><td>Kritisk Tapsted</td><td>${(critVV.name || critVV.id)}</td></tr>
+            ${vvStartHtml}
+        `;
+
+        // --- HER GENERERER VI ADVARSLEN (Nu har vi tallene) ---
+        if (resttryk_vv < config.min_tap_tryk) {
+            advarslerDiv.innerHTML += `<p class="alert alert-danger">ADVARSEL: Tryk ved fjerneste VV-tapsted (${toKPa(resttryk_vv)} kPa) er for lavt (Krav: ${toKPa(config.min_tap_tryk)} kPa).</p>`;
+        } else {
+            advarslerDiv.innerHTML += `<p class="alert alert-success">OK: Tryk ved fjerneste VV-tapsted er tilstrækkeligt (${toKPa(resttryk_vv)} kPa).</p>`;
+        }
+    }
+
+    // 5. CIRKULATION
+    const total_circ_flow_lh = model.loops.reduce((s, l) => s + (l.circ_flow || 0), 0) * 3600;
+    const meanTemp = config.T_v - (config.dT / 2);
+    const rho_circ = getWaterDensity(meanTemp);
+
+    // 6. BYG TABELLEN
+    document.getElementById('summaryTableBody').innerHTML = `
+        <tr class="table-light"><td colspan="2"><strong>Forsyning</strong></td></tr>
+        <tr><td>Forsyningstryk (P0)</td><td>${toKPa(config.pln)} kPa</td></tr>
+        ${boosterHtml}
+        
+        ${kvHtml}
+        
+        <tr class="table-danger"><td colspan="2"><strong>Varmt Vand (Kritisk Streng)</strong></td></tr>
+        ${critVV_Html}
+        <tr><td>Tab (Friktion & Fittings)</td><td>-${toKPa(dp_friction_vv)} kPa</td></tr>
+        <tr><td>Tab (Løftehøjde)</td><td>-${toKPa(dp_geo_vv)} kPa</td></tr>
+        
+        <tr class="table-primary">
+            <td><strong>Resttryk v/ Tapsted</strong></td>
+            <td><strong>${toKPa(resttryk_vv)} kPa</strong></td>
+        </tr>
+        
+        <tr class="table-warning"><td colspan="2"><strong>Cirkulationspumpe</strong></td></tr>
+        <tr><td>Pumpeflow (Total)</td><td><b>${total_circ_flow_lh.toFixed(1)} l/h</b></td></tr>
+        <tr><td>Pumpetryk (Løftehøjde)</td><td><b>${toKPa(model.max_dp_circ)} kPa</b> (${(model.max_dp_circ / (rho_circ * 9.81)).toFixed(2)} mVs)</td></tr>
+    `;
+
+    // 7. OPDATER INPUT (Auto-dim feedback)
+    if (config.isAuto) {
+        model.nodes.forEach(n => {
+            if ((n.type.includes('ror') || n.type === 'cirkulation_vv') && n.nom_dim) {
+                const el = document.querySelector(`tr[data-id="${n.id}"]`);
+                if (el) {
+                    const dimInput = el.querySelector('.dim');
+                    if (dimInput) dimInput.value = n.nom_dim;
+                }
+            }
+        });
+    }
+
+    // 8. Opdater øvrige tabeller (Hvis funktionerne findes)
+    if (typeof updateRorTable === 'function') updateRorTable(model, config); 
+    if (typeof updateCircTable === 'function') updateCircTable(model); 
+    if (typeof updateComponentTable === 'function') updateComponentTable(model); 
+
+    // 9. Opdater Vandmåler Display i UI
+    model.nodes.forEach(n => {
+        if (n.type === 'water_meter') {
+            const el = document.querySelector(`tr[data-id="${n.id}"]`);
+            if (el) {
+                const dpInput = el.querySelector('.meter-dp-display');
+                const infoSpan = el.querySelector('.meter-info-display');
+                if (dpInput) dpInput.value = (n.dp_tap || 0).toFixed(0);
+                if (infoSpan) {
+                    if (n.autoMeterName) infoSpan.textContent = `Auto-valgt: ${n.autoMeterName}`;
+                    else infoSpan.textContent = `Kv: ${n.meterKv || '-'}`;
+                }
+            }
+        }
+    });
+}
 
 // =================================================================================
 // == FUNKTIONER TIL DIAGRAM-VISUALISERING                                        ==
