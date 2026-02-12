@@ -4823,14 +4823,34 @@ function extractComponentData(el) {
  * Export funktion der bruger fælles logik
  */
 function exportProject() {
-    const data = getDataForSave();
+    // 1. Hent de aktuelle data (som er i Pa inde i systemet)
+    const originalData = getDataForSave();
     
-    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
+    // 2. Lav en kopi af config for at konvertere til kPa (uden at ødelægge den aktive model)
+    const configExport = { ...originalData.config };
+
+    // Konverter Forsyningstryk (Pa -> kPa)
+    if (configExport.pln) {
+        configExport.pln = configExport.pln / 1000; 
+    }
+    // Konverter Min. Tapstedstryk (Pa -> kPa)
+    if (configExport.min_tap_tryk) {
+        configExport.min_tap_tryk = configExport.min_tap_tryk / 1000;
+    }
+
+    // 3. Saml det endelige objekt til filen
+    const dataToSave = {
+        ...originalData,
+        config: configExport // Nu med kPa værdier
+    };
+    
+    // 4. Generer filnavn og download
+    const projName = configExport.projectName ? configExport.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
     const filename = `${projName}_${dateStr}.json`;
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -4843,11 +4863,29 @@ function exportProject() {
  * OPDATERET: AutoSave funktion der bruger fælles logik
  */
 function autoSaveProject() {
-    const data = getDataForSave();
+    // 1. Hent rådata (som er i Pa)
+    const originalData = getDataForSave();
+    
+    // 2. Lav en sikker kopi af config (så vi ikke ændrer den kørende model)
+    const dataToSave = {
+        ...originalData,
+        config: { ...originalData.config } 
+    };
+
+    // 3. Konverter til kPa (ligesom i exportProject)
+    // Dette sikrer, at tallene passer direkte ind i input-felterne ved genindlæsning
+    if (dataToSave.config.pln) {
+        dataToSave.config.pln = dataToSave.config.pln / 1000;
+    }
+    if (dataToSave.config.min_tap_tryk) {
+        dataToSave.config.min_tap_tryk = dataToSave.config.min_tap_tryk / 1000;
+    }
+
+    // 4. Gem i LocalStorage
     try {
-        localStorage.setItem('varmtBrugsvandAutoSave', JSON.stringify(data));
+        localStorage.setItem('varmtBrugsvandAutoSave', JSON.stringify(dataToSave));
         projektErÆndret = false;
-        console.log("Projekt auto-gemt.");
+        // console.log("Projekt auto-gemt."); // Udkommenter evt. for mindre støj
     } catch (err) {
         console.error("Fejl ved auto-gem:", err);
     }
@@ -5220,8 +5258,9 @@ function loadProjectData(data) {
     
     state.sC = 0; state.sC_kv = 0; state.rC = 0; state.tC = 0; window.valveCounter = 0; window.compCounter = 0;
     
-    // 2. INDLÆS KONFIG
+    // 2. INDLÆS KONFIGURATION (Her bruger vi de korrekte ID'er)
     if (data.config) {
+        // A. Generisk loop (fanger checkboxes og felter hvor JSON-navn matcher ID)
         Object.entries(data.config).forEach(([k, v]) => {
             const el = document.getElementById(k);
             if (el) {
@@ -5229,34 +5268,62 @@ function loadProjectData(data) {
                 else el.value = v;
             }
         });
-        // Opdater state.lastConfig så diagrammet kan tegnes korrekt med det samme
+
+        // B. EKSPLICIT MAPPING (Sikrer at fysik-parametre rammer rigtigt)
+        // Vi bruger en lille hjælper for at undgå gentagelser
+        const setInput = (id, val) => {
+            const el = document.getElementById(id);
+            if (el && val !== undefined) el.value = val;
+        };
+
+        // Her kobler vi JSON-data til de faktiske ID'er i din HTML
+        setInput('pln', data.config.pln);                     // Forsyningstryk
+        setInput('min_tap_tryk', data.config.min_tap_tryk);   // Min. Tryk
+        setInput('T_v', data.config.T_v);                     // VV Temperatur
+        setInput('T_k', data.config.T_k);                     // KV Temperatur
+        setInput('dT', data.config.dT);                       // Afkøling
+        setInput('forsyningens_kote', data.config.forsyningens_kote); // Kote
+
+        // Opdater state
         state.lastConfig = data.config;
-        toggleAutoDim(data.config.isAuto);
+        if (typeof toggleAutoDim === 'function') toggleAutoDim(data.config.isAuto);
     }
     
-    // RETTELSE HER: Tilføjet '|| []' for at sikre mod null-værdier i gamle filer
+    // 3. GENSKAB STATE DATA
     state.names = new Map(data.names || []);
-    
     state.beholderConnectionId = data.beholderConnectionId || null;
     state.nodes = data.nodePositions || [];
     state.customTapsteder = data.customTapsteder || {};
-    // VIGTIGT: Nulstil lastModel så vi ikke tegner gamle resultater på nye data før beregning
-    state.lastModel = null;
+    state.lastModel = null; // Vigtigt: Nulstil beregningsmodel
 
-    // Genskab Custom Tapsteder
+    // Genskab Custom Tapsteder (Lejligheder m.m.)
     Object.keys(state.customTapsteder).forEach(k => {
-        const clone = document.getElementById('customTapstedTemplate').content.cloneNode(true);
-        clone.querySelector('.input-group-text').dataset.key = k;
-        clone.querySelector('.input-group-text').textContent = k;
-        const val = state.customTapsteder[k];
-        clone.querySelector('.qf').value = val.qf_hot !== undefined ? val.qf_hot : val.qf;
-        clone.querySelector('.is-apartment').checked = val.isApartment;
-        document.getElementById('customTapsteder').appendChild(clone);
+        const temp = document.getElementById('customTapstedTemplate');
+        if (temp) {
+            const clone = temp.content.cloneNode(true);
+            const label = clone.querySelector('.input-group-text');
+            if(label) {
+                label.dataset.key = k;
+                label.textContent = k;
+            }
+            const val = state.customTapsteder[k];
+            const qfInput = clone.querySelector('.qf');
+            if(qfInput) qfInput.value = val.qf_hot !== undefined ? val.qf_hot : val.qf;
+            
+            const cb = clone.querySelector('.is-apartment');
+            if(cb) cb.checked = val.isApartment;
+            
+            document.getElementById('customTapsteder').appendChild(clone);
+        }
     });
-    Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}])) : {});
-    updateTapstedOptions();
+    
+    // Opdater globale lister
+    if (typeof ST !== 'undefined') {
+        Object.assign(ST, data.customTapsteder ? Object.fromEntries(Object.entries(data.customTapsteder).map(([k, v]) => [k, v.qf_hot !== undefined ? v : {qf_hot: v.qf, isApartment: v.isApartment}])) : {});
+    }
+    if (typeof updateTapstedOptions === 'function') updateTapstedOptions();
 
-    // 3. SCAN ID'ER (Tællere)
+    // 4. SCAN EFTER ID'ER (For at sætte tællere korrekt)
     const scanList = (list, prefix) => {
         if (!list) return;
         list.forEach(item => {
@@ -5271,6 +5338,7 @@ function loadProjectData(data) {
             } else if (item.type && item.type.includes('cirkulation')) {
                 if (idNum > state.rC) state.rC = idNum;
             }
+            // Scan nested items (rør og tapsteder)
             if (item.ror || item.tapsted) {
                 [...(item.ror||[]), ...(item.tapsted||[])].forEach(c => {
                     const cNum = parseInt(c.id.match(/\d+$/)?.[0] || 0, 10);
@@ -5287,10 +5355,11 @@ function loadProjectData(data) {
     scanList(data.strenge_kv, 'K');
     scanList(data.retur_komponenter || data.cirkulation_vv || []);
 
-    // 4. GENERER ELEMENTER (Helper)
+    // 5. GENERER ELEMENTER (Helper funktion til at udfylde felter)
     const applyData = (tr, item) => {
         tr.dataset.tempParent = item.parent;
         const setVal = (sel, val) => { if(tr.querySelector(sel)) tr.querySelector(sel).value = val; };
+        
         setVal('.material', item.material);
         setVal('.location', item.location);
         setVal('.insulation-class', item.insulationClassSelection);
@@ -5300,6 +5369,7 @@ function loadProjectData(data) {
         setVal('.pressure-change', item.pressure_change);
         setVal('.qf', item.qf);
         setVal('.kote', item.kote);
+        
         if(tr.querySelector('.syst')) tr.querySelector('.syst').checked = item.syst;
         if(item.isApartment !== undefined) tr.dataset.isApartment = item.isApartment;
         
@@ -5329,8 +5399,14 @@ function loadProjectData(data) {
             }
             if(!found) tapSel.value = item.qf;
         }
+        
         const matSel = tr.querySelector('.material');
-        if(matSel) { matSel.value = item.material; updateDimOptions(matSel); if(item.dim) tr.querySelector('.dim').value = item.dim; }
+        if(matSel) { 
+            matSel.value = item.material; 
+            if(typeof updateDimOptions === 'function') updateDimOptions(matSel); 
+            if(item.dim) tr.querySelector('.dim').value = item.dim; 
+        }
+        
         const nameInp = tr.querySelector('.name-text');
         if(nameInp) {
             const savedName = state.names.get(item.id);
@@ -5339,9 +5415,11 @@ function loadProjectData(data) {
         }
     };
 
-    // --- BYG VV STRENGE ---
+    // --- BYG VV STRENGE (Cards) ---
     (data.strenge_vv || data.strenge || []).forEach(s => {
-        const clone = document.getElementById('vvStrengTemplate').content.cloneNode(true);
+        const temp = document.getElementById('vvStrengTemplate');
+        if(!temp) return;
+        const clone = temp.content.cloneNode(true);
         const card = clone.querySelector('.card');
         card.dataset.id = s.id;
         card.querySelector('.id-text').textContent = `VV-Streng ${s.id}`;
@@ -5370,9 +5448,11 @@ function loadProjectData(data) {
         });
     });
 
-    // --- BYG KV STRENGE ---
+    // --- BYG KV STRENGE (Cards) ---
     (data.strenge_kv || []).forEach(s => {
-        const clone = document.getElementById('kvStrengTemplate').content.cloneNode(true);
+        const temp = document.getElementById('kvStrengTemplate');
+        if(!temp) return;
+        const clone = temp.content.cloneNode(true);
         const card = clone.querySelector('.card');
         card.dataset.id = s.id;
         card.querySelector('.id-text').textContent = `KV-Streng ${s.id}`;
@@ -5412,14 +5492,15 @@ function loadProjectData(data) {
         returCont.appendChild(tr);
     });
 
-    // 5. GENDAN FORBINDELSER
-    updateAllSelects();
+    // 6. GENDAN FORBINDELSER OG OPDATER
+    if(typeof updateAllSelects === 'function') updateAllSelects();
 
     document.querySelectorAll('tr[data-temp-parent]').forEach(tr => {
         const pSel = tr.querySelector('.parent');
         const savedP = tr.dataset.tempParent;
         if(pSel && savedP) {
             pSel.value = savedP;
+            // Hvis værdien er tom (fordi strengen mangler), sæt fallback
             if(pSel.value === "") {
                 if(tr.dataset.type === 'ror_kv') pSel.value = "Vandstik";
                 else pSel.value = "Beholder";
@@ -5436,22 +5517,24 @@ function loadProjectData(data) {
         delete card.dataset.tempCircStart; delete card.dataset.tempCircEnd;
     });
 
-    updateAllSelects();
-    toggleDisplayNames(state.useNames);
+    if(typeof updateAllSelects === 'function') updateAllSelects();
+    if(typeof toggleDisplayNames === 'function') toggleDisplayNames(state.useNames);
     
     // Sikre at lastConfig er sat, hvis data.config manglede
     if (!state.lastConfig) state.lastConfig = getGlobalConfig();
     
-    setTimeout(zoomToFit, 100);
+    // Kør zoom og beregning
+    setTimeout(() => {
+        if(typeof zoomToFit === 'function') zoomToFit();
+        // Klik på beregn for at aktivere modellen og konvertere input (kPa) -> model (Pa)
+        const btn = document.getElementById('btnBeregn');
+        if(btn) btn.click();
+    }, 200);
     
     console.log("Projekt indlæst komplet.");
 }
 
-/**
- * Genererer HTML-rækker manuelt til Load-processen.
- * Håndterer Rør, Tapsteder, Ventiler og Komponenter.
- * Tapsteder har TO parent-dropdowns (VV og KV).
- */
+
 /**
  * Genererer HTML-rækker manuelt til Load-processen og dynamisk oprettelse.
  * Håndterer Rør, Tapsteder, Ventiler, Komponenter og nu Vandmålere.
