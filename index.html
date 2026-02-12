@@ -4414,25 +4414,22 @@ function calculateTemperatures_VV(model, config) {
     
     model.nodeTemps = new Map();
     
+    // Sikkerhedsnet: Hvis circFlows ikke er beregnet endnu, lav en tom Map
+    const safeCircFlows = model.circFlows || new Map();
+    
     // Traverse Supply (VV)
     function traverseSupply(nodeId, currentTemp) {
         model.nodeTemps.set(nodeId, currentTemp);
         
-        // RETTELSE HER: Vi slår noden op i 'model.nodes', ikke 'model.tree'
+        // Vi slår noden op i 'model.nodes'
         const node = model.nodes.get(nodeId);
         
         if (!node || !node.children) return;
 
         node.children.forEach(child => {
-            // Child i 'children' arrayet er selve node-objektet (reference), ikke bare et ID.
-            // Men for en sikkerheds skyld, hvis din buildModel ændres, tjekker vi typen.
-            // I din nuværende buildModel er children en liste af node-objekter.
-            
-            // Vi skal bruge child's ID til rekursionen, og vi skal slå data op på child
-            // Da child ER noden, kan vi bruge den direkte.
-            
             if (child.type === 'ror_vv') {
-                const flow = model.circFlows.get(child.id) || 0;
+                // HER VAR FEJLEN: Vi bruger nu safeCircFlows
+                const flow = safeCircFlows.get(child.id) || 0;
                 let nextTemp = currentTemp;
                 
                 if (flow > 0.00001) {
@@ -4441,12 +4438,11 @@ function calculateTemperatures_VV(model, config) {
                     nextTemp = currentTemp - dt;
                     if(nextTemp < config.T_omg_inde) nextTemp = config.T_omg_inde;
                 } else {
-                    // Stillestående vand køles langsomt (simplificeret)
+                    // Stillestående vand
                     nextTemp = currentTemp - 0.5;
                 }
                 traverseSupply(child.id, nextTemp);
             } else {
-                // Komponenter/Tapsteder arver temperaturen
                 traverseSupply(child.id, currentTemp);
             }
         });
@@ -4457,10 +4453,9 @@ function calculateTemperatures_VV(model, config) {
         traverseSupply('Beholder', config.T_v);
     }
 
-    // Retur (VV) - Denne del ser rigtig ud, da den bruger model.nodes.get()
+    // Retur (VV)
     model.loops.forEach(loop => {
         let t = model.nodeTemps.get(loop.startNodeId); 
-        // Fallback hvis start-temp mangler (bør ikke ske hvis supply er kørt)
         if (t === undefined) t = config.T_v - config.dT; 
 
         const returnNodes = loop.path.filter(id => {
@@ -4470,10 +4465,9 @@ function calculateTemperatures_VV(model, config) {
         
         returnNodes.forEach(nodeId => {
             const n = model.nodes.get(nodeId);
-            const flow = model.circFlows.get(nodeId) || 0;
+            // Igen: Brug safeCircFlows
+            const flow = safeCircFlows.get(nodeId) || 0;
             
-            // Hvis vi møder en node hvor temp er højere (fra en anden streng), så opdater ikke nedad?
-            // Egentlig blandes vandet, men her simulerer vi bare tabet i strengen.
             if (!model.nodeTemps.has(nodeId)) {
                 model.nodeTemps.set(nodeId, t);
             }
@@ -4481,7 +4475,6 @@ function calculateTemperatures_VV(model, config) {
             if (flow > 0.00001 && n.q_tab) {
                 const dt = n.q_tab / (flow * HEAT_CAPACITY_FACTOR);
                 t -= dt;
-                // Opdater kun hvis den nye temperatur er lavere (worst case)
                 if (model.nodeTemps.get(nodeId) > t) {
                     model.nodeTemps.set(nodeId, t);
                 }
@@ -6804,9 +6797,13 @@ function beregnGlobalOptimering() {
         // Nulstil
         model.nodes.forEach(n => { n.dp_tap = 0; n.P_absolute_VV = undefined; n.P_absolute_KV = undefined; });
         
-        // Beregn tab
+        // Beregn tab (Tryk)
         calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
         if (model.nodes.has('Vandstik')) calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
+        
+        // VIGTIGT: Beregn Cirkulation (dette opretter model.circFlows)
+        calculateInsulation(model, config); // Kræves for varmetab
+        calculateCirculationFlows_VV(model, config); // Kræves for temp beregning
         
         // Starttryk
         if (state.beholderConnectionId) {
@@ -6816,7 +6813,7 @@ function beregnGlobalOptimering() {
         }
         
         calculateAbsolutePressures(model, config);
-        findCriticalPaths(model); // Opdater kritisk vej
+        findCriticalPaths(model); 
     };
 
     // Hjælper: Er systemet validt?
