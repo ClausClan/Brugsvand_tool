@@ -4406,6 +4406,7 @@ function calculateBeholder(model) {
 }
 
 
+/* --- TEMPERATUR BEREGNING --- */
 function calculateTemperatures_VV(model, config) {
     // Brug dynamisk faktor
     const meanTemp = config.T_v - (config.dT / 2);
@@ -4416,49 +4417,79 @@ function calculateTemperatures_VV(model, config) {
     // Traverse Supply (VV)
     function traverseSupply(nodeId, currentTemp) {
         model.nodeTemps.set(nodeId, currentTemp);
+        
+        // RETTELSE HER: Vi slår noden op i 'model.nodes', ikke 'model.tree'
         const node = model.nodes.get(nodeId);
+        
         if (!node || !node.children) return;
 
         node.children.forEach(child => {
+            // Child i 'children' arrayet er selve node-objektet (reference), ikke bare et ID.
+            // Men for en sikkerheds skyld, hvis din buildModel ændres, tjekker vi typen.
+            // I din nuværende buildModel er children en liste af node-objekter.
+            
+            // Vi skal bruge child's ID til rekursionen, og vi skal slå data op på child
+            // Da child ER noden, kan vi bruge den direkte.
+            
             if (child.type === 'ror_vv') {
                 const flow = model.circFlows.get(child.id) || 0;
                 let nextTemp = currentTemp;
+                
                 if (flow > 0.00001) {
                     const q_tab = child.q_tab || 0; 
                     const dt = q_tab / (flow * HEAT_CAPACITY_FACTOR);
                     nextTemp = currentTemp - dt;
                     if(nextTemp < config.T_omg_inde) nextTemp = config.T_omg_inde;
                 } else {
+                    // Stillestående vand køles langsomt (simplificeret)
                     nextTemp = currentTemp - 0.5;
                 }
                 traverseSupply(child.id, nextTemp);
             } else {
+                // Komponenter/Tapsteder arver temperaturen
                 traverseSupply(child.id, currentTemp);
             }
         });
     }
-    traverseSupply('Beholder', config.T_v);
+    
+    // Start traversering fra Beholder
+    if (model.nodes.has('Beholder')) {
+        traverseSupply('Beholder', config.T_v);
+    }
 
-    // Retur (VV)
+    // Retur (VV) - Denne del ser rigtig ud, da den bruger model.nodes.get()
     model.loops.forEach(loop => {
         let t = model.nodeTemps.get(loop.startNodeId); 
+        // Fallback hvis start-temp mangler (bør ikke ske hvis supply er kørt)
+        if (t === undefined) t = config.T_v - config.dT; 
+
         const returnNodes = loop.path.filter(id => {
             const n = model.nodes.get(id);
             return n && (n.type === 'cirkulation_vv' || n.type === 'valve');
         });
+        
         returnNodes.forEach(nodeId => {
             const n = model.nodes.get(nodeId);
             const flow = model.circFlows.get(nodeId) || 0;
-            if (!model.nodeTemps.has(nodeId) || t < model.nodeTemps.get(nodeId)) {
+            
+            // Hvis vi møder en node hvor temp er højere (fra en anden streng), så opdater ikke nedad?
+            // Egentlig blandes vandet, men her simulerer vi bare tabet i strengen.
+            if (!model.nodeTemps.has(nodeId)) {
                 model.nodeTemps.set(nodeId, t);
             }
+            
             if (flow > 0.00001 && n.q_tab) {
                 const dt = n.q_tab / (flow * HEAT_CAPACITY_FACTOR);
                 t -= dt;
+                // Opdater kun hvis den nye temperatur er lavere (worst case)
+                if (model.nodeTemps.get(nodeId) > t) {
+                    model.nodeTemps.set(nodeId, t);
+                }
             }
         });
     });
 }
+
 
 function calculateTemperatures_KV(model, config) {
     // Starttemperatur fra input
@@ -4472,38 +4503,35 @@ function calculateTemperatures_KV(model, config) {
         if (!node || !node.children) return;
 
         node.children.forEach(child => {
+            // Igen: child er objektet.
             if (child.type === 'ror_kv') {
                 // 1. Bestem Omgivelsestemperatur
                 let T_env = config.T_omg_inde;
                 if (child.location === 'outside') T_env = config.T_omg_ude;
-                else if (child.location === 'unheated') T_env = config.T_omg_inde; // Eller et mix
+                else if (child.location === 'unheated') T_env = config.T_omg_inde; 
 
-                // 2. Bestem Flow (Vi bruger Spidslast qd som "Drifts-tilstand")
-                const flow_ls = child.qd || 0.005; // Minimum flow for beregning
+                // 2. Bestem Flow
+                const flow_ls = child.qd || 0.005; 
                 const flow_kg_s = (flow_ls / 1000) * getWaterDensity(currentTemp);
                 
                 // 3. Hent Fysiske data
-                const cp = getWaterSpecificHeat(currentTemp); // J/kgK
-                const U_val = child.u_value_per_meter || 100; // W/mK (hvis uisoleret er den høj)
+                const cp = getWaterSpecificHeat(currentTemp); 
+                const U_val = child.u_value_per_meter || 100; 
                 const L = child.L || 0;
 
-                // 4. Beregn Temperaturstigning (Eksponentiel tilnærmelse mod rumtemp)
-                // Formel: T_out = T_env - (T_env - T_in) * exp( - (U*L) / (m*cp) )
-                
-                const mc = flow_kg_s * cp; // Varmekapacitetsflow (W/K)
+                // 4. Beregn Temperaturstigning
+                const mc = flow_kg_s * cp; 
                 let nextTemp = currentTemp;
 
                 if (mc > 0) {
                     const exponent = - (U_val * L) / mc;
-                    // e^x funktionen sikrer, at vi aldrig overstiger T_env
                     nextTemp = T_env - (T_env - currentTemp) * Math.exp(exponent);
                 } else {
-                    nextTemp = T_env; // Stillestående vand ender på rumtemp
+                    nextTemp = T_env; 
                 }
                 
                 traverse(child.id, nextTemp);
             } else {
-                // Tapsteder arver temp
                 traverse(child.id, currentTemp);
             }
         });
