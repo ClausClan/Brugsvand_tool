@@ -3890,43 +3890,8 @@ function calculateQd_KV(model) {
     }
     return model;
 }
-// 2. Dimensioner KV
-function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
-    // 1. Rør (VV + Cirkulation)
-    if ((startNode.type === 'ror_vv' || startNode.type === 'cirkulation_vv') && startNode.nom_dim) {
-        const d_i = ID[startNode.material][startNode.nom_dim]/1000;
-        const pct = config.fittings_pct || 0;
-        const temp = (startNode.type === 'ror_vv') ? config.T_v : (config.T_v - config.dT/2);
-        startNode[dp_prop] = getDP(startNode[flow_prop], d_i, RH[startNode.material]/1000, startNode.L, startNode.zeta_sum, pct, temp);
-    }
-    
-    // 2. Komponenter: Booster / Reducer
-    else if (startNode.type === 'booster' || startNode.type === 'reducer') {
-        const pChange = (startNode.pressure_change || 0) * 1000; 
-        startNode[dp_prop] = -1 * pChange;
-    }
 
-    // 3. NYT: Vandmåler (Bimålere på varmt vand)
-    else if (startNode.type === 'water_meter') {
-        // Vi bruger kun flowet fra flow_prop (som typisk er 'qd' for fremløb)
-        // Vi sender noden ind, men sikrer os at den har qd sat korrekt
-        if (flow_prop !== 'qd') {
-             // Hvis vi beregner cirkulationstab, har måleren typisk et meget lavt tryktab eller en specifik Kv for flowet
-             // For nuværende antager vi måler-beregning primært er relevant for spidslast (qd)
-             startNode[dp_prop] = 0; 
-        } else {
-             startNode[dp_prop] = calculateMeterPressureDrop(startNode);
-        }
-    }
-    
-    // Rekursion
-    if (startNode.children) {
-        startNode.children.forEach(c => calculatePressureDrop_VV(c, dp_prop, flow_prop, config));
-    }
-    return startNode;
-}
-
-// 3. Beregn Tryktab KV
+// 2. Beregn Tryktab KV
 function calculatePressureDrop_KV(startNode, config) {
     // 1. Rør (Standard)
     if (startNode.type === 'ror_kv' && startNode.nom_dim) {
@@ -4440,30 +4405,6 @@ function calculateBeholder(model) {
     return model;
 }
 
-/* Funktion ikke i brug længere kan slettes
-function solveBeholder(model) {
-    const N = model.N;
-    if (!N || N <= 0) return;
-    const userEffekt = parseFloat(document.getElementById('userEffekt')?.value);
-    const userVolumen = parseFloat(document.getElementById('userVolumen')?.value);
-    const n_keys = Object.keys(model.pv_kurver).map(Number);
-    const closest_n = n_keys.reduce((p, c) => (Math.abs(c - N) < Math.abs(p - N) ? c : p));
-    const kurve = model.pv_kurver[closest_n];
-    const kurveVol = Object.keys(kurve).map(Number);
-    const kurveEff = Object.values(kurve);
-    if (!isNaN(userEffekt) && userEffekt > 0) {
-        const effektPrLejl = userEffekt / N;
-        const beregnetVolumen = interpolate(effektPrLejl, [...kurveEff].reverse(), [...kurveVol].reverse());
-        document.getElementById('beregnetVolumen').textContent = (beregnetVolumen * N).toFixed(0);
-        document.getElementById('userVolumen').value = '';
-    } else if (!isNaN(userVolumen) && userVolumen > 0) {
-        const volumenPrLejl = userVolumen / N;
-        const beregnetEffekt = interpolate(volumenPrLejl, kurveVol, kurveEff);
-        document.getElementById('beregnetEffekt').textContent = (beregnetEffekt * N).toFixed(1);
-        document.getElementById('userEffekt').value = '';
-    }
-}
-*/
 
 function calculateTemperatures_VV(model, config) {
     // Brug dynamisk faktor
@@ -6811,109 +6752,131 @@ function updateLegend() {
 }
 
 // =================================================================================
-// == NY BEREGNINGSMOTOR: GLOBAL OPTIMERING
+// BEREGNINGSMOTOR: GLOBAL OPTIMERING
 // Global Optimering giver dig det billigste og mest kompakte rørsystem, der fysisk 
 // kan levere det krævede tryk, ved intelligent at udnytte hele det disponible forsyningstryk.                                       ==
 // =================================================================================
+function beregnGlobalOptimering() {
+    const btn = document.querySelector('button[onclick="beregnGlobalOptimering()"]');
+    if(btn) { btn.innerHTML = '⏳ Arbejder...'; btn.disabled = true; }
 
-function beregnGlobalOptimering(config) {
-    console.group("🚀 GLOBAL OPTIMERING START (Komplet Flow-integreret)");
-    const model = buildModel(config);
+    // 1. Kør standard beregning (Basis)
+    const config = getGlobalConfig();
+    config.isAuto = false; // Slå auto-dim fra, så vi styrer det manuelt herfra
     
-    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
-    analyzeSystemTopology(model);
+    let model = buildModel(config);
+    if (!model) return;
 
-    config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
+    // Basis flow
+    calculateQd_VV(model);
+    if (model.nodes.has('Vandstik')) calculateQd_KV(model);
 
-    // Nulstil dimensioner
-    model.nodes.forEach(n => {
-        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
-            const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
-            n.nom_dim = sortedDims[0];
+    // Hjælper: Genberegn kun fysikken (Tryk/Temp)
+    const recalcPhysics = () => {
+        // Nulstil tryk
+        model.nodes.forEach(n => { n.dp_tap = 0; n.P_absolute_VV = undefined; n.P_absolute_KV = undefined; });
+        
+        // Beregn tab
+        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
+        if (model.nodes.has('Vandstik')) calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
+        
+        // Starttryk
+        if (state.beholderConnectionId) {
+            model.vv_start_pressure = config.pln - getPathPressureDrop(model, state.beholderConnectionId);
+        } else {
+            model.vv_start_pressure = config.pln;
+        }
+        
+        calculateAbsolutePressures(model, config);
+        findCriticalPaths(model); // Opdater kritisk vej
+    };
+
+    // Hjælper: Er systemet validt? (Tryk over minimum)
+    const isValid = () => {
+        if (model.criticalNodeVV && model.criticalNodeVV.P_absolute_VV < config.min_tap_tryk) return false;
+        if (model.criticalNodeKV && model.criticalNodeKV.P_absolute_KV < config.min_tap_tryk) return false;
+        return true;
+    };
+
+    // 2. OPTIMERINGS LOOP
+    let optimizedCount = 0;
+    
+    // Find alle rør i modellen
+    const pipes = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
+
+    pipes.forEach(pipe => {
+        if (!pipe.nom_dim) return;
+
+        // VIGTIGT: Hent tilgængelige dimensioner for netop dette materiale
+        const mat = pipe.material || 'PEX'; // Fallback hvis materiale mangler
+        if (!pipeData[mat]) {
+            console.warn(`Ukendt materiale for rør ${pipe.id}: ${mat}`);
+            return;
+        }
+
+        // Hent keys (dimensioner) fra pipeData, lav til tal, og sorter stigende
+        // Dette giver os stigen: f.eks. [15, 18, 22, 28...] for Kobber
+        const availableDims = Object.keys(pipeData[mat]).map(Number).sort((a, b) => a - b);
+
+        let bestDim = Number(pipe.nom_dim);
+        let trying = true;
+
+        while (trying) {
+            // Find hvor vi er på stigen lige nu
+            const currentIndex = availableDims.indexOf(bestDim);
+            
+            // Hvis vi allerede er på mindste trin (index 0) eller ikke fandt dim, stop
+            if (currentIndex <= 0) {
+                trying = false;
+                break;
+            }
+
+            // Prøv ét trin ned
+            const smallerDim = availableDims[currentIndex - 1];
+
+            // A. Opdater modellen
+            pipe.nom_dim = smallerDim;
+            pipe.dim = smallerDim; // Opdateres for konsistens
+
+            // B. Genberegn
+            recalcPhysics();
+
+            // C. Tjek om det holder
+            if (isValid()) {
+                // Det gik godt! Gem og prøv evt. endnu mindre
+                bestDim = smallerDim;
+                optimizedCount++;
+            } else {
+                // Fejl: Det blev for småt. Rul tilbage til sidste gode.
+                pipe.nom_dim = bestDim;
+                pipe.dim = bestDim;
+                trying = false; // Stop med dette rør
+            }
         }
     });
 
-    // 1. Beregn VV Flow først (Det er konstant uanset rørstr)
-    calculateQd_VV(model);
+    // 3. AFSLUT
+    recalcPhysics(); // En sidste genberegning for en sikkerheds skyld
+    finishCalculation(model, config);
 
-    // 2. Beregn KV (Nu inklusiv VV flowet!)
-    if (model.nodes.has('Vandstik')) {
-        calculateQd_KV(model);
-        if (config.isAuto) dimensionSupply_KV(model, config); 
-        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
-    }
-
-    // 3. Find Starttryk
-    let availablePressureForVV = config.pln;
-    model.kv_pressure_loss_to_beholder = 0;
-
-    if (state.beholderConnectionId) {
-        const dpToConnection = getPathPressureDrop(model, state.beholderConnectionId);
-        model.kv_pressure_loss_to_beholder = dpToConnection;
-        availablePressureForVV = config.pln - dpToConnection;
-        console.log(`Global Opt: KV Tabet er ${dpToConnection.toFixed(0)} Pa (Inkl. VV flow). Starttryk: ${availablePressureForVV.toFixed(0)} Pa`);
-    }
-    model.vv_start_pressure = availablePressureForVV;
-
-    const optConfig = { ...config, pln: availablePressureForVV };
-
-    // 4. Optimerings Loop (VV)
-    let iterations = 0;
-    const maxIterations = 10000;
-    let optimized = false;
-
-    while (iterations < maxIterations) {
-        // calculateQd_VV behøver ikke køres igen, flow ændres ikke
-        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); 
-        
-        const localFailures = findLocalFailures_VV(model, config);
-        const globalFailures = findFailingTapPoints_VV(model, optConfig); 
-        
-        if (localFailures.length === 0 && globalFailures.length === 0) {
-            optimized = true;
-            break; 
+    // 4. OPDATER UI (Skriv tilbage til input felterne)
+    pipes.forEach(pipe => {
+        const row = document.querySelector(`tr[data-id="${pipe.id}"]`);
+        if (row) {
+            const dimInput = row.querySelector('.dim');
+            // Vi opdaterer kun, hvis feltet ikke er låst manuelt (valgfrit, men god praksis)
+            if (dimInput) dimInput.value = pipe.nom_dim;
         }
-        
-        let pipeToUpgradeId;
-        if (localFailures.length > 0) {
-            pipeToUpgradeId = localFailures[0].id;
-        } else {
-            const worstTap = globalFailures[0];
-            const worstPath = getPathToTapPoint(model, worstTap.id);
-            pipeToUpgradeId = findWorstOffendingPipe_VV(model, worstPath);
-        }
+    });
 
-        if (pipeToUpgradeId) {
-            const pipeNode = model.nodes.get(pipeToUpgradeId);
-            if (!upgradePipeDimension(pipeNode)) break;
-        } else {
-            break; 
-        }
-        iterations++;
-    }
-
-    // 5. Afslutning
-    const pressureDropResult = findMaxPathDp_VV(model.tree, config);
-    model.max_dp_tapning = pressureDropResult.max_dp;
-    model.criticalPath = new Set(pressureDropResult.path);
+    if(btn) { btn.innerHTML = 'Optimér Dimensioner'; btn.disabled = false; }
     
-    if (model.nodes.has('Vandstik')) {
-        const kvRes = findMaxPathDp_KV(model, config);
-        model.max_dp_kv = kvRes.max_dp;
-        model.criticalPathKV = new Set(kvRes.path);
+    const advarslerDiv = document.getElementById('advarsler');
+    if (optimizedCount > 0) {
+        advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: ${optimizedCount} rørdimensioner reduceret succesfuldt.</p>`;
+    } else {
+        advarslerDiv.innerHTML += `<p class="alert alert-info mt-2">Global Optimering: Ingen yderligere optimering mulig.</p>`;
     }
-    
-    for (let i = 0; i < 3; i++) {
-        calculateInsulation(model, config);
-        calculateHeatLoss_VV(model, config);
-        calculateCirculationFlows_VV(model, config);
-    }
-    
-    calculateCirculationDP_VV(model, config);
-    calculateBeholder(model);
-
-    console.groupEnd();
-    return model;
 }
 
 function findLocalFailures_VV(model, config) {
