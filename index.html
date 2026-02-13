@@ -6821,27 +6821,34 @@ function beregnGlobalOptimering() {
             findCriticalPaths(model); 
         };
 
-        // VALIDERINGS-FUNKTION (Med brugerens grænser)
+        // VALIDERINGS-FUNKTION (Nu med KORREKTE variabler)
         const isValid = (pipe) => {
-            // A. Tryk Tjek
+            // A. Tryk Tjek (Min. tryk ved tapsted)
+            // config.min_tap_tryk er standard variablen
             if (model.criticalNodeVV && model.criticalNodeVV.P_absolute_VV < config.min_tap_tryk) return false;
             if (model.criticalNodeKV && model.criticalNodeKV.P_absolute_KV < config.min_tap_tryk) return false;
 
             // B. Hastigheds Tjek
             if (pipe) {
                 const q = pipe.qd || 0;
-                // VIGTIGT: Tjek at pipe.dim er gyldig for at undgå NaN i hastighedsberegning
+                
                 if (q > 0 && pipe.dim && !isNaN(pipe.dim) && pipe.dim > 0) {
                     const area = Math.PI * Math.pow((pipe.dim / 1000) / 2, 2);
                     const velocity = (q / 1000) / area; 
                     
-                    const vMax = config.max_hastighed || 3.0; 
-                    const vMin = config.min_hastighed || 0.5; 
+                    // RETTELSE HER: Brug de eksisterende variabler fra config
+                    // Vi parser dem som float for en sikkerheds skyld
+                    const vMax = parseFloat(config.max_v_f); 
+                    const vMin = parseFloat(config.min_v_f);
                     
-                    if (velocity > vMax) return false; 
-                    if (velocity < vMin) return false; 
+                    if (isNaN(vMax) || isNaN(vMin)) {
+                         console.error("Mangler variablerne max_v_f eller min_v_f i config!");
+                         return false; // Sikkerhedsstop
+                    }
+
+                    if (velocity > vMax) return false; // For hurtigt
+                    if (velocity < vMin) return false; // For langsomt
                 } else if (isNaN(pipe.dim)) {
-                    // Hvis dimensionen er ugyldig, er optimeringen ugyldig
                     return false;
                 }
             }
@@ -6871,12 +6878,10 @@ function beregnGlobalOptimering() {
                 }
 
                 const smallerNomDim = availableDims[currentIndex - 1];
-                // VIGTIGT: Hent indvendig diameter og TJEK den
                 const smallerInnerDim = ID[mat][smallerNomDim];
 
-                // SIKKERHEDS-TJEK: Hvis tabellen giver undefined eller NaN, STOP med det samme
+                // SIKKERHEDS-TJEK
                 if (smallerInnerDim === undefined || isNaN(smallerInnerDim)) {
-                    console.warn(`Ugyldig dimension fundet for ${mat} DN${smallerNomDim}. Stopper optimering af rør ${pipe.id}.`);
                     trying = false;
                     break;
                 }
@@ -6907,13 +6912,9 @@ function beregnGlobalOptimering() {
         calculateInsulation(model, config);
         calculateCirculationFlows_VV(model, config);
         
-        // HER ER RETTELSEN: Vi tjekker for NaN, men sætter den IKKE til 0.
-        // Vi kaster en fejl i stedet, så vi opdager problemet.
+        // Tjek for NaN fejl i resultatet (uden at sminke det)
         if (isNaN(model.max_dp_circ)) {
-            console.error("KRITISK: Cirkulationspumpetryk er NaN efter optimering.");
-            // Vi forsøger at redde diagrammet ved at lade finishCalculation håndtere det, 
-            // men vi logger det tydeligt.
-            // Hvis du vil stoppe helt: throw new Error("Matematisk fejl i cirkulation (NaN).");
+            console.error("KRITISK: Cirkulationspumpetryk er NaN. Tjek rørdimensioner eller flow.");
         }
 
         console.log("Trin 3b: Beregner temperaturer...");
@@ -6949,7 +6950,7 @@ function beregnGlobalOptimering() {
         
         if(advarslerDiv) {
             if (optimizedCount > 0) {
-                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: ${optimizedCount} rør reduceret (overholder ${config.min_hastighed || 0.5}-${config.max_hastighed || 3.0} m/s).</p>`;
+                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: ${optimizedCount} rør reduceret (overholder ${config.min_v_f}-${config.max_v_f} m/s).</p>`;
             } else {
                 advarslerDiv.innerHTML += `<p class="alert alert-info mt-2">Ingen yderligere optimering mulig.</p>`;
             }
@@ -6962,7 +6963,6 @@ function beregnGlobalOptimering() {
         if(btn) { btn.innerHTML = 'Optimér Dimensioner'; btn.disabled = false; }
     }
 }
-
 
 function findLocalFailures_VV(model, config) {
     const failures = [];
