@@ -6910,11 +6910,25 @@ function beregnGlobalOptimering() {
 
         console.log(`Optimering færdig. ${optimizedCount} rør reduceret.`);
 
-        // 4. AFSLUTNING (Genberegn ALT)
+// 4. AFSLUTNING (Genberegn ALT - NU MED TEMPERATURER!)
         console.log("Trin 3: Afsluttende tung beregning...");
+        
+        // 1. Tryk
         recalcPressureOnly(); 
+        
+        // 2. Cirkulation (Varmetab + Flow)
         calculateInsulation(model, config);
         calculateCirculationFlows_VV(model, config);
+        
+        // 3. TEMPERATURER (DISSE MANGLEDE!)
+        // Uden disse kan diagrammet ikke tegnes, og finishCalculation fejler
+        console.log("Trin 3b: Beregner temperaturer...");
+        calculateTemperatures_VV(model, config);
+        
+        // Husk også Koldt Vand temperaturer hvis relevant
+        if (model.nodes.has('Vandstik')) {
+            calculateTemperatures_KV(model, config);
+        }
         
         // Synkroniser til state FØR finish
         console.log("Trin 4: Sync to State...");
@@ -6922,6 +6936,7 @@ function beregnGlobalOptimering() {
         state.lastConfig = config;
 
         console.log("Trin 5: Kalder finishCalculation...");
+        // Nu indeholder 'model' både tryk, flow OG temperaturer.
         finishCalculation(model, config);
 
         // 5. OPDATER UI
