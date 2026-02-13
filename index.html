@@ -6777,43 +6777,36 @@ function updateLegend() {
 // Global Optimering giver dig det billigste og mest kompakte rørsystem, der fysisk 
 // kan levere det krævede tryk, ved intelligent at udnytte hele det disponible forsyningstryk.                                       ==
 // =================================================================================
-/* --- GLOBAL OPTIMERING (DEBUG VERSION + HASTIGHEDS TJEK) --- */
 function beregnGlobalOptimering() {
     console.log("--- STARTER GLOBAL OPTIMERING ---");
     const btn = document.querySelector('button[onclick="beregnGlobalOptimering()"]');
     if(btn) { btn.innerHTML = '⏳ Arbejder...'; btn.disabled = true; }
 
     const advarslerDiv = document.getElementById('advarsler');
-    if(advarslerDiv) advarslerDiv.innerHTML = ''; // Rens gamle fejl
+    if(advarslerDiv) advarslerDiv.innerHTML = '';
 
     try {
         // 1. INITIALISERING
-        console.log("Trin 1: Init config og model...");
         const config = getGlobalConfig();
-        config.isAuto = false; // Vi styrer dimensionerne manuelt
+        config.isAuto = false; 
         
         let model = buildModel(config);
         if (!model) throw new Error("buildModel returnerede null");
-        console.log(`Model bygget. Antal noder: ${model.nodes.size}`);
 
         // Beregn flow (q_d)
-        console.log("Trin 1b: Beregner QD...");
         calculateQd_VV(model);
         if (model.nodes.has('Vandstik')) calculateQd_KV(model);
 
         // Kør fuld start-beregning
-        console.log("Trin 1c: Kører fuld start-beregning (inkl. cirkulation)...");
         calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
         calculateInsulation(model, config);
         calculateCirculationFlows_VV(model, config); 
-        console.log("Start-beregning færdig.");
 
         // 2. HJÆLPEFUNKTIONER
         const recalcPressureOnly = () => {
-            // Nulstil trykparametre
+            // Nulstil
             model.nodes.forEach(n => { n.dp_tap = 0; n.P_absolute_VV = undefined; n.P_absolute_KV = undefined; });
             
-            // Beregn kun friktion
             calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
             if (model.nodes.has('Vandstik')) calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
             
@@ -6828,40 +6821,38 @@ function beregnGlobalOptimering() {
             findCriticalPaths(model); 
         };
 
-        // NYT: Tjek både Tryk OG Hastighed
+        // VALIDERINGS-FUNKTION (Med brugerens grænser)
         const isValid = (pipe) => {
-            // A. Tryk Tjek (Kritisk Vej)
+            // A. Tryk Tjek
             if (model.criticalNodeVV && model.criticalNodeVV.P_absolute_VV < config.min_tap_tryk) return false;
             if (model.criticalNodeKV && model.criticalNodeKV.P_absolute_KV < config.min_tap_tryk) return false;
 
-            // B. Hastigheds Tjek (For det aktuelle rør)
-            // Vi tjekker kun det rør, vi lige har ændret, for at spare tid. 
-            // Resten ændres jo ikke.
+            // B. Hastigheds Tjek
             if (pipe) {
                 const q = pipe.qd || 0;
-                if (q > 0 && pipe.dim > 0) {
-                    // Areal i m2 (dim er i mm)
+                // VIGTIGT: Tjek at pipe.dim er gyldig for at undgå NaN i hastighedsberegning
+                if (q > 0 && pipe.dim && !isNaN(pipe.dim) && pipe.dim > 0) {
                     const area = Math.PI * Math.pow((pipe.dim / 1000) / 2, 2);
-                    const velocity = (q / 1000) / area; // l/s -> m3/s -> m/s
+                    const velocity = (q / 1000) / area; 
                     
-                    // Grænser (F.eks. Max 3 m/s, Min 0.5 m/s - juster efter behov)
-                    const vMax = 3.0; 
-                    // const vMin = 0.5; // Aktiver hvis du vil håndhæve min. hastighed strengt
+                    const vMax = config.max_hastighed || 3.0; 
+                    const vMin = config.min_hastighed || 0.5; 
                     
-                    if (velocity > vMax) return false; // For høj fart (støj)
-                    // if (velocity < vMin) return false; // For lav fart (bakterier)
+                    if (velocity > vMax) return false; 
+                    if (velocity < vMin) return false; 
+                } else if (isNaN(pipe.dim)) {
+                    // Hvis dimensionen er ugyldig, er optimeringen ugyldig
+                    return false;
                 }
             }
             return true;
         };
 
         // 3. OPTIMERINGS LOOP
-        console.log("Trin 2: Starter loop...");
         let optimizedCount = 0;
         const pipes = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
-        console.log(`Fandt ${pipes.length} rør der kan optimeres.`);
 
-        pipes.forEach((pipe, index) => {
+        pipes.forEach((pipe) => {
             if (!pipe.nom_dim) return;
             const mat = pipe.material || 'Pex'; 
             if (!ID[mat]) return;
@@ -6872,9 +6863,6 @@ function beregnGlobalOptimering() {
             let bestInnerDim = pipe.dim; 
             let trying = true;
 
-            // Log kun for de første par rør for ikke at spamme
-            if(index < 3) console.log(`Optimering af rør ${pipe.id} (${mat}). Start: ${bestNomDim}`);
-
             while (trying) {
                 const currentIndex = availableDims.indexOf(bestNomDim);
                 if (currentIndex <= 0) {
@@ -6883,44 +6871,51 @@ function beregnGlobalOptimering() {
                 }
 
                 const smallerNomDim = availableDims[currentIndex - 1];
+                // VIGTIGT: Hent indvendig diameter og TJEK den
                 const smallerInnerDim = ID[mat][smallerNomDim];
 
-                // A. Ændr dimension
+                // SIKKERHEDS-TJEK: Hvis tabellen giver undefined eller NaN, STOP med det samme
+                if (smallerInnerDim === undefined || isNaN(smallerInnerDim)) {
+                    console.warn(`Ugyldig dimension fundet for ${mat} DN${smallerNomDim}. Stopper optimering af rør ${pipe.id}.`);
+                    trying = false;
+                    break;
+                }
+
+                // Prøv ændring
                 pipe.nom_dim = smallerNomDim;
                 pipe.dim = smallerInnerDim; 
 
-                // B. Lyn-beregning
                 recalcPressureOnly();
 
-                // C. Tjek (Inkl. hastighed)
                 if (isValid(pipe)) {
                     bestNomDim = smallerNomDim;
                     bestInnerDim = smallerInnerDim;
                     optimizedCount++;
-                    if(index < 3) console.log(`  -> Succes med ${smallerNomDim}mm`);
                 } else {
-                    // Rul tilbage og stop
+                    // Rul tilbage
                     pipe.nom_dim = bestNomDim;
                     pipe.dim = bestInnerDim;
                     trying = false; 
-                    if(index < 3) console.log(`  -> Fejl ved ${smallerNomDim}mm (Tryk/Hastighed). Ruller tilbage.`);
                 }
             }
         });
 
-        console.log(`Optimering færdig. ${optimizedCount} rør reduceret.`);
-
-// 4. AFSLUTNING (Genberegn ALT - NU MED TEMPERATURER!)
+        // 4. AFSLUTNING
         console.log("Trin 3: Afsluttende tung beregning...");
         
-        // 1. Tryk
         recalcPressureOnly(); 
-        
-        // 2. Cirkulation (Varmetab + Flow)
         calculateInsulation(model, config);
         calculateCirculationFlows_VV(model, config);
         
-        // 3. TEMPERATURER (Giver farver i diagrammet)
+        // HER ER RETTELSEN: Vi tjekker for NaN, men sætter den IKKE til 0.
+        // Vi kaster en fejl i stedet, så vi opdager problemet.
+        if (isNaN(model.max_dp_circ)) {
+            console.error("KRITISK: Cirkulationspumpetryk er NaN efter optimering.");
+            // Vi forsøger at redde diagrammet ved at lade finishCalculation håndtere det, 
+            // men vi logger det tydeligt.
+            // Hvis du vil stoppe helt: throw new Error("Matematisk fejl i cirkulation (NaN).");
+        }
+
         console.log("Trin 3b: Beregner temperaturer...");
         calculateTemperatures_VV(model, config);
         
@@ -6928,29 +6923,20 @@ function beregnGlobalOptimering() {
             calculateTemperatures_KV(model, config);
         }
         
-        // 4. SYNKRONISERING OG DEBUG (HER LIGGER RETTELSEN)
+        // Sync & Repair
         console.log("Trin 4: Sync to State...");
         syncModelToState(model);
         state.lastConfig = config;
 
-        // --- SIKKERHEDS-TJEK START ---
-        // Vi tjekker om model.tree er intakt. Hvis ikke, reparerer vi det.
         if (!model.tree) {
-            console.warn("ADVARSEL: model.tree manglede før finishCalculation. Forsøger at reparere...");
-            if (model.nodes.has('Beholder')) {
-                model.tree = model.nodes.get('Beholder');
-                console.log("REPARATION: model.tree genskabt fra 'Beholder' noden.");
-            } else {
-                console.error("KRITISK: Kunne ikke finde 'Beholder' noden. Diagrammet vil fejle.");
-            }
+            console.warn("Reparerer model.tree...");
+            if (model.nodes.has('Beholder')) model.tree = model.nodes.get('Beholder');
         }
-        // --- SIKKERHEDS-TJEK SLUT ---
 
         console.log("Trin 5: Kalder finishCalculation...");
-        // Nu burde modellen være helt valid
         finishCalculation(model, config);
 
-        // 5. OPDATER UI
+        // 5. UI OPDATERING
         pipes.forEach(pipe => {
             const row = document.querySelector(`tr[data-id="${pipe.id}"]`);
             if (row) {
@@ -6963,19 +6949,16 @@ function beregnGlobalOptimering() {
         
         if(advarslerDiv) {
             if (optimizedCount > 0) {
-                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: ${optimizedCount} rørdimensioner reduceret.</p>`;
+                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: ${optimizedCount} rør reduceret (overholder ${config.min_hastighed || 0.5}-${config.max_hastighed || 3.0} m/s).</p>`;
             } else {
-                advarslerDiv.innerHTML += `<p class="alert alert-info mt-2">Global Optimering: Ingen yderligere optimering mulig (Systemet er allerede optimalt).</p>`;
+                advarslerDiv.innerHTML += `<p class="alert alert-info mt-2">Ingen yderligere optimering mulig.</p>`;
             }
         }
-        console.log("--- GLOBAL OPTIMERING SLUT (SUCCES) ---");
+        console.log("--- SLUT (SUCCES) ---");
 
     } catch (err) {
-        console.error("CRITICAL FEJL I OPTIMERING:", err);
-        console.error("Stack Trace:", err.stack);
-        
-        if(advarslerDiv) advarslerDiv.innerHTML += `<p class="alert alert-danger">Systemfejl under optimering: ${err.message}.</p>`;
-        
+        console.error("FEJL:", err);
+        if(advarslerDiv) advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${err.message}</p>`;
         if(btn) { btn.innerHTML = 'Optimér Dimensioner'; btn.disabled = false; }
     }
 }
