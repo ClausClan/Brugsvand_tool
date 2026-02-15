@@ -3560,17 +3560,27 @@ function beregn() {
     if (!validateInputs(config)) return;
     
     let model;
+    
+    // Tjek hvilken metode brugeren har valgt i dropdown
     if (config.dimPrinciple === 'global_pressure') {
-        document.getElementById('advarsler').innerHTML = `<p class="alert alert-info">Kører global optimering (VV). Dette kan tage et øjeblik...</p>`;
+        // Vis "Arbejder..." besked
+        document.getElementById('advarsler').innerHTML = `<p class="alert alert-info">Kører global optimering (VV & KV). Dette kan tage et øjeblik...</p>`;
+        
+        // Brug setTimeout for at browseren når at tegne beskeden før den tunge beregning låser tråden
         setTimeout(() => {
-            model = beregnGlobalOptimering(config);
+            model = beregnGlobalOptimering(config); // Nu returnerer denne en model!
             
-            finishCalculation(model, config);
+            if (model) {
+                finishCalculation(model, config);
+            }
         }, 50);
     } else {
+        // Standard beregning
         model = beregnStandard(config);
         
-        finishCalculation(model, config);
+        if (model) {
+            finishCalculation(model, config);
+        }
     }
 }
 
@@ -6790,105 +6800,168 @@ function updateLegend() {
 // Global Optimering giver dig det billigste og mest kompakte rørsystem, der fysisk 
 // kan levere det krævede tryk, ved intelligent at udnytte hele det disponible forsyningstryk.                                       ==
 // =================================================================================
-
 function beregnGlobalOptimering(config) {
-    console.group("🚀 GLOBAL OPTIMERING START (Komplet Flow-integreret)");
-    const model = buildModel(config);
+    console.group("🚀 GLOBAL OPTIMERING (Bottom-Up)");
     
-    model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
-    analyzeSystemTopology(model);
+    // Vi bruger ikke knap-logik herinde længere, da beregn() styrer UI
+    const advarslerDiv = document.getElementById('advarsler');
+    if(advarslerDiv) advarslerDiv.innerHTML = '';
 
-    config.globalConstraintType = document.querySelector('input[name="globalConstraint"]:checked').value;
-
-    // Nulstil dimensioner
-    model.nodes.forEach(n => {
-        if (n.type === 'ror_vv' || n.type === 'cirkulation_vv') {
-            const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
-            n.nom_dim = sortedDims[0];
-        }
-    });
-
-    // 1. Beregn VV Flow først (Det er konstant uanset rørstr)
-    calculateQd_VV(model);
-
-    // 2. Beregn KV (Nu inklusiv VV flowet!)
-    if (model.nodes.has('Vandstik')) {
-        calculateQd_KV(model);
-        if (config.isAuto) dimensionSupply_KV(model, config); 
-        calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
-    }
-
-    // 3. Find Starttryk
-    let availablePressureForVV = config.pln;
-    model.kv_pressure_loss_to_beholder = 0;
-
-    if (state.beholderConnectionId) {
-        const dpToConnection = getPathPressureDrop(model, state.beholderConnectionId);
-        model.kv_pressure_loss_to_beholder = dpToConnection;
-        availablePressureForVV = config.pln - dpToConnection;
-        console.log(`Global Opt: KV Tabet er ${dpToConnection.toFixed(0)} Pa (Inkl. VV flow). Starttryk: ${availablePressureForVV.toFixed(0)} Pa`);
-    }
-    model.vv_start_pressure = availablePressureForVV;
-
-    const optConfig = { ...config, pln: availablePressureForVV };
-
-    // 4. Optimerings Loop (VV)
-    let iterations = 0;
-    const maxIterations = 10000;
-    let optimized = false;
-
-    while (iterations < maxIterations) {
-        // calculateQd_VV behøver ikke køres igen, flow ændres ikke
-        calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config); 
+    try {
+        // 1. INITIALISERING
+        // Bemærk: Vi bruger 'config' sendt som argument fra beregn()
+        config.isAuto = false; 
         
-        const localFailures = findLocalFailures_VV(model, config);
-        const globalFailures = findFailingTapPoints_VV(model, optConfig); 
+        let model = buildModel(config);
+        if (!model) throw new Error("Kunne ikke bygge modellen.");
+
+        // Beregn Flow
+        calculateQd_VV(model);
+        if (model.nodes.has('Vandstik')) calculateQd_KV(model);
+
+        // Hent grænseværdier
+        const vMax = parseFloat(config.max_v_f) || 3.0;
+        const minP = parseFloat(config.min_tap_tryk) || 100000;
+
+        // 2. NULSTIL TIL MINDSTE DIMENSIONER
+        console.log("Trin 2: Nulstiller dimensioner...");
+        const pipes = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
         
-        if (localFailures.length === 0 && globalFailures.length === 0) {
-            optimized = true;
-            break; 
-        }
-        
-        let pipeToUpgradeId;
-        if (localFailures.length > 0) {
-            pipeToUpgradeId = localFailures[0].id;
-        } else {
-            const worstTap = globalFailures[0];
-            const worstPath = getPathToTapPoint(model, worstTap.id);
-            pipeToUpgradeId = findWorstOffendingPipe_VV(model, worstPath);
+        pipes.forEach(pipe => {
+            const mat = pipe.material || 'Pex';
+            if (!ID[mat]) return;
+            
+            const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
+            let bestDim = dims[dims.length - 1]; 
+            
+            for (let d of dims) {
+                const innerD = ID[mat][d];
+                const q = pipe.qd || 0;
+                
+                let v = 0;
+                if (q > 0) {
+                    const area = Math.PI * Math.pow((innerD / 1000) / 2, 2);
+                    v = (q / 1000) / area;
+                }
+                
+                if (v <= vMax) {
+                    bestDim = d;
+                    break; 
+                }
+            }
+            pipe.nom_dim = bestDim;
+            pipe.dim = ID[mat][bestDim];
+        });
+
+        // 3. OPTIMERINGS LOOP
+        let iterations = 0;
+        const maxIterations = 200; 
+        let optimized = false;
+
+        while (iterations < maxIterations) {
+            // A. Beregn Fysik
+            model.nodes.forEach(n => { n.dp_tap = 0; });
+            calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
+            if (model.nodes.has('Vandstik')) calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
+
+            // B. Find Tryk og Kritisk Vej (Ny motor)
+            updateCriticalPaths(model, config);
+
+            // C. Evaluering
+            let vvOk = true;
+            let kvOk = true;
+
+            if (model.criticalNodeVV && model.criticalNodeVV.P_absolute_VV < minP) vvOk = false;
+            if (model.criticalNodeKV && model.criticalNodeKV.P_absolute_KV < minP) kvOk = false;
+
+            if (vvOk && kvOk) {
+                optimized = true;
+                break; 
+            }
+
+            // D. Opgradering
+            let candidatePipe = null;
+            let maxDp = -1;
+            let pathsToInspect = [];
+            if (!vvOk && model.criticalPath) pathsToInspect.push(model.criticalPath);
+            if (!kvOk && model.criticalPathKV) pathsToInspect.push(model.criticalPathKV);
+
+            pathsToInspect.forEach(pathSet => {
+                pathSet.forEach(nodeId => {
+                    const node = model.nodes.get(nodeId);
+                    if (node && node.type.includes('ror')) {
+                        const mat = node.material;
+                        const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
+                        const currentIdx = dims.indexOf(Number(node.nom_dim));
+                        
+                        if (currentIdx < dims.length - 1) {
+                            if (node.dp_tap > maxDp) {
+                                maxDp = node.dp_tap;
+                                candidatePipe = node;
+                            }
+                        }
+                    }
+                });
+            });
+
+            if (candidatePipe) {
+                const mat = candidatePipe.material;
+                const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
+                const currentIdx = dims.indexOf(Number(candidatePipe.nom_dim));
+                const nextDim = dims[currentIdx + 1];
+                
+                candidatePipe.nom_dim = nextDim;
+                candidatePipe.dim = ID[mat][nextDim];
+            } else {
+                console.warn("Optimering grænse nået.");
+                break;
+            }
+            
+            iterations++;
         }
 
-        if (pipeToUpgradeId) {
-            const pipeNode = model.nodes.get(pipeToUpgradeId);
-            if (!upgradePipeDimension(pipeNode)) break;
-        } else {
-            break; 
-        }
-        iterations++;
-    }
-
-    // 5. Afslutning
-    const pressureDropResult = findMaxPathDp_VV(model.tree, config);
-    model.max_dp_tapning = pressureDropResult.max_dp;
-    model.criticalPath = new Set(pressureDropResult.path);
-    
-    if (model.nodes.has('Vandstik')) {
-        const kvRes = findMaxPathDp_KV(model, config);
-        model.max_dp_kv = kvRes.max_dp;
-        model.criticalPathKV = new Set(kvRes.path);
-    }
-    
-    for (let i = 0; i < 3; i++) {
+        // 4. AFSLUTNING
+        console.log("Trin 4: Afsluttende beregninger...");
         calculateInsulation(model, config);
-        calculateHeatLoss_VV(model, config);
         calculateCirculationFlows_VV(model, config);
-    }
-    
-    calculateCirculationDP_VV(model, config);
-    calculateBeholder(model);
+        
+        validateCirculationLoops(model, advarslerDiv);
+        calculateCirculationDP_VV(model, config);
+        calculateBeholder(model);
 
-    console.groupEnd();
-    return model;
+        syncModelToState(model);
+        state.lastConfig = config;
+        
+        // VIGTIGT: Opdater UI Input felterne (så brugeren ser de nye tal i tabellen)
+        const pipesUpdated = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
+        pipesUpdated.forEach(pipe => {
+            const row = document.querySelector(`tr[data-id="${pipe.id}"]`);
+            if (row) {
+                const dimInput = row.querySelector('.dim');
+                if (dimInput) dimInput.value = pipe.nom_dim;
+            }
+        });
+
+        // Feedback tekst til UI
+        if(advarslerDiv) {
+            if (optimized) {
+                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Optimering fuldført (${iterations} iterationer).</p>`;
+            } else {
+                advarslerDiv.innerHTML += `<p class="alert alert-warning mt-2">Optimering stoppet: Kunne ikke opnå minimumstryk overalt.</p>`;
+            }
+        }
+        
+        console.groupEnd();
+        
+        // RETTELSE: Vi returnerer modellen i stedet for at kalde finishCalculation
+        return model;
+
+    } catch (err) {
+        console.error("FEJL I OPTIMERING:", err);
+        if(advarslerDiv) advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${err.message}</p>`;
+        console.groupEnd();
+        return null; // Returner null så beregn() ved at det gik galt
+    }
 }
 
 function findLocalFailures_VV(model, config) {
