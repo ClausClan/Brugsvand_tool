@@ -3481,6 +3481,66 @@ function findNextStandardThickness(calculated_mm) {
     return STANDARD_INSULATION_THICKNESS[STANDARD_INSULATION_THICKNESS.length - 1]; // Returner max-tykkelsen (100)
 }
 
+/* --- TRIN 3: KOORDINERING AF KRITISKE VEJE --- */
+function updateCriticalPaths(model, config) {
+    // A. Beregn tabet fra Vandstik til Beholder (Føde-tabet)
+    let loss_to_beholder = 0;
+    
+    if (state.beholderConnectionId && model.nodes.has('Vandstik')) {
+        // Vi bruger den eksisterende getPath funktion til at finde ruten
+        const pathToConnection = getPath(model, 'Vandstik', state.beholderConnectionId);
+        
+        // Summer tabet på denne rute
+        pathToConnection.forEach(id => {
+            const n = model.nodes.get(id);
+            if (n) {
+                loss_to_beholder += (n.dp_tap || 0);
+                if (n.pressure_change) loss_to_beholder += n.pressure_change;
+            }
+        });
+        
+        // Tilføj tabet gennem selve beholderen/veksleren (hvis defineret)
+        if (model.nodes.has('Beholder')) {
+             const b = model.nodes.get('Beholder');
+             loss_to_beholder += (b.dp_component || 0); 
+        }
+    }
+    
+    // Gem dette tab til info (kan vises i UI)
+    model.kv_pressure_loss_to_beholder = loss_to_beholder;
+
+    // B. Find Kritisk Vej for KOLDT VAND (Uafhængig)
+    const kvResult = findMaxPathDp_KV(model, config);
+    model.max_dp_kv = kvResult.max_dp;
+    model.criticalPathKV = new Set(kvResult.path); // Gem som Set for hurtig opslag
+    // Find noden for enden af stien for at hente resttrykket
+    if (kvResult.path.length > 0) {
+        const lastNodeId = kvResult.path[kvResult.path.length - 1];
+        const lastNode = model.nodes.get(lastNodeId);
+        // Beregn absolut tryk: Forsyning - Totalt Tab
+        model.criticalNodeKV = {
+            ...lastNode,
+            P_absolute_KV: config.pln - kvResult.max_dp
+        };
+    }
+
+    // C. Find Kritisk Vej for VARMT VAND (Inkl. føde-tab)
+    // Bemærk: Vi sender loss_to_beholder med ind her!
+    const vvResult = findMaxPathDp_VV(model.tree, config, loss_to_beholder);
+    model.max_dp_tapning = vvResult.max_dp;
+    model.criticalPath = new Set(vvResult.path); // Gem som Set (bruges til rød farvning)
+    
+    if (vvResult.path.length > 0) {
+        const lastNodeId = vvResult.path[vvResult.path.length - 1];
+        const lastNode = model.nodes.get(lastNodeId);
+        model.criticalNodeVV = {
+            ...lastNode,
+            P_absolute_VV: config.pln - vvResult.max_dp
+        };
+    }
+}
+
+
 // FUNKTION BEREGN
 function beregn() {
     const config = getGlobalConfig();
@@ -3491,10 +3551,12 @@ function beregn() {
         document.getElementById('advarsler').innerHTML = `<p class="alert alert-info">Kører global optimering (VV). Dette kan tage et øjeblik...</p>`;
         setTimeout(() => {
             model = beregnGlobalOptimering(config);
+            updateCriticalPaths(model, config);
             finishCalculation(model, config);
         }, 50);
     } else {
         model = beregnStandard(config);
+        updateCriticalPaths(model, config);
         finishCalculation(model, config);
     }
 }
@@ -3828,32 +3890,41 @@ function calculatePressureDrop_VV(startNode, dp_prop, flow_prop, config) {
 }
 
 // 4. Find Kritisk Vej (VV)
-function findMaxPathDp_VV(startNode, config) { 
-    let max_dp = 0;
-    let critical_path = []; 
-    const rho = getWaterDensity(config.T_v); // Varmt vand
+// KRITISK VEJ VARMT VAND (Beholder -> VV Tapsted)
+// Nu med 'supplyLoss' parameter så vi kan "arve" tabet fra vandstikket
+function findMaxPathDp_VV(node, config, supplyLoss = 0) {
+    if (!node) return { max_dp: 0, path: [] };
 
-    function traverse(node, current_dp, current_path) {
-        const new_dp = current_dp + (node.dp_tap || 0);
-        const new_path = [...current_path, node.id];
+    let max_dp = -Infinity;
+    let best_path = [];
 
-        if (node.type === 'tapsted') {
-            const forsyningsKote = config.forsyningens_kote || 0;
-            const tapstedsKote = node.kote || 0;
-            const h = tapstedsKote - forsyningsKote;
-            const delta_p_geo = rho * G * h;
-            const total_dp_for_path = new_dp + delta_p_geo;
+    function traverse(currNode, current_dp, current_path) {
+        // VV Tryktab logik
+        let local_loss = (currNode.dp_tap || 0);
+        if (currNode.pressure_change) local_loss += currNode.pressure_change;
 
-            if (total_dp_for_path > max_dp) {
-                max_dp = total_dp_for_path;
-                critical_path = new_path;
+        const total_dp = current_dp + local_loss;
+        const new_path = [...current_path, currNode.id];
+
+        // Tjek om det er et VV tapsted
+        // (Vi behøver ikke tjekke type='tapsted' strengt, da vi er i VV-træet, 
+        // men det er godt for sikkerheden)
+        if (currNode.type === 'tapsted') {
+            if (total_dp > max_dp) {
+                max_dp = total_dp;
+                best_path = new_path;
             }
-        } else {
-            node.children.forEach(c => traverse(c, new_dp, new_path));
+        }
+
+        if (currNode.children && currNode.children.length > 0) {
+            currNode.children.forEach(child => traverse(child, total_dp, new_path));
         }
     }
-    traverse(startNode, 0, []);
-    return { max_dp: max_dp, path: critical_path };
+
+    // Start traversering med supplyLoss som start-offset
+    traverse(node, supplyLoss, []);
+
+    return { max_dp: max_dp, path: best_path };
 }
 
 // =============================================================================
@@ -4030,40 +4101,49 @@ function dimensionSupply_KV(model, config) {
 }
 
 // 4. Kritisk Vej KV
-function findMaxPathDp_KV(model, config) { 
-    let max_dp = 0;
-    let critical_path = []; 
-    const rho = getWaterDensity(10); 
+/* KRITISK VEJ KOLDT VAND (Vandstik -> KV Tapsted) --- */
+function findMaxPathDp_KV(model, config) {
+    // 1. Find startnoden (Vandstik)
+    const startNode = model.nodes.get('Vandstik');
+    if (!startNode) return { max_dp: 0, path: [] };
 
+    let max_dp_found = -Infinity;
+    let critical_path = [];
+
+    // Rekursiv funktion
     function traverse(node, current_dp, current_path) {
-        const new_dp = current_dp + (node.dp_tap || 0);
+        // Stop hvis vi rammer Beholderen (det er grænsen til VV-systemet)
+        if (node.id === 'Beholder') return;
+
+        // Tilføj nodens eget tryktab (Friktion + Højdeforskel + Komponenter)
+        // Vi bruger dp_tap (friktion) og pressure_change (højde/statisk)
+        // Husk: pressure_change er positiv ved højdeforøgelse (tab i tryk)
+        let local_loss = (node.dp_tap || 0);
+        
+        // Hvis der er en statisk højdeændring eller komponent-tab
+        if (node.pressure_change) local_loss += node.pressure_change;
+
+        const total_dp = current_dp + local_loss;
         const new_path = [...current_path, node.id];
 
+        // Hvis det er et tapsted, tjek om det er det "værste"
         if (node.type === 'tapsted') {
-            // Tjek om dette tapsted har et koldt flow (ellers er det måske kun et varmt tapsted)
-            // Men hvis vi er nået her via KV-træet, er det relevant.
-            const forsyningsKote = config.forsyningens_kote || 0;
-            const tapstedsKote = node.kote || 0;
-            const h = tapstedsKote - forsyningsKote;
-            const delta_p_geo = rho * G * h;
-            const total_dp_for_path = new_dp + delta_p_geo;
-
-            if (total_dp_for_path > max_dp) {
-                max_dp = total_dp_for_path;
+            if (total_dp > max_dp_found) {
+                max_dp_found = total_dp;
                 critical_path = new_path;
             }
-        } else {
-            if (node.children) {
-                node.children.forEach(c => traverse(c, new_dp, new_path));
-            }
+        }
+
+        // Fortsæt til børn (hvis der er nogen)
+        if (node.children && node.children.length > 0) {
+            node.children.forEach(child => traverse(child, total_dp, new_path));
         }
     }
-    
-    if (model.nodes.has('Vandstik')) {
-        traverse(model.nodes.get('Vandstik'), 0, []);
-    }
-    
-    return { max_dp: max_dp, path: critical_path };
+
+    // Start søgning
+    traverse(startNode, 0, []);
+
+    return { max_dp: max_dp_found, path: critical_path };
 }
 
 // 5. Beregn Varmetab (VV & VVC)
