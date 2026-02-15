@@ -4755,7 +4755,7 @@ function calculateAbsolutePressures(model, config) {
  */
 function getDataForSave() {
     const data = {
-        version: "0.32",
+        version: "0.33",
         timestamp: new Date().toISOString(),
         config: getGlobalConfig(),
         beholderConnectionId: state.beholderConnectionId || null,
@@ -4903,19 +4903,42 @@ function extractComponentData(el) {
  * Export funktion der bruger fælles logik
  */
 function exportProject() {
-    const data = getDataForSave();
+    const config = getGlobalConfig();
     
-    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-    const filename = `${projName}_${dateStr}.json`;
+    // VIGTIGT: Vi laver en kopi, så vi ikke ændrer i den aktive config
+    const configToSave = { ...config };
+
+    // Konverter Pa tilbage til kPa før vi gemmer
+    if (configToSave.pln) configToSave.pln = configToSave.pln / 1000;
+    if (configToSave.min_tap_tryk) configToSave.min_tap_tryk = configToSave.min_tap_tryk / 1000;
+
+    const data = {
+        version: "0.33_beta",
+        timestamp: new Date().toISOString(),
+        config: configToSave, // Vi gemmer den kPa-konverterede version
+        
+        // Gem tilstand
+        names: Array.from(state.names.entries()),
+        beholderConnectionId: state.beholderConnectionId,
+        nodePositions: state.nodes, // Gemmer koordinater til diagrammet
+        
+        // Gem strenge og komponenter
+        strenge_vv: serializeStrings('strengeContainerVV'),
+        strenge_kv: serializeStrings('strengeContainerKV'),
+        retur_komponenter: serializeRows('returContainerBody'),
+        
+        // Gem custom tapsteder
+        customTapsteder: state.customTapsteder
+    };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = 'brugsvand_projekt.json';
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
 
@@ -4923,13 +4946,36 @@ function exportProject() {
  * OPDATERET: AutoSave funktion der bruger fælles logik
  */
 function autoSaveProject() {
-    const data = getDataForSave();
+    if (!state.isAutoSavingEnabled) return;
+
+    const config = getGlobalConfig();
+    
+    // VIGTIGT: Kopiér og konverter til kPa
+    const configToSave = { ...config };
+    if (configToSave.pln) configToSave.pln = configToSave.pln / 1000;
+    if (configToSave.min_tap_tryk) configToSave.min_tap_tryk = configToSave.min_tap_tryk / 1000;
+
+    const data = {
+        version: "0.33_beta",
+        timestamp: new Date().toISOString(),
+        config: configToSave, // Vi gemmer den kPa-konverterede version
+        
+        names: Array.from(state.names.entries()),
+        beholderConnectionId: state.beholderConnectionId,
+        nodePositions: state.nodes,
+        
+        strenge_vv: serializeStrings('strengeContainerVV'),
+        strenge_kv: serializeStrings('strengeContainerKV'),
+        retur_komponenter: serializeRows('returContainerBody'),
+        
+        customTapsteder: state.customTapsteder
+    };
+
     try {
-        localStorage.setItem('varmtBrugsvandAutoSave', JSON.stringify(data));
-        projektErÆndret = false;
-        console.log("Projekt auto-gemt.");
-    } catch (err) {
-        console.error("Fejl ved auto-gem:", err);
+        localStorage.setItem('brugsvand_autosave', JSON.stringify(data));
+        // console.log("Autosaved (kPa korrigeret)"); // Debug linje
+    } catch (e) {
+        console.warn("Autosave fejlede (sandsynligvis lagerplads):", e);
     }
 }
 
