@@ -6801,168 +6801,163 @@ function updateLegend() {
 // kan levere det krævede tryk, ved intelligent at udnytte hele det disponible forsyningstryk.                                       ==
 // =================================================================================
 function beregnGlobalOptimering(config) {
-    console.group("🚀 GLOBAL OPTIMERING (Bottom-Up)");
-    
-    // Vi bruger ikke knap-logik herinde længere, da beregn() styrer UI
+    console.group("🚀 GLOBAL OPTIMERING");
+    const btn = document.querySelector('button[onclick="beregnGlobalOptimering()"]');
+    if(btn) { btn.innerHTML = '⏳ Arbejder...'; btn.disabled = true; }
+
     const advarslerDiv = document.getElementById('advarsler');
     if(advarslerDiv) advarslerDiv.innerHTML = '';
 
     try {
-        // 1. INITIALISERING
-        // Bemærk: Vi bruger 'config' sendt som argument fra beregn()
-        config.isAuto = false; 
+        // Sikring: Sørg for at config-tal er tal (vigtigt for sammenligning)
+        config.min_tap_tryk = parseFloat(config.min_tap_tryk);
+        config.pln = parseFloat(config.pln);
         
-        let model = buildModel(config);
-        if (!model) throw new Error("Kunne ikke bygge modellen.");
+        // 1. Byg Model
+        const model = buildModel(config);
+        
+        // Opdater topologi (som i den gamle)
+        model.loops.forEach(l => l.path = getPath(model, l.startNodeId, l.endNodeId));
+        analyzeSystemTopology(model);
 
-        // Beregn Flow
+        // Nulstil dimensioner (Som i den gamle)
+        model.nodes.forEach(n => {
+            if (n.type.includes('ror') || n.type === 'cirkulation_vv') {
+                const sortedDims = Object.keys(ID[n.material]).map(Number).sort((a,b)=>a-b);
+                n.nom_dim = sortedDims[0]; // Sæt til mindste
+                n.dim = ID[n.material][n.nom_dim];
+            }
+        });
+
+        // 2. Beregn Flow (Kun én gang)
         calculateQd_VV(model);
         if (model.nodes.has('Vandstik')) calculateQd_KV(model);
 
-        // Hent grænseværdier
-        const vMax = parseFloat(config.max_v_f) || 3.0;
-        const minP = parseFloat(config.min_tap_tryk) || 100000;
-
-        // 2. NULSTIL TIL MINDSTE DIMENSIONER
-        console.log("Trin 2: Nulstiller dimensioner...");
-        const pipes = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
-        
-        pipes.forEach(pipe => {
-            const mat = pipe.material || 'Pex';
-            if (!ID[mat]) return;
-            
-            const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
-            let bestDim = dims[dims.length - 1]; 
-            
-            for (let d of dims) {
-                const innerD = ID[mat][d];
-                const q = pipe.qd || 0;
-                
-                let v = 0;
-                if (q > 0) {
-                    const area = Math.PI * Math.pow((innerD / 1000) / 2, 2);
-                    v = (q / 1000) / area;
-                }
-                
-                if (v <= vMax) {
-                    bestDim = d;
-                    break; 
-                }
-            }
-            pipe.nom_dim = bestDim;
-            pipe.dim = ID[mat][bestDim];
-        });
-
-        // 3. OPTIMERINGS LOOP
+        // 3. Optimerings Loop
         let iterations = 0;
-        const maxIterations = 200; 
+        const maxIterations = 200;
         let optimized = false;
 
         while (iterations < maxIterations) {
-            // A. Beregn Fysik
-            model.nodes.forEach(n => { n.dp_tap = 0; });
+            // A. Beregn Tryktab (Fysik)
+            model.nodes.forEach(n => { n.dp_tap = 0; }); // Nulstil før ny beregning
             calculatePressureDrop_VV(model.tree, 'dp_tap', 'qd', config);
             if (model.nodes.has('Vandstik')) calculatePressureDrop_KV(model.nodes.get('Vandstik'), config);
 
-            // B. Find Tryk og Kritisk Vej (Ny motor)
+            // B. Find Kritisk Vej & Tryk (HER ER ÆNDRINGEN: Vi bruger den nye funktion)
             updateCriticalPaths(model, config);
 
-            // C. Evaluering
+            // C. Tjek om vi er i mål
+            // Vi tjekker om det absolutte tryk ved de kritiske noder er højt nok
             let vvOk = true;
             let kvOk = true;
 
-            if (model.criticalNodeVV && model.criticalNodeVV.P_absolute_VV < minP) vvOk = false;
-            if (model.criticalNodeKV && model.criticalNodeKV.P_absolute_KV < minP) kvOk = false;
+            // Tjek VV (hvis kritisk node findes og trykket er gyldigt)
+            if (model.criticalNodeVV) {
+                if (model.criticalNodeVV.P_absolute_VV < config.min_tap_tryk) vvOk = false;
+            }
+            // Tjek KV
+            if (model.criticalNodeKV) {
+                if (model.criticalNodeKV.P_absolute_KV < config.min_tap_tryk) kvOk = false;
+            }
 
             if (vvOk && kvOk) {
                 optimized = true;
-                break; 
+                break; // Stop loopet, vi er færdige
             }
 
-            // D. Opgradering
-            let candidatePipe = null;
+            // D. Find røret der skal opgraderes (Tilpasset til at bruge den nye criticalPath Set)
+            let pipeToUpgrade = null;
             let maxDp = -1;
-            let pathsToInspect = [];
-            if (!vvOk && model.criticalPath) pathsToInspect.push(model.criticalPath);
-            if (!kvOk && model.criticalPathKV) pathsToInspect.push(model.criticalPathKV);
+            
+            // Vi samler begge kritiske veje, hvis de fejler
+            const pathsToCheck = [];
+            if (!vvOk && model.criticalPath) pathsToCheck.push(model.criticalPath);
+            if (!kvOk && model.criticalPathKV) pathsToCheck.push(model.criticalPathKV);
 
-            pathsToInspect.forEach(pathSet => {
+            // Gennemløb ID'er i de kritiske veje
+            pathsToCheck.forEach(pathSet => {
                 pathSet.forEach(nodeId => {
                     const node = model.nodes.get(nodeId);
+                    // Er det et rør, og kan det opgraderes?
                     if (node && node.type.includes('ror')) {
                         const mat = node.material;
                         const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
                         const currentIdx = dims.indexOf(Number(node.nom_dim));
                         
+                        // Hvis ikke allerede max dimension
                         if (currentIdx < dims.length - 1) {
+                            // Vælg røret med størst modstand (dp_tap)
                             if (node.dp_tap > maxDp) {
                                 maxDp = node.dp_tap;
-                                candidatePipe = node;
+                                pipeToUpgrade = node;
                             }
                         }
                     }
                 });
             });
 
-            if (candidatePipe) {
-                const mat = candidatePipe.material;
+            if (pipeToUpgrade) {
+                // Opgrader dimension
+                const mat = pipeToUpgrade.material;
                 const dims = Object.keys(ID[mat]).map(Number).sort((a,b)=>a-b);
-                const currentIdx = dims.indexOf(Number(candidatePipe.nom_dim));
+                const currentIdx = dims.indexOf(Number(pipeToUpgrade.nom_dim));
                 const nextDim = dims[currentIdx + 1];
                 
-                candidatePipe.nom_dim = nextDim;
-                candidatePipe.dim = ID[mat][nextDim];
+                pipeToUpgrade.nom_dim = nextDim;
+                pipeToUpgrade.dim = ID[mat][nextDim];
             } else {
-                console.warn("Optimering grænse nået.");
-                break;
+                // Kan ikke gøre mere
+                break; 
             }
-            
             iterations++;
         }
 
-        // 4. AFSLUTNING
-        console.log("Trin 4: Afsluttende beregninger...");
+        // 4. Afslutning (Som i den gamle: Beregn cirkulation til sidst)
         calculateInsulation(model, config);
+        calculateHeatLoss_VV(model, config);
         calculateCirculationFlows_VV(model, config);
-        
-        validateCirculationLoops(model, advarslerDiv);
         calculateCirculationDP_VV(model, config);
         calculateBeholder(model);
 
+        // Synkroniser til state (Vigtigt for diagrammet)
         syncModelToState(model);
         state.lastConfig = config;
-        
-        // VIGTIGT: Opdater UI Input felterne (så brugeren ser de nye tal i tabellen)
-        const pipesUpdated = Array.from(model.nodes.values()).filter(n => n.type.includes('ror') || n.type === 'cirkulation_vv');
-        pipesUpdated.forEach(pipe => {
-            const row = document.querySelector(`tr[data-id="${pipe.id}"]`);
-            if (row) {
-                const dimInput = row.querySelector('.dim');
-                if (dimInput) dimInput.value = pipe.nom_dim;
+
+        // Opdater input felter i HTML
+        model.nodes.forEach(n => {
+            if (n.type.includes('ror')) {
+                const row = document.querySelector(`tr[data-id="${n.id}"]`);
+                if (row) {
+                    const dimInput = row.querySelector('.dim');
+                    if (dimInput) dimInput.value = n.nom_dim;
+                }
             }
         });
 
-        // Feedback tekst til UI
         if(advarslerDiv) {
             if (optimized) {
-                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Optimering fuldført (${iterations} iterationer).</p>`;
+                advarslerDiv.innerHTML += `<p class="alert alert-success mt-2">Global Optimering: Færdig (${iterations} iterationer).</p>`;
             } else {
-                advarslerDiv.innerHTML += `<p class="alert alert-warning mt-2">Optimering stoppet: Kunne ikke opnå minimumstryk overalt.</p>`;
+                advarslerDiv.innerHTML += `<p class="alert alert-warning mt-2">Global Optimering: Kunne ikke opfylde trykkrav fuldt ud.</p>`;
             }
         }
         
         console.groupEnd();
+
+        // Denne skal være her, som i den gamle kode
+        finishCalculation(model, config);
         
-        // RETTELSE: Vi returnerer modellen i stedet for at kalde finishCalculation
         return model;
 
     } catch (err) {
         console.error("FEJL I OPTIMERING:", err);
         if(advarslerDiv) advarslerDiv.innerHTML += `<p class="alert alert-danger">Fejl: ${err.message}</p>`;
+        if(btn) { btn.innerHTML = 'Optimér Dimensioner'; btn.disabled = false; }
         console.groupEnd();
-        return null; // Returner null så beregn() ved at det gik galt
     }
 }
+
 
 function findLocalFailures_VV(model, config) {
     const failures = [];
