@@ -4899,85 +4899,72 @@ function extractComponentData(el) {
     return base;
 }
 
-/**
- * Export funktion der bruger fælles logik
- */
+/*
+ --- Export funktion der bruger fælles logik
+ --- EKSPORT PROJEKT (Bruger getDataForSave + kPa konvertering) --- 
+*/
 function exportProject() {
-    const config = getGlobalConfig();
+    // 1. Hent data præcis som den gamle funktion gjorde
+    const data = getDataForSave();
     
-    // VIGTIGT: Vi laver en kopi, så vi ikke ændrer i den aktive config
-    const configToSave = { ...config };
-
-    // Konverter Pa tilbage til kPa før vi gemmer
-    if (configToSave.pln) configToSave.pln = configToSave.pln / 1000;
-    if (configToSave.min_tap_tryk) configToSave.min_tap_tryk = configToSave.min_tap_tryk / 1000;
-
-    const data = {
-        version: "0.33_beta",
-        timestamp: new Date().toISOString(),
-        config: configToSave, // Vi gemmer den kPa-konverterede version
+    // 2. RETTELSE: Konverter Pa -> kPa i den data vi skal til at gemme
+    // Vi laver en kopi af config for ikke at ødelægge den kørende app
+    if (data.config) {
+        const savedConfig = { ...data.config }; // Kopi
         
-        // Gem tilstand
-        names: Array.from(state.names.entries()),
-        beholderConnectionId: state.beholderConnectionId,
-        nodePositions: state.nodes, // Gemmer koordinater til diagrammet
+        // Konverter forsyningstryk og min. tryk til kPa
+        if (savedConfig.pln) savedConfig.pln = savedConfig.pln / 1000;
+        if (savedConfig.min_tap_tryk) savedConfig.min_tap_tryk = savedConfig.min_tap_tryk / 1000;
         
-        // Gem strenge og komponenter
-        strenge_vv: serializeStrings('strengeContainerVV'),
-        strenge_kv: serializeStrings('strengeContainerKV'),
-        retur_komponenter: serializeRows('returContainerBody'),
-        
-        // Gem custom tapsteder
-        customTapsteder: state.customTapsteder
-    };
+        // Erstat config i data-objektet med den korrigerede version
+        data.config = savedConfig;
+    }
 
+    // 3. Generer filnavn (Din oprindelige kode)
+    const projName = data.config.projectName ? data.config.projectName.replace(/[^a-z0-9æøå]/gi, '_') : 'Brugsvand_Projekt';
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+    const filename = `${projName}_${dateStr}.json`;
+
+    // 4. Download (Din oprindelige kode)
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'brugsvand_projekt.json';
-    document.body.appendChild(a);
+    a.download = filename;
+    document.body.appendChild(a); // Sikrer kompatibilitet i nogle browsere
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
 
 /**
- * OPDATERET: AutoSave funktion der bruger fælles logik
- */
+ --- AUTO SAVE funktion der bruger fælles logik
+ --- AUTO SAVE (Bruger getDataForSave + kPa konvertering) --- 
+*/
 function autoSaveProject() {
     if (!state.isAutoSavingEnabled) return;
 
-    const config = getGlobalConfig();
-    
-    // VIGTIGT: Kopiér og konverter til kPa
-    const configToSave = { ...config };
-    if (configToSave.pln) configToSave.pln = configToSave.pln / 1000;
-    if (configToSave.min_tap_tryk) configToSave.min_tap_tryk = configToSave.min_tap_tryk / 1000;
+    // 1. Hent data
+    const data = getDataForSave();
 
-    const data = {
-        version: "0.33_beta",
-        timestamp: new Date().toISOString(),
-        config: configToSave, // Vi gemmer den kPa-konverterede version
-        
-        names: Array.from(state.names.entries()),
-        beholderConnectionId: state.beholderConnectionId,
-        nodePositions: state.nodes,
-        
-        strenge_vv: serializeStrings('strengeContainerVV'),
-        strenge_kv: serializeStrings('strengeContainerKV'),
-        retur_komponenter: serializeRows('returContainerBody'),
-        
-        customTapsteder: state.customTapsteder
-    };
+    // 2. RETTELSE: Konverter Pa -> kPa
+    if (data.config) {
+        const savedConfig = { ...data.config };
+        if (savedConfig.pln) savedConfig.pln = savedConfig.pln / 1000;
+        if (savedConfig.min_tap_tryk) savedConfig.min_tap_tryk = savedConfig.min_tap_tryk / 1000;
+        data.config = savedConfig;
+    }
 
+    // 3. Gem i LocalStorage
     try {
         localStorage.setItem('brugsvand_autosave', JSON.stringify(data));
-        // console.log("Autosaved (kPa korrigeret)"); // Debug linje
+        // console.log("Autosaved OK");
     } catch (e) {
         console.warn("Autosave fejlede (sandsynligvis lagerplads):", e);
     }
 }
+
 
 /**
  * NY FUNKTION (Fase 4): Omdøber alle komponenter logisk og sorterer tabellerne.
